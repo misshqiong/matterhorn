@@ -25,16 +25,16 @@ def test_map_git_log_preserves_bodies_unicode_urls_and_author_identity() -> None
 
     records = map_git_log(
         fixture["output"],
-        owner="misshqiong",
-        repo="matterhorn",
+        owner="octo-org",
+        repo="sample-repo",
     )
 
     assert len(records) == 2
     first, second = records
     assert first.native_id == "commit:" + "1" * 40
-    assert first.record_id == "github:misshqiong/matterhorn:" + first.native_id
+    assert first.record_id == "github:octo-org/sample-repo:" + first.native_id
     assert first.uri == (
-        "https://github.com/misshqiong/matterhorn/commit/" + "1" * 40
+        "https://github.com/octo-org/sample-repo/commit/" + "1" * 40
     )
     assert first.content == (
         "Add temporal ledger\n\n"
@@ -50,8 +50,8 @@ def test_map_git_log_fails_loudly_on_wrong_delimiter_shape() -> None:
     with pytest.raises(ValueError, match="six-field format"):
         map_git_log(
             "1" * 40 + "\0Ada\0ada@example.com\0",
-            owner="misshqiong",
-            repo="matterhorn",
+            owner="octo-org",
+            repo="sample-repo",
         )
 
 
@@ -59,8 +59,8 @@ def test_map_github_issues_maps_issue_pr_and_comments() -> None:
     records = map_github_issues(
         _fixture("issues.json"),
         _fixture("issue-comments.json"),
-        owner="misshqiong",
-        repo="matterhorn",
+        owner="octo-org",
+        repo="sample-repo",
     )
     by_native_id = {record.native_id: record for record in records}
 
@@ -68,12 +68,12 @@ def test_map_github_issues_maps_issue_pr_and_comments() -> None:
     assert issue.kind == "issue"
     assert issue.thread_id == issue.record_id
     assert issue.content.endswith("This includes Unicode: 证据。")
-    assert issue.uri == "https://github.com/misshqiong/matterhorn/issues/7"
+    assert issue.uri == "https://github.com/octo-org/sample-repo/issues/7"
 
     pull_request = by_native_id["issue:8"]
     assert pull_request.kind == "pull_request"
     assert pull_request.content == "Add the GitHub adapter"
-    assert pull_request.uri == "https://github.com/misshqiong/matterhorn/pull/8"
+    assert pull_request.uri == "https://github.com/octo-org/sample-repo/pull/8"
 
     issue_comment = by_native_id["issue-comment:9001"]
     assert issue_comment.thread_id == issue.record_id
@@ -92,8 +92,8 @@ def test_map_github_issues_handles_empty_repository() -> None:
         map_github_issues(
             _fixture("issues-empty.json"),
             [],
-            owner="misshqiong",
-            repo="matterhorn",
+            owner="octo-org",
+            repo="sample-repo",
         )
         == []
     )
@@ -109,20 +109,20 @@ def test_map_devlog_uses_supplied_git_date_and_future_public_url(
 
     first = map_devlog(
         [(path, "2026-07-29T12:00:00Z")],
-        owner="misshqiong",
-        repo="matterhorn",
+        owner="octo-org",
+        repo="sample-repo",
     )
     second = map_devlog(
         [(path, "2026-07-29T12:00:00Z")],
-        owner="misshqiong",
-        repo="matterhorn",
+        owner="octo-org",
+        repo="sample-repo",
     )
 
     assert first == second
     assert first[0].record_id == "devlog:0001"
-    assert first[0].author.id == "github:misshqiong"
+    assert first[0].author.id == "github:octo-org"
     assert first[0].content == "# Strategy\n\nEvidence-backed.\n"
     assert first[0].uri == (
-        "https://github.com/misshqiong/matterhorn/"
+        "https://github.com/octo-org/sample-repo/"
         "blob/main/devlog/0001-project-strategy.md"
     )

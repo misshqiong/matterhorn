@@ -24,8 +24,8 @@ def _records(tmp_path: Path):
     )
     commits = map_git_log(
         git_fixture["output"],
-        owner="misshqiong",
-        repo="matterhorn",
+        owner="octo-org",
+        repo="sample-repo",
     )
     directory = tmp_path / "devlog"
     directory.mkdir()
@@ -33,8 +33,8 @@ def _records(tmp_path: Path):
     path.write_text("# Strategy\n\nEvidence-backed.\n", encoding="utf-8")
     devlogs = map_devlog(
         [(path, "2026-07-29T12:00:00Z")],
-        owner="misshqiong",
-        repo="matterhorn",
+        owner="octo-org",
+        repo="sample-repo",
     )
     return [*commits, *devlogs]
 
@@ -82,7 +82,7 @@ def test_fixture_fill_is_incremental_without_network(tmp_path: Path) -> None:
         {
             "source_id": "devlog:0001",
             "uri": (
-                "https://github.com/misshqiong/matterhorn/"
+                "https://github.com/octo-org/sample-repo/"
                 "blob/main/devlog/0001-project-strategy.md"
             ),
             "status": "active",

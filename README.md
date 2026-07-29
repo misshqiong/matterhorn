@@ -92,8 +92,8 @@ receipt = engine.add(
     messages=[
         {
             "id": "m1",
-            "sender": {"id": "u1", "name": "王腾"},
-            "text": "线上模型成功率异常，我加了降级策略",
+            "sender": {"id": "u1", "name": "Dana Reyes"},
+            "text": "Production model success rate dropped; I added a fallback strategy",
             "sent_at": "2026-07-28T14:00:00+08:00",
         }
     ],

@@ -7,5 +7,5 @@ dist/
 build/
 *.egg-info/
 
-# 内部立项文档，仅本地保留，不入库
+# internal project brief, kept local only
 docs/PROPOSAL.zh.md

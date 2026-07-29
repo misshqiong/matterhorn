@@ -113,7 +113,7 @@ def test_dream_happy_path_and_second_run_is_noop(tmp_path) -> None:
 
 
 def test_dream_prompt_uses_alias_and_restores_real_source_id(tmp_path) -> None:
-    real_source_id = "github:misshqiong/matterhorn:commit:" + "a" * 40
+    real_source_id = "github:octo-org/sample-repo:commit:" + "a" * 40
 
     class AliasGateway:
         def __init__(self):

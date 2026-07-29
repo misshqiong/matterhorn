@@ -151,8 +151,8 @@ def init_project(
             """messages:
   - id: m1
     conversation_id: payments
-    sender: {id: u1, name: 王腾}
-    text: 支付重构由我负责，已完成接口拆分，下一步联调。
+    sender: {id: u1, name: Dana Reyes}
+    text: I'm taking over the payment refactor; the API split is done and integration testing is next.
     sent_at: 2026-07-28T14:00:00+08:00
 """,
             encoding="utf-8",
@@ -170,7 +170,7 @@ def init_project(
                                 "participants": [
                                     {
                                         "id": "u1",
-                                        "display_name": "王腾",
+                                        "display_name": "Dana Reyes",
                                         "role": "owner",
                                     }
                                 ],
