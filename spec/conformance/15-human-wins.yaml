@@ -1,0 +1,38 @@
+case_id: human-wins
+title: Human correction beats a later-recorded model assertion
+invariants: [INV-9, P8]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T12:00:00Z", "2026-01-10T10:00:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: model-value
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+corrections:
+  - scope_id: alpha
+    subject_key: s1
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: human-value
+    valid_from: "2026-01-01T00:00:00Z"
+    source_refs:
+      - {source_id: h1, sent_at: "2026-01-01T09:00:00Z", sender: human}
+expect:
+  conflicts_resolved: {status: 1}
+  assertions:
+    - {predicate: status, object_value: model-value, origin: model}
+    - {predicate: status, object_value: human-value, origin: human}
+  intervals:
+    - {predicate: status, object_value: human-value, origin: human, valid_to: null}
+  queries:
+    - name: current
+      args: {subject_key: s1, predicate: status}
+      result:
+        - {value: human-value, origin: human}
+

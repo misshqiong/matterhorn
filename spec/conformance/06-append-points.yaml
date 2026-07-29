@@ -1,0 +1,37 @@
+case_id: append-points
+title: APPEND emits independent point intervals
+invariants: [INV-3]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    progress: drafted
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-02
+    title: Launch
+    progress: reviewed
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: progress, operation: ASSERT, object_value: drafted}
+    - {predicate: progress, operation: ASSERT, object_value: reviewed}
+  intervals:
+    - {predicate: progress, object_value: drafted, valid_from: "2026-01-01T00:00:00.000000Z", valid_to: "2026-01-01T00:00:00.000000Z"}
+    - {predicate: progress, object_value: reviewed, valid_from: "2026-01-02T00:00:00.000000Z", valid_to: "2026-01-02T00:00:00.000000Z"}
+  queries:
+    - name: current
+      args: {subject_key: s1, predicate: progress}
+      result:
+        - {value: reviewed}
+

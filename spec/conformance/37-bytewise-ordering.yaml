@@ -1,0 +1,51 @@
+case_id: bytewise-ordering
+title: Query ordering is independent of database locale
+invariants: [INV-3, INV-10]
+schema_profile: org-matters/v1
+scope_id: bytewise-order
+clock:
+  - 2026-01-02T00:00:00Z
+  - 2026-01-02T00:00:01Z
+  - 2026-01-02T00:00:02Z
+cards:
+  - card_id: c1
+    scope_id: bytewise-order
+    subject_key: 中
+    date: 2026-01-01
+    title: Chinese
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: 2026-01-01T00:00:00Z, sender: u1}
+  - card_id: c2
+    scope_id: bytewise-order
+    subject_key: zeta
+    date: 2026-01-01
+    title: ASCII
+    status: open
+    source_refs:
+      - {source_id: m2, sent_at: 2026-01-01T00:00:01Z, sender: u1}
+  - card_id: c3
+    scope_id: bytewise-order
+    subject_key: äther
+    date: 2026-01-01
+    title: Latin
+    status: open
+    source_refs:
+      - {source_id: m3, sent_at: 2026-01-01T00:00:02Z, sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {subject_key: 中, predicate: status, object_value: open}
+    - {subject_key: zeta, predicate: status, object_value: open}
+    - {subject_key: äther, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: 中, predicate: status, object_value: open}
+    - {subject_key: zeta, predicate: status, object_value: open}
+    - {subject_key: äther, predicate: status, object_value: open}
+  queries:
+    - name: list_matters
+      args: {}
+      result:
+        - {subject_key: zeta}
+        - {subject_key: äther}
+        - {subject_key: 中}

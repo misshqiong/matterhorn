@@ -1,0 +1,30 @@
+case_id: second-profile
+title: A different profile drives the same core
+invariants: [INV-1, INV-3]
+schema_profile: personal-decisions/v1
+scope_id: personal
+clock: ["2026-01-10T09:00:00Z"]
+cards:
+  - card_id: c1
+    scope_id: personal
+    subject_key: choice-1
+    date: 2026-01-01
+    title: Choose a keyboard
+    status: researching
+    progress: tested three layouts
+    source_refs:
+      - {source_id: note-1, sent_at: "2026-01-01T08:00:00Z", sender: me}
+corrections: []
+expect:
+  assertions:
+    - {predicate: phase, object_value: researching, subject_key: choice-1}
+    - {predicate: journal_entry, object_value: tested three layouts, subject_key: choice-1}
+  intervals:
+    - {predicate: phase, object_value: researching}
+    - {predicate: journal_entry, object_value: tested three layouts}
+  queries:
+    - name: current
+      args: {subject_key: choice-1, predicate: phase}
+      result:
+        - {value: researching}
+

@@ -1,0 +1,39 @@
+case_id: person-and-completion
+title: Person and completion queries are profile-driven
+invariants: [INV-10]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: done
+    participants:
+      - {id: u1, display_name: Ada, role: owner}
+      - {id: u2, display_name: Lin, role: reviewer}
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, object_value: done}
+    - {predicate: owned_by, object_value: u1}
+    - {predicate: participated_by, object_value: u1}
+    - {predicate: participated_by, object_value: u2}
+  intervals:
+    - {predicate: status, object_value: done}
+    - {predicate: owned_by, object_value: u1}
+    - {predicate: participated_by, object_value: u1}
+    - {predicate: participated_by, object_value: u2}
+  queries:
+    - name: by_person
+      args: {person_id: u1}
+      result:
+        - {subject_key: s1, title: Launch}
+    - name: completion
+      args: {}
+      result: {completed: 1, total: 1, ratio: 1.0}
+

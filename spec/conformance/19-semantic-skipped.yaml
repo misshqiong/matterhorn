@@ -1,0 +1,23 @@
+case_id: semantic-skipped
+title: Semantic predicate loads but deterministic extraction skips it
+invariants: [INV-1, P1, P2]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    outcome: {type: decision, content: adopt plan A}
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: outcome, operation: ASSERT, object_value: {type: decision, content: adopt plan A}}
+  intervals:
+    - {predicate: outcome, object_value: {type: decision, content: adopt plan A}}
+  queries: []
+

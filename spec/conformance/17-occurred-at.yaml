@@ -1,0 +1,24 @@
+case_id: occurred-at
+title: occurred_at overrides date fallback
+invariants: [INV-2, P6]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-02-03
+    title: Launch
+    occurred_at: "2026-02-03T15:30:00+08:00"
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-02-03T07:30:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, valid_from: "2026-02-03T07:30:00.000000Z"}
+  intervals:
+    - {predicate: status, valid_from: "2026-02-03T07:30:00.000000Z"}
+  queries: []
+

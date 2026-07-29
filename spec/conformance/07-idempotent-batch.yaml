@@ -1,0 +1,23 @@
+case_id: idempotent-batch
+title: Re-ingesting the same batch changes nothing
+invariants: [INV-2, P9]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z"]
+cards:
+  - card_id: stable-card
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, operation: ASSERT, object_value: open}
+  intervals:
+    - {predicate: status, object_value: open, valid_to: null}
+  queries: []
+

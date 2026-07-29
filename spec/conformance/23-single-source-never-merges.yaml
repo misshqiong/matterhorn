@@ -1,0 +1,31 @@
+case_id: single-source-never-merges
+title: Two one-source cards sharing their only source remain distinct
+invariants: [INV-5]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: a
+    scope_id: alpha
+    date: 2026-01-01
+    title: Website launch
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: bb
+    scope_id: alpha
+    date: 2026-01-02
+    title: Office lease
+    status: pending
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  subject_count: 2
+  assertions:
+    - {predicate: status, object_value: open}
+    - {predicate: status, object_value: pending}
+  intervals:
+    - {predicate: status, object_value: open, valid_to: null}
+    - {predicate: status, object_value: pending, valid_to: null}
+  queries: []

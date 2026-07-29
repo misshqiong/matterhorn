@@ -1,0 +1,73 @@
+case_id: org-child-invalid-parent-type
+title: A requested child type must be declared under the actual parent type
+invariants: [P2, P3, P9, INV-1, INV-2]
+schema_profile: org-matters/v1
+scope_id: flagship
+clock:
+  - 2026-01-01T11:00:00Z
+  - 2026-01-01T11:01:00Z
+  - 2026-01-01T12:00:00Z
+cards:
+  - card_id: a-create-valid-parent
+    scope_id: flagship
+    subject_key: matter-1
+    date: 2026-01-01
+    title: Launch
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00Z
+        sender: u1
+  - card_id: b-invalid-nesting
+    scope_id: flagship
+    subject_key: matter-2
+    date: 2026-01-01
+    title: Follow-up
+    source_refs:
+      - source_id: m2
+        sent_at: 2026-01-01T10:05:00Z
+        sender: u2
+model_responses:
+  - candidates:
+      - subject_type: DECISION_SLOT
+        parent_subject_key: matter-1
+        subject_title: First decision
+        predicate: decision_adopted
+        operation: ASSERT
+        object_value: true
+        valid_from: 2026-01-01T10:00:00Z
+        source_ids: [m1]
+        confidence: 0.95
+  - candidates:
+      - subject_type: DECISION_SLOT
+        parent_subject_key: sub_9fe0f269d4bacbefd8c293432c6add2b5abeda36123be26d1538154f0f9e5c29
+        subject_title: Invalid nested decision
+        predicate: decision_adopted
+        operation: ASSERT
+        object_value: true
+        valid_from: 2026-01-01T10:05:00Z
+        source_ids: [m2]
+        confidence: 0.95
+corrections: []
+expect:
+  assertions:
+    - subject_key: sub_9fe0f269d4bacbefd8c293432c6add2b5abeda36123be26d1538154f0f9e5c29
+      subject_type: DECISION_SLOT
+      predicate: decision_adopted
+      object_value: true
+  intervals:
+    - subject_key: sub_9fe0f269d4bacbefd8c293432c6add2b5abeda36123be26d1538154f0f9e5c29
+      subject_type: DECISION_SLOT
+      predicate: decision_adopted
+      object_value: true
+      valid_to: null
+  subject_count: 3
+  dream_report:
+    accepted_candidates: 1
+    rejected_candidates: 1
+    new_assertions: 1
+    new_subjects: 1
+  gate_statistics:
+    scope_id: flagship
+    accepted: 1
+    rejections:
+      INVALID_SUBJECT_PARENT: 1

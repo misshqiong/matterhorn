@@ -1,0 +1,54 @@
+case_id: semantic-accepted
+title: A traceable conservative semantic candidate is projected
+invariants: [INV-1, INV-3, INV-6, INV-7]
+schema_profile: personal-decisions/v1
+scope_id: demo
+clock:
+  - 2026-01-01T11:00:00Z
+  - 2026-01-01T12:00:00Z
+cards:
+  - card_id: c1
+    scope_id: demo
+    subject_key: choice-1
+    date: 2026-01-01
+    title: Choose a route
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00Z
+        sender: u1
+model_responses:
+  - candidates:
+      - subject_key: choice-1
+        subject_type: CHOICE
+        predicate: rationale_class
+        operation: ASSERT
+        object_value: values
+        valid_from: 2026-01-01T10:00:00Z
+        source_ids: [m1]
+        confidence: 0.95
+corrections: []
+expect:
+  assertions:
+    - subject_key: choice-1
+      predicate: rationale_class
+      object_value: values
+      origin: model
+  intervals:
+    - subject_key: choice-1
+      predicate: rationale_class
+      object_value: values
+      valid_to: null
+      origin: model
+  gate_statistics:
+    scope_id: demo
+    accepted: 1
+    rejections: {}
+  queries:
+    - name: current
+      args:
+        subject_key: choice-1
+        predicate: rationale_class
+      result:
+        - value: values
+          source_ids: [m1]
+          origin: model

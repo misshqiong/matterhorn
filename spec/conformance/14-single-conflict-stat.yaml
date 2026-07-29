@@ -1,0 +1,37 @@
+case_id: single-conflict-stat
+title: Same-instant SINGLE conflict has stable winner and statistic
+invariants: [INV-8]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: paused
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-01T09:00:00Z", sender: u2}
+corrections: []
+expect:
+  conflicts_resolved: {status: 1}
+  assertions:
+    - {predicate: status, object_value: open}
+    - {predicate: status, object_value: paused}
+  intervals:
+    - {predicate: status, object_value: paused, valid_to: null}
+  queries:
+    - name: current
+      args: {subject_key: s1, predicate: status}
+      result:
+        - {value: paused}
+

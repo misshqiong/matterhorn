@@ -1,0 +1,43 @@
+case_id: implicit-explicit-null
+title: Explicit null retracts under an implicit guard
+invariants: [INV-4]
+schema_profile:
+  schema: implicit-demo/v1
+  subjects:
+    - {type: THING, primary: true}
+  predicates:
+    - name: phase
+      subject: THING
+      cardinality: SINGLE
+      extraction: deterministic
+      retract_guard: implicit
+      source_field: status
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: a
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Project
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: b
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-02
+    title: Project
+    status: null
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: phase, operation: ASSERT, object_value: open}
+    - {predicate: phase, operation: RETRACT, object_key: "*"}
+  intervals:
+    - {predicate: phase, object_value: open, valid_to: "2026-01-02T00:00:00.000000Z"}
+  queries:
+    - {name: current, args: {subject_key: s1, predicate: phase}, result: []}
+

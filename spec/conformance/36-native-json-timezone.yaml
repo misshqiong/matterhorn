@@ -1,0 +1,77 @@
+case_id: native-json-timezone
+title: Native JSON and timezone values round-trip canonically
+invariants: [P6, INV-3, INV-6, INV-10]
+schema_profile:
+  schema: backend-native/v1
+  subjects:
+    - {type: ITEM, primary: true}
+  predicates:
+    - name: review
+      subject: ITEM
+      cardinality: SINGLE
+      extraction: semantic
+      object: object
+      retract_guard: explicit
+  identity: {}
+  semantic: {}
+scope_id: backend-native
+clock:
+  - 2026-01-01T03:00:00Z
+  - 2026-01-01T03:01:00Z
+cards:
+  - card_id: c1
+    scope_id: backend-native
+    subject_key: item-1
+    date: 2026-01-01
+    title: Native values
+    occurred_at: 2026-01-01T10:00:00+08:00
+    last_active_at: 2026-01-01T10:30:00+08:00
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00+08:00
+        sender: u1
+model_responses:
+  - candidates:
+      - subject_key: item-1
+        subject_type: ITEM
+        predicate: review
+        operation: ASSERT
+        object_value:
+          approved: true
+          label: 雪
+        valid_from: 2026-01-01T10:15:00+08:00
+        source_ids: [m1]
+        confidence: 1.0
+corrections: []
+expect:
+  assertions:
+    - predicate: review
+      object_value: {approved: true, label: 雪}
+      valid_from: 2026-01-01T02:15:00.000000Z
+      recorded_at: 2026-01-01T03:01:00.000000Z
+  intervals:
+    - predicate: review
+      object_value: {approved: true, label: 雪}
+      valid_from: 2026-01-01T02:15:00.000000Z
+      valid_to: null
+  queries:
+    - name: current
+      args: {subject_key: item-1, predicate: review}
+      result:
+        - value: {approved: true, label: 雪}
+          valid_from: 2026-01-01T02:15:00.000000Z
+          recorded_at: 2026-01-01T03:01:00.000000Z
+    - name: at
+      args:
+        subject_key: item-1
+        predicate: review
+        instant: 2026-01-01T10:20:00+08:00
+      result:
+        - value: {approved: true, label: 雪}
+    - name: at
+      args:
+        subject_key: item-1
+        predicate: review
+        instant: "2026-01-01T02:20:00"
+      result:
+        - value: {approved: true, label: 雪}

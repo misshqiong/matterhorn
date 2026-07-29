@@ -1,0 +1,53 @@
+case_id: single-reconfirmation-evidence
+title: SINGLE reconfirmation keeps one interval and accumulates evidence
+invariants: [INV-3, INV-4, INV-7]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: a
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Project
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: b
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-02
+    title: Project
+    status: open
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u2}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, operation: ASSERT, object_value: open}
+    - {predicate: status, operation: ASSERT, object_value: open}
+  intervals:
+    - predicate: status
+      object_value: open
+      valid_from: "2026-01-01T00:00:00.000000Z"
+      valid_to: null
+      supporting_assertion_ids:
+        - d9a966cba3e2286b408bd31d44691b4ceb730ad158faff77f359b92d0346b743
+        - 1147a77d4f5d4d93c20058508b77bcb2d8b5bd1b5b352aa31ed386f055bc261f
+  queries:
+    - name: current
+      args: {subject_key: s1, predicate: status}
+      result:
+        - value: open
+          source_ids: [m1, m2]
+          supporting_assertion_ids:
+            - d9a966cba3e2286b408bd31d44691b4ceb730ad158faff77f359b92d0346b743
+            - 1147a77d4f5d4d93c20058508b77bcb2d8b5bd1b5b352aa31ed386f055bc261f
+    - name: timeline
+      args: {subject_key: s1, predicate: status}
+      result:
+        - {value: open, source_ids: [m1, m2]}
+    - name: at
+      args: {subject_key: s1, predicate: status, instant: "2026-01-03T00:00:00Z"}
+      result:
+        - {value: open, source_ids: [m1, m2]}

@@ -1,0 +1,17 @@
+case_id: source-required
+title: Card without source_refs is rejected
+invariants: [INV-7, P5]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: []
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: open
+    source_refs: []
+corrections: []
+expect_error: "source_refs MUST be non-empty"
+

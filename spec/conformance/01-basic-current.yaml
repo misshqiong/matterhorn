@@ -1,0 +1,27 @@
+case_id: basic-current
+title: A committed SINGLE value is immediately queryable
+invariants: [INV-6, INV-10]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, operation: ASSERT, object_value: open, subject_key: s1}
+  intervals:
+    - {predicate: status, object_value: open, subject_key: s1, valid_from: "2026-01-01T00:00:00.000000Z", valid_to: null}
+  queries:
+    - name: current
+      args: {subject_key: s1, predicate: status}
+      result:
+        - {subject_key: s1, predicate: status, value: open}
+

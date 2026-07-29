@@ -1,0 +1,38 @@
+case_id: set-concurrency
+title: SET values remain live concurrently
+invariants: [INV-3]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    blocker: legal
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-02
+    title: Launch
+    blocker: budget
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: blocked_by, operation: ASSERT, object_value: legal}
+    - {predicate: blocked_by, operation: ASSERT, object_value: budget}
+  intervals:
+    - {predicate: blocked_by, object_value: legal, valid_to: null}
+    - {predicate: blocked_by, object_value: budget, valid_to: null}
+  queries:
+    - name: current
+      args: {subject_key: s1, predicate: blocked_by}
+      result:
+        - {value: budget}
+        - {value: legal}
+

@@ -1,0 +1,41 @@
+case_id: timeline-at
+title: Half-open intervals reconstruct historical state
+invariants: [INV-3, INV-10]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-03
+    title: Launch
+    status: done
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-03T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, object_value: open}
+    - {predicate: status, object_value: done}
+  intervals:
+    - {predicate: status, object_value: open, valid_to: "2026-01-03T00:00:00.000000Z"}
+    - {predicate: status, object_value: done, valid_to: null}
+  queries:
+    - name: at
+      args: {subject_key: s1, predicate: status, instant: "2026-01-02T12:00:00Z"}
+      result:
+        - {value: open}
+    - name: at
+      args: {subject_key: s1, predicate: status, instant: "2026-01-03T00:00:00Z"}
+      result:
+        - {value: done}
+

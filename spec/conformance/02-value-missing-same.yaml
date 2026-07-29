@@ -1,0 +1,43 @@
+case_id: value-missing-same
+title: Value then missing then same value does not flicker
+invariants: [INV-4]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z", "2026-01-10T09:02:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    next_step: ship
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-02
+    title: Launch
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u1}
+  - card_id: c3
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-03
+    title: Launch
+    next_step: ship
+    source_refs:
+      - {source_id: m3, sent_at: "2026-01-03T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: next_step, operation: ASSERT, object_value: ship, valid_from: "2026-01-01T00:00:00.000000Z"}
+    - {predicate: next_step, operation: ASSERT, object_value: ship, valid_from: "2026-01-03T00:00:00.000000Z"}
+  intervals:
+    - {predicate: next_step, object_value: ship, valid_from: "2026-01-01T00:00:00.000000Z", valid_to: null}
+  queries:
+    - name: timeline
+      args: {subject_key: s1, predicate: next_step}
+      result:
+        - {value: ship, valid_from: "2026-01-01T00:00:00.000000Z", valid_to: null}
+

@@ -1,0 +1,80 @@
+case_id: org-child-semantic-current
+title: The flagship semantic predicate creates and queries a decision child
+invariants: [P1, P2, P3, P5, P9, INV-2, INV-3, INV-7]
+schema_profile: org-matters/v1
+scope_id: flagship
+clock:
+  - 2026-01-01T11:00:00Z
+  - 2026-01-01T12:00:00Z
+cards:
+  - card_id: c1
+    scope_id: flagship
+    subject_key: matter-1
+    date: 2026-01-01
+    title: Launch
+    status: open
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00Z
+        sender: u1
+        excerpt: The launch plan was adopted.
+model_responses:
+  - candidates:
+      - subject_type: DECISION_SLOT
+        parent_subject_key: matter-1
+        subject_title: Adopt launch plan
+        predicate: decision_adopted
+        operation: ASSERT
+        object_value: true
+        valid_from: 2026-01-01T10:00:00Z
+        source_ids: [m1]
+        confidence: 0.95
+corrections: []
+expect:
+  assertions:
+    - subject_key: matter-1
+      subject_type: MATTER
+      predicate: status
+      object_value: open
+      origin: model
+    - subject_key: sub_6c8da077cf2c1606ef1c361bb67368dc0efb54617d3b3d66025392d748c46ba1
+      subject_type: DECISION_SLOT
+      predicate: decision_adopted
+      object_value: true
+      origin: model
+  intervals:
+    - subject_key: matter-1
+      subject_type: MATTER
+      predicate: status
+      object_value: open
+      valid_to: null
+    - subject_key: sub_6c8da077cf2c1606ef1c361bb67368dc0efb54617d3b3d66025392d748c46ba1
+      subject_type: DECISION_SLOT
+      predicate: decision_adopted
+      object_value: true
+      valid_to: null
+  subject_count: 2
+  dream_report:
+    new_assertions: 1
+    new_subjects: 1
+  gate_statistics:
+    scope_id: flagship
+    accepted: 1
+    rejections: {}
+  queries:
+    - name: current
+      args:
+        subject_key: sub_6c8da077cf2c1606ef1c361bb67368dc0efb54617d3b3d66025392d748c46ba1
+        predicate: decision_adopted
+      result:
+        - value: true
+          source_ids: [m1]
+          origin: model
+    - name: list_matters
+      args: {}
+      result:
+        - subject_key: matter-1
+          subject_type: MATTER
+          title: Launch
+          current:
+            status: open

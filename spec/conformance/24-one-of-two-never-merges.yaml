@@ -1,0 +1,34 @@
+case_id: one-of-two-never-merges
+title: Sharing one source out of two remains below the absolute floor
+invariants: [INV-5]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: a
+    scope_id: alpha
+    date: 2026-01-01
+    title: Website launch
+    status: open
+    source_refs:
+      - {source_id: shared, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+      - {source_id: web, sent_at: "2026-01-01T09:00:00Z", sender: u1}
+  - card_id: b
+    scope_id: alpha
+    date: 2026-01-02
+    title: Office lease
+    status: pending
+    source_refs:
+      - {source_id: shared, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+      - {source_id: lease, sent_at: "2026-01-02T08:00:00Z", sender: u2}
+corrections: []
+expect:
+  subject_count: 2
+  assertions:
+    - {predicate: status, object_value: open}
+    - {predicate: status, object_value: pending}
+  intervals:
+    - {predicate: status, object_value: open}
+    - {predicate: status, object_value: pending}
+  queries: []
+

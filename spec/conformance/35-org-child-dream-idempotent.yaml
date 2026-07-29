@@ -1,0 +1,55 @@
+case_id: org-child-dream-idempotent
+title: Drained child creation work is a complete no-op on the next dream
+invariants: [P9, INV-2, INV-3]
+schema_profile: org-matters/v1
+scope_id: flagship
+clock:
+  - 2026-01-01T11:00:00Z
+  - 2026-01-01T12:00:00Z
+cards:
+  - card_id: c1
+    scope_id: flagship
+    subject_key: matter-1
+    date: 2026-01-01
+    title: Launch
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00Z
+        sender: u1
+model_responses:
+  - candidates:
+      - subject_type: DECISION_SLOT
+        parent_subject_key: matter-1
+        subject_title: Idempotent decision
+        predicate: decision_adopted
+        operation: ASSERT
+        object_value: true
+        valid_from: 2026-01-01T10:00:00Z
+        source_ids: [m1]
+        confidence: 0.95
+corrections: []
+expect:
+  assertions:
+    - subject_key: sub_95362acf66cca71bebe8731e9b0d338e7c274358fde929b351996524a76f14ff
+      subject_type: DECISION_SLOT
+      predicate: decision_adopted
+      object_value: true
+  intervals:
+    - subject_key: sub_95362acf66cca71bebe8731e9b0d338e7c274358fde929b351996524a76f14ff
+      subject_type: DECISION_SLOT
+      predicate: decision_adopted
+      object_value: true
+      valid_to: null
+  subject_count: 2
+  dream_report:
+    new_assertions: 1
+    new_subjects: 1
+  second_dream:
+    processed: 0
+    new_assertions: 0
+    new_subjects: 0
+    remaining: 0
+  gate_statistics:
+    scope_id: flagship
+    accepted: 1
+    rejections: {}

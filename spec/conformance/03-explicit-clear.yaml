@@ -1,0 +1,33 @@
+case_id: explicit-clear
+title: cleared_fields emits a retraction
+invariants: [INV-4]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-01
+    title: Launch
+    next_step: ship
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    subject_key: s1
+    date: 2026-01-02
+    title: Launch
+    cleared_fields: [next_step]
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: next_step, operation: ASSERT, object_value: ship}
+    - {predicate: next_step, operation: RETRACT, object_key: "*"}
+  intervals:
+    - {predicate: next_step, object_value: ship, valid_from: "2026-01-01T00:00:00.000000Z", valid_to: "2026-01-02T00:00:00.000000Z"}
+  queries:
+    - {name: current, args: {subject_key: s1, predicate: next_step}, result: []}
+

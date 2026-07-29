@@ -1,0 +1,68 @@
+case_id: semantic-human-precedence
+title: A same-instant human correction outranks semantic model output
+invariants: [INV-8, INV-9]
+schema_profile: personal-decisions/v1
+scope_id: demo
+clock:
+  - 2026-01-01T11:00:00Z
+  - 2026-01-01T12:00:00Z
+  - 2026-01-01T13:00:00Z
+cards:
+  - card_id: c1
+    scope_id: demo
+    subject_key: choice-1
+    date: 2026-01-01
+    title: Choose a route
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00Z
+        sender: u1
+model_responses:
+  - candidates:
+      - subject_key: choice-1
+        subject_type: CHOICE
+        predicate: rationale_class
+        operation: ASSERT
+        object_value: cost
+        valid_from: 2026-01-01T10:00:00Z
+        source_ids: [m1]
+        confidence: 0.95
+corrections:
+  - scope_id: demo
+    subject_key: choice-1
+    subject_type: CHOICE
+    predicate: rationale_class
+    operation: ASSERT
+    object_value: values
+    valid_from: 2026-01-01T10:00:00Z
+    source_refs:
+      - source_id: human-note
+        sent_at: 2026-01-01T13:00:00Z
+        sender: human
+expect:
+  assertions:
+    - predicate: rationale_class
+      object_value: cost
+      origin: model
+    - predicate: rationale_class
+      object_value: values
+      origin: human
+  intervals:
+    - predicate: rationale_class
+      object_value: values
+      valid_to: null
+      origin: human
+  conflicts_resolved:
+    rationale_class: 1
+  gate_statistics:
+    scope_id: demo
+    accepted: 1
+    rejections: {}
+  queries:
+    - name: current
+      args:
+        subject_key: choice-1
+        predicate: rationale_class
+      result:
+        - value: values
+          origin: human

@@ -1,0 +1,49 @@
+case_id: ratio-relaxes-threshold
+title: Two of four shared sources use ratio to relax a threshold of three
+invariants: [INV-5]
+schema_profile:
+  schema: ratio-demo/v1
+  subjects:
+    - {type: THING, primary: true}
+  predicates:
+    - name: phase
+      subject: THING
+      cardinality: SINGLE
+      extraction: deterministic
+      source_field: status
+  identity:
+    merge_evidence:
+      min_shared_sources: 3
+      or_share_ratio: 0.5
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: a
+    scope_id: alpha
+    date: 2026-01-01
+    title: First description
+    status: open
+    source_refs:
+      - {source_id: s1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+      - {source_id: s2, sent_at: "2026-01-01T09:00:00Z", sender: u1}
+  - card_id: b
+    scope_id: alpha
+    date: 2026-01-02
+    title: Second description
+    status: done
+    source_refs:
+      - {source_id: s1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+      - {source_id: s2, sent_at: "2026-01-01T09:00:00Z", sender: u1}
+      - {source_id: s3, sent_at: "2026-01-02T08:00:00Z", sender: u2}
+      - {source_id: s4, sent_at: "2026-01-02T09:00:00Z", sender: u2}
+corrections: []
+expect:
+  subject_count: 1
+  assertions:
+    - {predicate: phase, object_value: open}
+    - {predicate: phase, object_value: done}
+  intervals:
+    - {predicate: phase, object_value: open, valid_to: "2026-01-02T00:00:00.000000Z"}
+    - {predicate: phase, object_value: done, valid_to: null}
+  queries: []
+

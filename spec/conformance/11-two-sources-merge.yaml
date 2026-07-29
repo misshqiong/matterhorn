@@ -1,0 +1,35 @@
+case_id: two-sources-merge
+title: Two shared sources merge different titles
+invariants: [INV-5]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    date: 2026-01-01
+    title: Launch plan
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+      - {source_id: m2, sent_at: "2026-01-01T09:00:00Z", sender: u2}
+  - card_id: c2
+    scope_id: alpha
+    date: 2026-01-02
+    title: Release project
+    status: ready
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+      - {source_id: m2, sent_at: "2026-01-01T09:00:00Z", sender: u2}
+      - {source_id: m3, sent_at: "2026-01-02T09:00:00Z", sender: u2}
+corrections: []
+expect:
+  subject_count: 1
+  assertions:
+    - {predicate: status, operation: ASSERT, object_value: open}
+    - {predicate: status, operation: ASSERT, object_value: ready}
+  intervals:
+    - {predicate: status, object_value: open, valid_to: "2026-01-02T00:00:00.000000Z"}
+    - {predicate: status, object_value: ready, valid_to: null}
+  queries: []
+

@@ -1,0 +1,32 @@
+case_id: normalized-title
+title: Normalized title exact match precedes evidence
+invariants: [INV-5]
+schema_profile: org-matters/v1
+scope_id: alpha
+clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
+cards:
+  - card_id: c1
+    scope_id: alpha
+    date: 2026-01-01
+    title: "Project:   Aurora!"
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-01-01T08:00:00Z", sender: u1}
+  - card_id: c2
+    scope_id: alpha
+    date: 2026-01-02
+    title: "project aurora"
+    status: done
+    source_refs:
+      - {source_id: m2, sent_at: "2026-01-02T08:00:00Z", sender: u2}
+corrections: []
+expect:
+  subject_count: 1
+  assertions:
+    - {predicate: status, object_value: open}
+    - {predicate: status, object_value: done}
+  intervals:
+    - {predicate: status, object_value: open, valid_to: "2026-01-02T00:00:00.000000Z"}
+    - {predicate: status, object_value: done, valid_to: null}
+  queries: []
+

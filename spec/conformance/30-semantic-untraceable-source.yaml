@@ -1,0 +1,42 @@
+case_id: semantic-untraceable-source
+title: A model cannot fabricate evidence
+invariants: [INV-7]
+schema_profile: personal-decisions/v1
+scope_id: demo
+clock:
+  - 2026-01-01T11:00:00Z
+cards:
+  - card_id: c1
+    scope_id: demo
+    subject_key: choice-1
+    date: 2026-01-01
+    title: Choose a route
+    source_refs:
+      - source_id: m1
+        sent_at: 2026-01-01T10:00:00Z
+        sender: u1
+model_responses:
+  - candidates:
+      - subject_key: choice-1
+        subject_type: CHOICE
+        predicate: rationale_class
+        operation: ASSERT
+        object_value: values
+        valid_from: 2026-01-01T10:00:00Z
+        source_ids: [invented]
+        confidence: 0.95
+corrections: []
+expect:
+  assertions: []
+  intervals: []
+  gate_statistics:
+    scope_id: demo
+    accepted: 0
+    rejections:
+      SOURCE_NOT_TRACEABLE: 1
+  queries:
+    - name: current
+      args:
+        subject_key: choice-1
+        predicate: rationale_class
+      result: []
