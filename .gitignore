@@ -5,3 +5,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# 内部立项文档，仅本地保留，不入库
+docs/PROPOSAL.zh.md
