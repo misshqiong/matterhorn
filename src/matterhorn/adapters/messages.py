@@ -28,7 +28,7 @@ from matterhorn.distill.traceability import (
 )
 from matterhorn.engine.canonical import canonical_json, stable_hash
 
-DEFAULT_EXTRACTION_BATCH_SIZE = 8
+DEFAULT_EXTRACTION_BATCH_SIZE = 5
 
 
 class ChatMessage(StrictModel):

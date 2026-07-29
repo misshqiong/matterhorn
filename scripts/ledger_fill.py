@@ -206,6 +206,26 @@ def fill_records(
         engine.store.close()
 
 
+#: The nightly workflow's own commits are bookkeeping, not development
+#: activity. Ingesting them would make each run's commit the next run's
+#: input — a self-feeding loop that never converges. Excluded by the bot
+#: author and by the workflow's fixed commit message, both deterministic.
+LEDGER_BOOKKEEPING_MESSAGE = "ledger: nightly update"
+LEDGER_BOT_AUTHOR_FRAGMENT = "github-actions"
+
+
+def _is_ledger_bookkeeping(record: Record) -> bool:
+    author = record.author
+    display = (author.display_name or "") if author else ""
+    author_id = author.id if author else ""
+    first_line = record.content.splitlines()[0] if record.content else ""
+    return (
+        LEDGER_BOT_AUTHOR_FRAGMENT in display
+        or LEDGER_BOT_AUTHOR_FRAGMENT in author_id
+        or first_line.strip() == LEDGER_BOOKKEEPING_MESSAGE
+    )
+
+
 def collect_records(args: argparse.Namespace) -> tuple[list[Record], dict[str, int]]:
     root = args.repo_root.resolve()
     git_payload = (
@@ -213,7 +233,11 @@ def collect_records(args: argparse.Namespace) -> tuple[list[Record], dict[str, i
         if args.git_log_file
         else _git_log(root)
     )
-    commits = map_git_log(git_payload, owner=args.owner, repo=args.repo)
+    commits = [
+        record
+        for record in map_git_log(git_payload, owner=args.owner, repo=args.repo)
+        if not _is_ledger_bookkeeping(record)
+    ]
 
     devlog_dates = _devlog_date_overrides(args.devlog_date)
     devlog_entries = []

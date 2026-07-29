@@ -142,3 +142,31 @@ def test_export_rebuild_uses_source_checkpoint_without_an_llm_call(
     assert canonical_json(rebuilt_envelope.model_dump(mode="json")) == canonical_json(
         envelope.model_dump(mode="json")
     )
+
+
+def test_ledger_bookkeeping_commits_are_excluded() -> None:
+    import scripts.ledger_fill as lf
+    from matterhorn.contracts import Record
+
+    def rec(author_name: str, author_id: str, content: str) -> Record:
+        return Record.model_validate(
+            {
+                "record_id": "github:o/r:commit:" + "a" * 40,
+                "container_id": "github:o/r",
+                "sent_at": "2026-07-29T00:00:00Z",
+                "author": {"id": author_id, "display_name": author_name, "kind": "human"},
+                "content": content,
+                "kind": "commit",
+                "native_id": "commit:" + "a" * 40,
+            }
+        )
+
+    assert lf._is_ledger_bookkeeping(
+        rec("github-actions[bot]", "bot-1", "anything")
+    )
+    assert lf._is_ledger_bookkeeping(
+        rec("aurelvana", "u1", "ledger: nightly update\n\nauto")
+    )
+    assert not lf._is_ledger_bookkeeping(
+        rec("aurelvana", "u1", "M7: real feature work")
+    )
