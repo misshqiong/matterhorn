@@ -67,22 +67,25 @@ jobs:
           --scope dev
           --batch-size 8
 
-      - name: Export durable assertions and Markdown
+      - name: Export durable assertions, Markdown, and the live HTML page
         shell: bash
         run: |
           mh export dev --format json \
             --out ledger/assertions.json --db ledger/dev.db
           mh export dev --format markdown \
             --out MATTERS.md --db ledger/dev.db
+          mh export dev --format html \
+            --related "Email demo=email-ledger.html" \
+            --out docs/demo/self-ledger.html --db ledger/dev.db
 
       - name: Commit changed ledger assets
         shell: bash
         run: |
-          if [[ -z "$(git status --porcelain -- ledger/ MATTERS.md)" ]]; then
+          if [[ -z "$(git status --porcelain -- ledger/ MATTERS.md docs/demo/self-ledger.html)" ]]; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ledger/ MATTERS.md
+          git add ledger/ MATTERS.md docs/demo/self-ledger.html
           git commit -m "ledger: nightly update"
           git push

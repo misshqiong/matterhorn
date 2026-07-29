@@ -34,6 +34,7 @@ DEFAULT_SCHEMA = "org-matters/v1"
 class ExportFormat(str, Enum):
     json = "json"
     markdown = "markdown"
+    html = "html"
 
 
 def _load_config() -> dict[str, Any]:
@@ -90,7 +91,10 @@ def _write_gateway(
             base_url=base_url,
             api_key=api_key,
             model=model,
-            fixture_path=config.get("fixture_path"),
+            fixture_path=(
+                os.environ.get("MATTERHORN_FIXTURE_PATH")
+                or config.get("fixture_path")
+            ),
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
@@ -205,7 +209,11 @@ def init_project(
 def add_messages(
     input_file: str = typer.Argument(
         "-",
-        help="YAML/JSON messages file, or - for stdin.",
+        help="YAML/JSON messages, an email file with --adapter email, or -.",
+    ),
+    adapter: str = typer.Option(
+        "messages",
+        help="Input adapter: messages or email (.mbox/.eml).",
     ),
     scope_id: str | None = typer.Option(None, "--scope", help="Memory scope."),
     wait: bool = typer.Option(False, help="Run the pipeline synchronously."),
@@ -217,8 +225,29 @@ def add_messages(
     api_key: str | None = typer.Option(None),
     model: str | None = typer.Option(None),
 ) -> None:
-    """Queue minimal messages from YAML/JSON without calling an LLM."""
+    """Add minimal messages or normalize a host-supplied email file."""
 
+    if adapter == "email":
+        from matterhorn.adapters import map_email_file
+
+        selected_scope = _scope(scope_id)
+        try:
+            mapped = map_email_file(input_file)
+            report = _engine(
+                db,
+                schema,
+                schema_dir,
+                gateway=_write_gateway(provider, base_url, api_key, model),
+            ).add_records(mapped.records, scope_id=selected_scope)
+        except Exception as error:
+            raise typer.BadParameter(str(error)) from error
+        payload = report.model_dump(mode="json")
+        payload["adapter"] = "email"
+        payload["adapter_dropped"] = mapped.dropped
+        _print(payload)
+        return
+    if adapter != "messages":
+        raise typer.BadParameter("adapter MUST be messages or email")
     payload = _read_yaml_or_json(input_file)
     messages = payload.get("messages") if isinstance(payload, dict) else payload
     if not isinstance(messages, list):
@@ -320,21 +349,56 @@ def export_scope(
     output_format: ExportFormat = typer.Option(
         ExportFormat.json,
         "--format",
-        help="Output format: json or markdown.",
+        help="Output format: json, markdown, or html.",
+    ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help=(
+            "HTML overdue reference instant. Defaults to the maximum "
+            "recorded_at in the scope."
+        ),
     ),
     out: Path | None = typer.Option(
         None, help="Write output to this file instead of stdout."
+    ),
+    related: list[str] = typer.Option(
+        [],
+        "--related",
+        help=(
+            "HTML footer cross-link as LABEL=HREF; repeatable. "
+            "Valid only with --format html."
+        ),
     ),
     db: str = typer.Option(DEFAULT_DB),
     schema: str = typer.Option(DEFAULT_SCHEMA),
     schema_dir: Path | None = typer.Option(None),
 ) -> None:
-    """Export a JSON ownership envelope or deterministic Markdown ledger."""
+    """Export JSON ownership, Markdown, or a self-contained HTML ledger."""
 
     engine = _engine(db, schema, schema_dir)
     try:
         selected_scope = _scope(scope_id)
-        if output_format == ExportFormat.markdown:
+        if as_of is not None and output_format != ExportFormat.html:
+            raise ValueError("--as-of is valid only with --format html")
+        if related and output_format != ExportFormat.html:
+            raise ValueError("--related is valid only with --format html")
+        related_pairs: list[tuple[str, str]] = []
+        for item in related:
+            label, separator, href = item.partition("=")
+            if not separator or not label or not href:
+                raise ValueError("--related expects LABEL=HREF")
+            related_pairs.append((label, href))
+        if output_format == ExportFormat.html:
+            from matterhorn.html import render_scope_html
+
+            payload = render_scope_html(
+                engine.export(selected_scope),
+                engine.profile,
+                as_of=as_of,
+                related=related_pairs,
+            )
+        elif output_format == ExportFormat.markdown:
             from matterhorn.markdown import render_scope_markdown
 
             payload = render_scope_markdown(engine, selected_scope)

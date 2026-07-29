@@ -4,6 +4,19 @@ Deterministic, evidence-backed temporal memory for agents. Feed messages in;
 get matters whose status, owners, blockers, and history are derived from
 persisted evidence—not generated at answer time.
 
+## Live demo →
+
+**[Email matter ledger](https://misshqiong.github.io/matterhorn/demo/email-ledger.html)** —
+a vendor project distilled from 18 emails: slipped deadlines as timeline
+segments, a decision reversal, an owner handoff filed as a ✏️ human
+correction, and an overdue commitment flagged in red. Every fact links to the
+source email at the bottom of the page. Also:
+**[this project's own ledger](https://misshqiong.github.io/matterhorn/demo/self-ledger.html)**,
+rendered by the same exporter from the repository's development history.
+Both pages are single self-contained HTML files produced by
+`mh export <scope> --format html` — no server, no JavaScript framework,
+no external requests.
+
 ## 📒 Development ledger
 
 This project's own development is tracked by Matterhorn itself. The public

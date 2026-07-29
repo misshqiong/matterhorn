@@ -98,6 +98,7 @@ def test_events_export_import_cli_round_trip(tmp_path) -> None:
     target_db = tmp_path / "target.db"
     export_file = tmp_path / "scope.json"
     markdown_file = tmp_path / "MATTERS.md"
+    html_file = tmp_path / "matters.html"
     card_file = tmp_path / "card.yaml"
     card_file.write_text(
         yaml.safe_dump(
@@ -152,6 +153,23 @@ def test_events_export_import_cli_round_trip(tmp_path) -> None:
     assert "# Development ledger" in markdown
     assert "## Release" in markdown
     assert "generated from assertions; reproduce:" in markdown
+    html_rendered = _run(
+        "export",
+        "team",
+        "--format",
+        "html",
+        "--as-of",
+        "2026-07-30T00:00:00Z",
+        "--out",
+        str(html_file),
+        "--db",
+        str(source_db),
+    )
+    assert "Exported team as html" in html_rendered.stdout
+    html = html_file.read_text(encoding="utf-8")
+    assert "<style>" in html
+    assert "<script>" in html
+    assert "Deterministically rendered from 1 assertions" in html
     imported = json.loads(
         _run("import", str(export_file), "--db", str(target_db)).stdout
     )

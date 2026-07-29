@@ -1,0 +1,1197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>email-demo · Matter ledger</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: #f5f3ee;
+      --surface: #fffdf8;
+      --surface-soft: #f0ede5;
+      --ink: #211f1a;
+      --muted: #6c675d;
+      --line: #d9d3c7;
+      --accent: #315c49;
+      --accent-soft: #dcebe2;
+      --danger: #a32626;
+      --danger-soft: #f8dede;
+      --warning: #805900;
+      --warning-soft: #f6e8b9;
+      --done: #2d5d48;
+      --done-soft: #dcebe2;
+      --shadow: 0 12px 34px rgb(54 47 36 / 8%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #171815;
+        --surface: #20221e;
+        --surface-soft: #292c27;
+        --ink: #f1eee6;
+        --muted: #b8b3a8;
+        --line: #3d413a;
+        --accent: #9ed3b7;
+        --accent-soft: #203b30;
+        --danger: #ff9b9b;
+        --danger-soft: #4a2424;
+        --warning: #f3cb69;
+        --warning-soft: #433719;
+        --done: #a8dabe;
+        --done-soft: #203b30;
+        --shadow: 0 12px 34px rgb(0 0 0 / 24%);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+
+    a {
+      color: var(--accent);
+      text-underline-offset: 0.18em;
+    }
+
+    button,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .shell {
+      width: min(72rem, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 3.5rem 0 2rem;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.35rem;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 18ch;
+      margin-bottom: 0.6rem;
+      font-size: clamp(2.2rem, 7vw, 4.6rem);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    h2 {
+      margin-bottom: 1rem;
+      font-size: clamp(1.35rem, 3vw, 2rem);
+      letter-spacing: -0.025em;
+    }
+
+    h3 {
+      margin-bottom: 0.25rem;
+      font-size: 1.1rem;
+    }
+
+    .lede,
+    .section-note,
+    .muted {
+      color: var(--muted);
+    }
+
+    .lede {
+      max-width: 60ch;
+      margin-bottom: 2rem;
+      font-size: 1.05rem;
+    }
+
+    section {
+      margin-top: 3rem;
+      scroll-margin-top: 1rem;
+    }
+
+    .commitments {
+      margin-top: 1.5rem;
+      padding: clamp(1rem, 3vw, 1.6rem);
+      border: 1px solid var(--line);
+      border-radius: 1.15rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .commitment-list,
+    .person-list,
+    .matter-list,
+    .timeline,
+    .source-list {
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .commitment {
+      display: grid;
+      grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+      gap: 0.85rem 1.25rem;
+      align-items: start;
+      padding: 1rem 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .commitment:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .commitment:last-child {
+      padding-bottom: 0;
+    }
+
+    .deadline {
+      display: inline-flex;
+      width: fit-content;
+      padding: 0.3rem 0.55rem;
+      border-radius: 0.45rem;
+      background: var(--surface-soft);
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+    }
+
+    .deadline.overdue,
+    .overdue-text {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .commitment-meta {
+      margin: 0.25rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .person-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+      gap: 0.75rem;
+    }
+
+    .person {
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 0.8rem;
+      background: var(--surface);
+    }
+
+    .person strong {
+      display: block;
+      margin-bottom: 0.15rem;
+    }
+
+    .matter-list {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .matter {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .matter-head {
+      display: flex;
+      gap: 0.8rem;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: clamp(1rem, 3vw, 1.45rem);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .matter-title {
+      min-width: 0;
+      margin: 0;
+      font-size: clamp(1.15rem, 3vw, 1.45rem);
+      line-height: 1.2;
+    }
+
+    .status {
+      flex: 0 0 auto;
+      padding: 0.28rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 850;
+      letter-spacing: 0.025em;
+      text-transform: uppercase;
+    }
+
+    .status.blocked {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .status.done {
+      color: var(--done);
+      background: var(--done-soft);
+    }
+
+    .status.progress {
+      color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .status.open,
+    .status.neutral {
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0;
+      margin: 0;
+      padding: 0 clamp(1rem, 3vw, 1.45rem);
+    }
+
+    .fact {
+      min-width: 0;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .fact:nth-child(odd) {
+      padding-right: 1rem;
+    }
+
+    .fact:nth-child(even) {
+      padding-left: 1rem;
+      border-left: 1px solid var(--line);
+    }
+
+    .fact dt {
+      margin-bottom: 0.2rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .fact dd {
+      margin: 0;
+    }
+
+    .human-badge {
+      display: inline-flex;
+      margin-left: 0.4rem;
+      padding: 0.12rem 0.38rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 0.72rem;
+      font-weight: 750;
+      vertical-align: 0.08em;
+    }
+
+    .timeline-wrap {
+      padding: 1rem clamp(1rem, 3vw, 1.45rem) 1.25rem;
+    }
+
+    .timeline-toggle {
+      width: 100%;
+      padding: 0;
+      border: 0;
+      color: var(--ink);
+      background: transparent;
+      font: inherit;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .timeline-toggle::after {
+      float: right;
+      content: "＋";
+      color: var(--muted);
+    }
+
+    .timeline-toggle[aria-expanded="true"]::after {
+      content: "−";
+    }
+
+    .timeline {
+      position: relative;
+      margin-top: 1.15rem;
+      padding-left: 1.2rem;
+    }
+
+    .timeline::before {
+      position: absolute;
+      top: 0.3rem;
+      bottom: 0.3rem;
+      left: 0.22rem;
+      width: 2px;
+      background: var(--line);
+      content: "";
+    }
+
+    .timeline-item {
+      position: relative;
+      padding: 0 0 1.15rem 0.8rem;
+    }
+
+    .timeline-item:last-child {
+      padding-bottom: 0;
+    }
+
+    .timeline-item::before {
+      position: absolute;
+      top: 0.38rem;
+      left: -1.12rem;
+      width: 0.58rem;
+      height: 0.58rem;
+      border: 2px solid var(--surface);
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+      content: "";
+    }
+
+    .timeline-date {
+      display: block;
+      margin-bottom: 0.14rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timeline-text {
+      margin: 0;
+      font-weight: 650;
+    }
+
+    .evidence {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .source-list {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .source {
+      padding: clamp(1rem, 3vw, 1.4rem);
+      border: 1px solid var(--line);
+      border-radius: 0.85rem;
+      background: var(--surface);
+      scroll-margin-top: 1rem;
+    }
+
+    .source:target {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .source-meta {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.2rem 0.8rem;
+      margin: 0.75rem 0;
+      font-size: 0.86rem;
+    }
+
+    .source-meta dt {
+      color: var(--muted);
+      font-weight: 750;
+    }
+
+    .source-meta dd {
+      min-width: 0;
+      margin: 0;
+    }
+
+    .source-body {
+      padding: 0.85rem;
+      border-radius: 0.6rem;
+      background: var(--surface-soft);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    footer p {
+      margin-bottom: 0.35rem;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 38rem) {
+      .shell {
+        width: min(100% - 1rem, 72rem);
+        padding-top: 2rem;
+      }
+
+      .commitment {
+        grid-template-columns: 1fr;
+      }
+
+      .matter-head {
+        flex-direction: column;
+      }
+
+      .facts {
+        grid-template-columns: 1fr;
+      }
+
+      .fact:nth-child(odd),
+      .fact:nth-child(even) {
+        padding-right: 0;
+        padding-left: 0;
+        border-left: 0;
+      }
+
+      .source-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .source-meta dt {
+        margin-top: 0.3rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Matter ledger · email-demo</p>
+      <h1>What is owed, blocked, and changing.</h1>
+      <p class="lede">A deterministic view of the matter assertions in this scope, with every change linked back to its evidence.</p>
+    </header>
+
+    <section class="commitments" aria-labelledby="commitments-heading">
+      <p class="eyebrow">First look</p>
+      <h2 id="commitments-heading">Open commitments</h2>
+      
+      <ol class="commitment-list">
+        
+        <li class="commitment">
+          <time class="deadline overdue" datetime="2026-06-15T17:00:00.000000Z">2026-06-15 · overdue</time>
+          <div>
+            <h3><a href="#matter-sub_2f7ed0b65b247549c4ff">Aster Relay acceptance memo</a></h3>
+            <p class="commitment-meta">Owner: theo.rill@pebblearc.example · Next: Theo sends the revised memo for signature</p>
+          </div>
+        </li>
+        
+      </ol>
+      
+    </section>
+
+    <section aria-labelledby="people-heading">
+      <p class="eyebrow">Workload</p>
+      <h2 id="people-heading">By person</h2>
+      
+      <ul class="person-list">
+        
+        <li class="person"><strong>mira.venn@lumenfinch.example</strong>0 in progress, 1 blocked</li>
+        
+        <li class="person"><strong>sora.pell@lumenfinch.example</strong>0 in progress, 1 blocked</li>
+        
+        <li class="person"><strong>theo.rill@pebblearc.example</strong>0 in progress, 1 blocked</li>
+        
+      </ul>
+      
+    </section>
+
+    <section aria-labelledby="matters-heading">
+      <p class="eyebrow">Ledger</p>
+      <h2 id="matters-heading">Matters</h2>
+      <ol class="matter-list">
+        
+        <li class="matter" id="matter-sub_2f7ed0b65b247549c4ff">
+          <div class="matter-head">
+            <h3 class="matter-title">Aster Relay acceptance memo</h3>
+            <span class="status blocked">blocked</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>theo.rill@pebblearc.example</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>mira.venn@lumenfinch.example, sora.pell@lumenfinch.example, theo.rill@pebblearc.example</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>Signed acceptance memo has not been received</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>Theo sends the revised memo for signature</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd class="overdue-text">2026-06-15</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>blocked</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_2f7ed0b65b247549c4ff">Timeline · 6 changes</button>
+            <ol class="timeline" id="timeline-sub_2f7ed0b65b247549c4ff" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-12T09:30:00.000000Z">2026-06-12</time>
+                <p class="timeline-text">Status set to open</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-50c8107ca4ea5235268c">email:accept-01@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-12T09:30:00.000000Z">2026-06-12</time>
+                <p class="timeline-text">Due set to 2026-06-15</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-50c8107ca4ea5235268c">email:accept-01@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-250c4490851cc2667923">email:accept-03@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-12T09:30:00.000000Z">2026-06-12</time>
+                <p class="timeline-text">Owner assigned: theo.rill@pebblearc.example</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-50c8107ca4ea5235268c">email:accept-01@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-16T10:00:00.000000Z">2026-06-16</time>
+                <p class="timeline-text">Status changed from open to in_progress</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-b04b6fec961e84b6d014">email:accept-02@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-01T14:00:00.000000Z">2026-07-01</time>
+                <p class="timeline-text">Status changed from in_progress to blocked</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-250c4490851cc2667923">email:accept-03@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-01T14:00:00.000000Z">2026-07-01</time>
+                <p class="timeline-text">Blocker opened: Signed acceptance memo has not been received</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-250c4490851cc2667923">email:accept-03@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_8e522bde01b50fdbc1b4">
+          <div class="matter-head">
+            <h3 class="matter-title">Aster Relay vendor rollout</h3>
+            <span class="status done">done</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>theo.rill@pebblearc.example</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>ivo.quill@pebblearc.example, mira.venn@lumenfinch.example, sora.pell@lumenfinch.example, theo.rill@pebblearc.example</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>Theo sends daily recovery notes</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>2026-06-20</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>done</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_8e522bde01b50fdbc1b4">Timeline · 16 changes</button>
+            <ol class="timeline" id="timeline-sub_8e522bde01b50fdbc1b4" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-12T09:00:00.000000Z">2026-05-12</time>
+                <p class="timeline-text">Status set to open</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-e973f05d44fd642f3a3a">email:relay-01@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-fe8593c5153a6a8d77d5">email:relay-02@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-12T09:00:00.000000Z">2026-05-12</time>
+                <p class="timeline-text">Due set to 2026-06-01</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-e973f05d44fd642f3a3a">email:relay-01@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-fe8593c5153a6a8d77d5">email:relay-02@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-12T09:00:00.000000Z">2026-05-12</time>
+                <p class="timeline-text">Owner assigned: mira.venn@lumenfinch.example</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-e973f05d44fd642f3a3a">email:relay-01@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-fe8593c5153a6a8d77d5">email:relay-02@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-20T08:45:00.000000Z">2026-05-20</time>
+                <p class="timeline-text">Decision: Adopt option A, the compact serial bridge</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-558d2f64e2dea08026cb">email:relay-03@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-d94136675e8c6562b3c7">email:relay-04@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-26T11:00:00.000000Z">2026-05-26</time>
+                <p class="timeline-text">Status changed from open to in_progress</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-85f21ec93407dfeed982">email:relay-06@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-26T11:00:00.000000Z">2026-05-26</time>
+                <p class="timeline-text">Due changed from 2026-06-01 to 2026-06-10</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-85f21ec93407dfeed982">email:relay-06@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-28T16:10:00.000000Z">2026-05-28</time>
+                <p class="timeline-text">Status changed from in_progress to blocked</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-bbc15b301d805b5781df">email:relay-07@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-28T16:10:00.000000Z">2026-05-28</time>
+                <p class="timeline-text">Blocker opened: Power-module certification is incomplete</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-bbc15b301d805b5781df">email:relay-07@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-30T09:00:00.000000Z">2026-05-30</time>
+                <p class="timeline-text">Owner released: mira.venn@lumenfinch.example</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-c8442513596857b9be9c">email:relay-08@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-711e574c881ef11226cd">email:relay-09@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-30T09:01:00.000000Z">2026-05-30</time>
+                <p class="timeline-text">Status changed from blocked to in_progress</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-c8442513596857b9be9c">email:relay-08@lumenfinch.example</a>, 
+                  
+                  <a href="#source-email-27e2768cab7092819f28">email:relay-11@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-05-30T09:01:00.000000Z">2026-05-30</time>
+                <p class="timeline-text">Owner assigned: theo.rill@pebblearc.example</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-c8442513596857b9be9c">email:relay-08@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-04T14:25:00.000000Z">2026-06-04</time>
+                <p class="timeline-text">Decision: Reverse option A and explicitly switch to option B</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-7d814bd6f55679e815db">email:relay-10@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-05T17:05:00.000000Z">2026-06-05</time>
+                <p class="timeline-text">Blocker closed: Power-module certification is incomplete</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-27e2768cab7092819f28">email:relay-11@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-08T10:15:00.000000Z">2026-06-08</time>
+                <p class="timeline-text">Due changed from 2026-06-10 to 2026-06-20</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-3092f9816827b6a0e939">email:relay-12@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-15T11:35:00.000000Z">2026-06-15</time>
+                <p class="timeline-text">Status changed from in_progress to ready</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-0ce207b54015afd49bab">email:relay-13@pebblearc.example</a>
+                  
+                </p>
+              </li>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-06-20T16:00:00.000000Z">2026-06-20</time>
+                <p class="timeline-text">Status changed from ready to done</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="#source-email-7271f7e4f5aed128acf5">email:relay-14@lumenfinch.example</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+      </ol>
+    </section>
+
+    
+    <section aria-labelledby="sources-heading">
+      <p class="eyebrow">Evidence</p>
+      <h2 id="sources-heading">Source emails</h2>
+      <p class="section-note">Email evidence stays inside this file so every source link works offline.</p>
+      <ol class="source-list">
+        
+        <li class="source" id="source-email-e973f05d44fd642f3a3a">
+          <h3>Aster Relay kickoff and June 1 delivery</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Mira Venn</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-12T09:00:00.000000Z">2026-05-12T09:00:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-01@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Theo,
+
+We are opening the Aster Relay vendor rollout today. I will own the rollout
+for Lumen Finch, with Sora participating on integration and you and Ivo on the
+Pebble Arc side. The committed delivery date is June 1, 2026.
+
+Next step: please send the interface checklist by May 15.
+
+Regards,
+Mira</div>
+        </li>
+        
+        <li class="source" id="source-email-fe8593c5153a6a8d77d5">
+          <h3>Re: Aster Relay kickoff and June 1 delivery</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Theo Rill</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-15T10:30:00.000000Z">2026-05-15T10:30:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-02@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Mira,
+
+Accepted. Ivo has completed the interface checklist, and June 1 remains our
+committed delivery date.
+
+Best,
+Theo</div>
+        </li>
+        
+        <li class="source" id="source-email-558d2f64e2dea08026cb">
+          <h3>Re: Aster Relay implementation choice</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Sora Pell</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-18T13:15:00.000000Z">2026-05-18T13:15:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Theo Rill <theo.rill@pebblearc.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-03@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hi all,
+
+For the relay control path, I recommend option A: the compact serial bridge.
+It is the simpler integration for our current rack.
+
+Thanks,
+Sora</div>
+        </li>
+        
+        <li class="source" id="source-email-d94136675e8c6562b3c7">
+          <h3>Re: Aster Relay implementation choice</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Mira Venn</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-20T08:45:00.000000Z">2026-05-20T08:45:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-04@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hello everyone,
+
+Decision: we are adopting option A, the compact serial bridge, for the Aster
+Relay implementation.
+
+Regards,
+Mira</div>
+        </li>
+        
+        <li class="source" id="source-email-d4a4bf12fe17a5716a02">
+          <h3>Re: Aster Relay build progress</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Ivo Quill</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-22T15:20:00.000000Z">2026-05-22T15:20:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Sora Pell <sora.pell@lumenfinch.example>, Mira Venn <mira.venn@lumenfinch.example>, Theo Rill <theo.rill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-05@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hi Sora,
+
+The option A enclosure is assembled and the control firmware passes the bench
+test. We are preparing the shipment crate.
+
+Best,
+Ivo</div>
+        </li>
+        
+        <li class="source" id="source-email-85f21ec93407dfeed982">
+          <h3>Re: Aster Relay delivery moves to June 10</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Theo Rill</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-26T11:00:00.000000Z">2026-05-26T11:00:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-06@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Mira,
+
+We cannot hold the June 1 delivery. This is an explicit schedule change: the
+Aster Relay delivery moves from June 1 to June 10, 2026.
+
+Next step: I will confirm the certification slot tomorrow.
+
+Best,
+Theo</div>
+        </li>
+        
+        <li class="source" id="source-email-bbc15b301d805b5781df">
+          <h3>Re: Aster Relay certification blocker</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Ivo Quill</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-28T16:10:00.000000Z">2026-05-28T16:10:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example>, Mira Venn <mira.venn@lumenfinch.example></dd>
+            <dt>Source</dt><dd><code>email:relay-07@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hi team,
+
+The rollout is blocked by power-module certification. The lab rejected the
+first certificate because its temperature range was incomplete.
+
+I will submit the expanded certificate tomorrow.
+
+Regards,
+Ivo</div>
+        </li>
+        
+        <li class="source" id="source-email-c8442513596857b9be9c">
+          <h3>Re: Aster Relay owner handoff</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Mira Venn</dd>
+            <dt>Date</dt><dd><time datetime="2026-05-30T09:00:00.000000Z">2026-05-30T09:00:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-08@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Theo,
+
+I am handing ownership of the Aster Relay rollout to you effective today.
+Theo Rill is now the owner. I will remain a participant for acceptance, along
+with Sora and Ivo.
+
+Regards,
+Mira</div>
+        </li>
+        
+        <li class="source" id="source-email-711e574c881ef11226cd">
+          <h3>Re: Aster Relay owner handoff</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Theo Rill</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-02T12:40:00.000000Z">2026-06-02T12:40:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-09@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Mira,
+
+I accept ownership. The certification blocker remains open, and I am
+coordinating the lab response.
+
+Best,
+Theo</div>
+        </li>
+        
+        <li class="source" id="source-email-7d814bd6f55679e815db">
+          <h3>Re: Aster Relay explicit switch to option B</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Sora Pell</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-04T14:25:00.000000Z">2026-06-04T14:25:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Mira Venn <mira.venn@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-10@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hi all,
+
+Decision reversal: we are no longer using option A. We explicitly switch to
+option B, the isolated network bridge, because its certificate already covers
+the required temperature range.
+
+Thanks,
+Sora</div>
+        </li>
+        
+        <li class="source" id="source-email-27e2768cab7092819f28">
+          <h3>Re: Aster Relay certification blocker cleared</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Ivo Quill</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-05T17:05:00.000000Z">2026-06-05T17:05:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example>, Mira Venn <mira.venn@lumenfinch.example></dd>
+            <dt>Source</dt><dd><code>email:relay-11@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hi team,
+
+The power-module certification blocker is closed. The lab accepted the option
+B certificate this afternoon, so work is in progress again.
+
+Regards,
+Ivo</div>
+        </li>
+        
+        <li class="source" id="source-email-3092f9816827b6a0e939">
+          <h3>Re: Aster Relay delivery moves to June 20</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Theo Rill</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-08T10:15:00.000000Z">2026-06-08T10:15:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-12@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Mira,
+
+The option switch requires a new harness. This is our second explicit slip:
+the Aster Relay delivery moves from June 10 to June 20, 2026.
+
+I own the recovery plan and will send daily progress notes.
+
+Best,
+Theo</div>
+        </li>
+        
+        <li class="source" id="source-email-50c8107ca4ea5235268c">
+          <h3>Acceptance memo commitment due June 15</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Mira Venn</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-12T09:30:00.000000Z">2026-06-12T09:30:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example></dd>
+            <dt>Source</dt><dd><code>email:accept-01@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Theo,
+
+Please own the Aster Relay acceptance memo. The signed memo is due June 15,
+2026. Sora and I will participate in the review.
+
+Next step: send the first draft by June 13.
+
+Regards,
+Mira</div>
+        </li>
+        
+        <li class="source" id="source-email-0ce207b54015afd49bab">
+          <h3>Re: Aster Relay ready for June 20</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Theo Rill</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-15T11:35:00.000000Z">2026-06-15T11:35:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-13@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hello all,
+
+The option B harness passed integration. The rollout is ready for the committed
+June 20 delivery.
+
+Best,
+Theo</div>
+        </li>
+        
+        <li class="source" id="source-email-b04b6fec961e84b6d014">
+          <h3>Re: Acceptance memo is late</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Theo Rill</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-16T10:00:00.000000Z">2026-06-16T10:00:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Mira Venn <mira.venn@lumenfinch.example>, Sora Pell <sora.pell@lumenfinch.example></dd>
+            <dt>Source</dt><dd><code>email:accept-02@pebblearc.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Mira,
+
+The June 15 acceptance-memo commitment is overdue and still in progress. I
+will send a revised memo by June 17.
+
+Best,
+Theo</div>
+        </li>
+        
+        <li class="source" id="source-email-7271f7e4f5aed128acf5">
+          <h3>Re: Aster Relay delivery accepted</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Mira Venn</dd>
+            <dt>Date</dt><dd><time datetime="2026-06-20T16:00:00.000000Z">2026-06-20T16:00:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Sora Pell <sora.pell@lumenfinch.example>, Ivo Quill <ivo.quill@pebblearc.example></dd>
+            <dt>Source</dt><dd><code>email:relay-14@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Theo,
+
+Delivery is complete. Lumen Finch accepted the Aster Relay hardware today,
+June 20, and the vendor rollout matter is done.
+
+Thank you,
+Mira</div>
+        </li>
+        
+        <li class="source" id="source-email-250c4490851cc2667923">
+          <h3>Re: Acceptance memo remains blocked and overdue</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>Sora Pell</dd>
+            <dt>Date</dt><dd><time datetime="2026-07-01T14:00:00.000000Z">2026-07-01T14:00:00.000000Z</time></dd>
+            <dt>To / Cc</dt><dd>Theo Rill <theo.rill@pebblearc.example>, Mira Venn <mira.venn@lumenfinch.example></dd>
+            <dt>Source</dt><dd><code>email:accept-03@lumenfinch.example</code></dd>
+          </dl>
+          <div class="source-body">Hello Theo,
+
+The signed acceptance memo has not been received. The commitment remains
+blocked and overdue against June 15, 2026.
+
+Next step: Theo must send the revised memo for signature.
+
+Regards,
+Sora</div>
+        </li>
+        
+      </ol>
+    </section>
+    
+
+    <footer>
+      <p>Deterministically rendered from 46 assertions · reproduce: <code>mh export email-demo --format html</code></p>
+      <p>Overdue is evaluated as of <time datetime="2026-07-29T09:47:39.632414Z">2026-07-29</time>, the maximum <code>recorded_at</code> in this scope.</p>
+    </footer>
+  </main>
+  <script>
+    document.querySelectorAll(".timeline-toggle").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var timeline = document.getElementById(button.getAttribute("aria-controls"));
+        var expanded = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", String(!expanded));
+        timeline.hidden = expanded;
+      });
+    });
+  </script>
+</body>
+</html>

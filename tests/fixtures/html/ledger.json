@@ -1,0 +1,228 @@
+{
+  "format": "matterhorn-scope-export",
+  "version": 1,
+  "scope_id": "email-demo",
+  "schema_profile": {
+    "id": "org-matters/v1",
+    "version": "fixture"
+  },
+  "subjects": [
+    {
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "title": "Vendor relay rollout",
+      "normalized_title": "vendor relay rollout",
+      "source_ids": [
+        "email:kickoff@project.example",
+        "email:delay@vendor.example"
+      ],
+      "parent_subject_key": null,
+      "thread_ids": [
+        "email:kickoff@project.example"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "assertion_id": "a-status-open",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "status",
+      "operation": "ASSERT",
+      "object_value": "open",
+      "object_key": "\"open\"",
+      "valid_from": "2026-05-01T09:00:00Z",
+      "recorded_at": "2026-06-01T12:00:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:kickoff@project.example",
+          "sent_at": "2026-05-01T09:00:00Z",
+          "sender": "Mira Venn <mira@project.example>",
+          "excerpt": "Subject: Relay kickoff\nTo: Theo Rill <theo@vendor.example>\n\nHello Theo,\n\nThe relay rollout is open and due May 10.\n\nRegards,\nMira",
+          "uri": null
+        }
+      ],
+      "origin": "model",
+      "observation_id": "card-open"
+    },
+    {
+      "assertion_id": "a-status-blocked",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "status",
+      "operation": "ASSERT",
+      "object_value": "blocked",
+      "object_key": "\"blocked\"",
+      "valid_from": "2026-05-12T09:00:00Z",
+      "recorded_at": "2026-06-01T12:01:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:delay@vendor.example",
+          "sent_at": "2026-05-12T09:00:00Z",
+          "sender": "Theo Rill <theo@vendor.example>",
+          "excerpt": "Subject: Relay delay\nTo: Mira Venn <mira@project.example>\n\nHello Mira,\n\nThe relay is blocked on certification.\n\nBest,\nTheo",
+          "uri": null
+        }
+      ],
+      "origin": "human",
+      "observation_id": null
+    },
+    {
+      "assertion_id": "a-owner",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "owned_by",
+      "operation": "ASSERT",
+      "object_value": "mira@project.example",
+      "object_key": "\"mira@project.example\"",
+      "valid_from": "2026-05-01T09:00:00Z",
+      "recorded_at": "2026-06-01T12:00:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:kickoff@project.example",
+          "sent_at": "2026-05-01T09:00:00Z",
+          "sender": "Mira Venn <mira@project.example>",
+          "excerpt": "Subject: Relay kickoff\nTo: Theo Rill <theo@vendor.example>\n\nHello Theo,\n\nThe relay rollout is open and due May 10.\n\nRegards,\nMira",
+          "uri": null
+        }
+      ],
+      "origin": "model",
+      "observation_id": "card-open"
+    },
+    {
+      "assertion_id": "a-participant",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "participated_by",
+      "operation": "ASSERT",
+      "object_value": "theo@vendor.example",
+      "object_key": "\"theo@vendor.example\"",
+      "valid_from": "2026-05-01T09:00:00Z",
+      "recorded_at": "2026-06-01T12:00:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:kickoff@project.example",
+          "sent_at": "2026-05-01T09:00:00Z",
+          "sender": "Mira Venn <mira@project.example>",
+          "excerpt": "Subject: Relay kickoff\nTo: Theo Rill <theo@vendor.example>\n\nHello Theo,\n\nThe relay rollout is open and due May 10.\n\nRegards,\nMira",
+          "uri": null
+        }
+      ],
+      "origin": "model",
+      "observation_id": "card-open"
+    },
+    {
+      "assertion_id": "a-blocker",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "blocked_by",
+      "operation": "ASSERT",
+      "object_value": "Certification pending",
+      "object_key": "\"Certification pending\"",
+      "valid_from": "2026-05-12T09:00:00Z",
+      "recorded_at": "2026-06-01T12:01:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:delay@vendor.example",
+          "sent_at": "2026-05-12T09:00:00Z",
+          "sender": "Theo Rill <theo@vendor.example>",
+          "excerpt": "Subject: Relay delay\nTo: Mira Venn <mira@project.example>\n\nHello Mira,\n\nThe relay is blocked on certification.\n\nBest,\nTheo",
+          "uri": null
+        }
+      ],
+      "origin": "human",
+      "observation_id": null
+    },
+    {
+      "assertion_id": "a-next",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "next_step",
+      "operation": "ASSERT",
+      "object_value": "Send certification packet",
+      "object_key": "\"Send certification packet\"",
+      "valid_from": "2026-05-12T09:00:00Z",
+      "recorded_at": "2026-06-01T12:01:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:delay@vendor.example",
+          "sent_at": "2026-05-12T09:00:00Z",
+          "sender": "Theo Rill <theo@vendor.example>",
+          "excerpt": "Subject: Relay delay\nTo: Mira Venn <mira@project.example>\n\nHello Mira,\n\nThe relay is blocked on certification.\n\nBest,\nTheo",
+          "uri": null
+        }
+      ],
+      "origin": "model",
+      "observation_id": "card-delay"
+    },
+    {
+      "assertion_id": "a-due",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "due_at",
+      "operation": "ASSERT",
+      "object_value": "2026-05-10T17:00:00Z",
+      "object_key": "\"2026-05-10T17:00:00.000000Z\"",
+      "valid_from": "2026-05-01T09:00:00Z",
+      "recorded_at": "2026-06-01T12:00:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:kickoff@project.example",
+          "sent_at": "2026-05-01T09:00:00Z",
+          "sender": "Mira Venn <mira@project.example>",
+          "excerpt": "Subject: Relay kickoff\nTo: Theo Rill <theo@vendor.example>\n\nHello Theo,\n\nThe relay rollout is open and due May 10.\n\nRegards,\nMira",
+          "uri": null
+        }
+      ],
+      "origin": "model",
+      "observation_id": "card-open"
+    },
+    {
+      "assertion_id": "a-decision",
+      "scope_id": "email-demo",
+      "subject_key": "vendor-rollout",
+      "subject_type": "MATTER",
+      "predicate": "outcome",
+      "operation": "ASSERT",
+      "object_value": {
+        "type": "decision",
+        "content": "Switched from option A to option B"
+      },
+      "object_key": "{\"content\":\"Switched from option A to option B\",\"type\":\"decision\"}",
+      "valid_from": "2026-05-11T09:00:00Z",
+      "recorded_at": "2026-06-01T12:01:00Z",
+      "source_refs": [
+        {
+          "source_id": "email:delay@vendor.example",
+          "sent_at": "2026-05-12T09:00:00Z",
+          "sender": "Theo Rill <theo@vendor.example>",
+          "excerpt": "Subject: Relay delay\nTo: Mira Venn <mira@project.example>\n\nHello Mira,\n\nThe relay is blocked on certification.\n\nBest,\nTheo",
+          "uri": null
+        }
+      ],
+      "origin": "model",
+      "observation_id": "card-decision"
+    }
+  ],
+  "source_states": [
+    {
+      "source_id": "email:kickoff@project.example",
+      "uri": null,
+      "revoked_at": null
+    },
+    {
+      "source_id": "email:delay@vendor.example",
+      "uri": null,
+      "revoked_at": null
+    }
+  ],
+  "events": []
+}

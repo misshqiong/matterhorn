@@ -3,6 +3,16 @@
 面向 agent 的确定性、可溯源时态记忆：喂入消息，得到事项；状态、负责人、阻塞与历史
 全部由持久化证据推导，而不是在回答时让模型临场生成。
 
+## 在线演示 →
+
+**[邮件事项台账](https://misshqiong.github.io/matterhorn/demo/email-ledger.html)**——
+从 18 封往来邮件中蒸馏出的供应商项目：交期两次推迟的时间线分段、一次决策反转、
+一次以 ✏️ 人工纠错入账的负责人交接，以及首屏红色标出的逾期承诺。页面上每个事实
+都能点回底部的原始邮件。另见
+**[本项目自己的开发台账](https://misshqiong.github.io/matterhorn/demo/self-ledger.html)**，
+由同一渲染器从仓库开发历史生成。两个页面都是 `mh export <scope> --format html`
+产出的单文件自包含 HTML——无服务端、无前端框架、零外部请求。
+
 ## 📒 开发账本
 
 Matterhorn 用自身追踪这个项目的开发过程。公开的

@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>dev · Matter ledger</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: #f5f3ee;
+      --surface: #fffdf8;
+      --surface-soft: #f0ede5;
+      --ink: #211f1a;
+      --muted: #6c675d;
+      --line: #d9d3c7;
+      --accent: #315c49;
+      --accent-soft: #dcebe2;
+      --danger: #a32626;
+      --danger-soft: #f8dede;
+      --warning: #805900;
+      --warning-soft: #f6e8b9;
+      --done: #2d5d48;
+      --done-soft: #dcebe2;
+      --shadow: 0 12px 34px rgb(54 47 36 / 8%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #171815;
+        --surface: #20221e;
+        --surface-soft: #292c27;
+        --ink: #f1eee6;
+        --muted: #b8b3a8;
+        --line: #3d413a;
+        --accent: #9ed3b7;
+        --accent-soft: #203b30;
+        --danger: #ff9b9b;
+        --danger-soft: #4a2424;
+        --warning: #f3cb69;
+        --warning-soft: #433719;
+        --done: #a8dabe;
+        --done-soft: #203b30;
+        --shadow: 0 12px 34px rgb(0 0 0 / 24%);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+
+    a {
+      color: var(--accent);
+      text-underline-offset: 0.18em;
+    }
+
+    button,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .shell {
+      width: min(72rem, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 3.5rem 0 2rem;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.35rem;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 26ch;
+      margin-bottom: 0.5rem;
+      font-size: clamp(1.7rem, 4vw, 2.5rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      margin-bottom: 1rem;
+      font-size: clamp(1.35rem, 3vw, 2rem);
+      letter-spacing: -0.025em;
+    }
+
+    h3 {
+      margin-bottom: 0.25rem;
+      font-size: 1.1rem;
+    }
+
+    .lede,
+    .section-note,
+    .muted {
+      color: var(--muted);
+    }
+
+    .lede {
+      max-width: 60ch;
+      margin-bottom: 2rem;
+      font-size: 1.05rem;
+    }
+
+    section {
+      margin-top: 3rem;
+      scroll-margin-top: 1rem;
+    }
+
+    .commitments {
+      margin-top: 1.5rem;
+    }
+
+    .commitment-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+      gap: 0.9rem;
+    }
+
+    .commitment-list,
+    .person-list,
+    .matter-list,
+    .timeline,
+    .source-list {
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .commitment {
+      min-width: 0;
+      padding: 0.95rem 1.05rem;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 0.85rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .commitment.overdue {
+      border-left-color: var(--danger);
+    }
+
+    .deadline {
+      display: inline-flex;
+      width: fit-content;
+      padding: 0.3rem 0.55rem;
+      border-radius: 0.45rem;
+      background: var(--surface-soft);
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+    }
+
+    .deadline.overdue,
+    .overdue-text {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .commitment-meta {
+      margin: 0.25rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .person-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+      gap: 0.75rem;
+    }
+
+    .person {
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 0.8rem;
+      background: var(--surface);
+    }
+
+    .person {
+      font-size: 0.9rem;
+    }
+
+    .person strong {
+      display: block;
+      margin-bottom: 0.15rem;
+      font-size: 0.86rem;
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .matter-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
+      gap: 1.1rem;
+      align-items: start;
+    }
+
+    .matter {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      transition: translate 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .matter:hover {
+      translate: 0 -2px;
+      box-shadow: 0 16px 40px rgb(54 47 36 / 13%);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .matter,
+      .matter:hover {
+        translate: none;
+        transition: none;
+      }
+    }
+
+    .matter-head {
+      display: flex;
+      gap: 0.8rem;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 1.1rem 1.15rem 0.4rem;
+    }
+
+    .matter-title {
+      min-width: 0;
+      margin: 0;
+      font-size: 1.12rem;
+      line-height: 1.25;
+    }
+
+    .status {
+      flex: 0 0 auto;
+      padding: 0.28rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 850;
+      letter-spacing: 0.025em;
+      text-transform: uppercase;
+    }
+
+    .status.blocked {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .status.done {
+      color: var(--done);
+      background: var(--done-soft);
+    }
+
+    .status.progress {
+      color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .status.open,
+    .status.neutral {
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .facts {
+      display: grid;
+      gap: 0.55rem;
+      margin: 0;
+      padding: 0.45rem 1.15rem 0.9rem;
+    }
+
+    .fact {
+      display: grid;
+      grid-template-columns: 6.2rem minmax(0, 1fr);
+      gap: 0.6rem;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    .fact dt {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .fact dd {
+      margin: 0;
+      font-size: 0.94rem;
+    }
+
+    .human-badge {
+      display: inline-flex;
+      margin-left: 0.4rem;
+      padding: 0.12rem 0.38rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 0.72rem;
+      font-weight: 750;
+      vertical-align: 0.08em;
+    }
+
+    .timeline-wrap {
+      padding: 0.15rem 1.15rem 1rem;
+      border-top: 1px solid var(--line);
+      margin-top: 0.2rem;
+    }
+
+    .timeline-toggle {
+      padding-top: 0.8rem;
+    }
+
+    .timeline-toggle {
+      width: 100%;
+      padding: 0;
+      border: 0;
+      color: var(--ink);
+      background: transparent;
+      font: inherit;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .timeline-toggle::after {
+      float: right;
+      content: "＋";
+      color: var(--muted);
+    }
+
+    .timeline-toggle[aria-expanded="true"]::after {
+      content: "−";
+    }
+
+    .timeline {
+      position: relative;
+      margin-top: 1.15rem;
+      padding-left: 1.2rem;
+    }
+
+    .timeline::before {
+      position: absolute;
+      top: 0.3rem;
+      bottom: 0.3rem;
+      left: 0.22rem;
+      width: 2px;
+      background: var(--line);
+      content: "";
+    }
+
+    .timeline-item {
+      position: relative;
+      padding: 0 0 1.15rem 0.8rem;
+    }
+
+    .timeline-item:last-child {
+      padding-bottom: 0;
+    }
+
+    .timeline-item::before {
+      position: absolute;
+      top: 0.38rem;
+      left: -1.12rem;
+      width: 0.58rem;
+      height: 0.58rem;
+      border: 2px solid var(--surface);
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+      content: "";
+    }
+
+    .timeline-date {
+      display: block;
+      margin-bottom: 0.14rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timeline-text {
+      margin: 0;
+      font-weight: 650;
+    }
+
+    .evidence {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .source-list {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .source {
+      padding: clamp(1rem, 3vw, 1.4rem);
+      border: 1px solid var(--line);
+      border-radius: 0.85rem;
+      background: var(--surface);
+      scroll-margin-top: 1rem;
+    }
+
+    .source:target {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .source-meta {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.2rem 0.8rem;
+      margin: 0.75rem 0;
+      font-size: 0.86rem;
+    }
+
+    .source-meta dt {
+      color: var(--muted);
+      font-weight: 750;
+    }
+
+    .source-meta dd {
+      min-width: 0;
+      margin: 0;
+    }
+
+    .source-body {
+      max-height: 13rem;
+      overflow: auto;
+      padding: 0.85rem;
+      border-radius: 0.6rem;
+      background: var(--surface-soft);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.9rem;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    footer p {
+      margin-bottom: 0.35rem;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 38rem) {
+      .shell {
+        width: min(100% - 1rem, 72rem);
+        padding-top: 2rem;
+      }
+
+      .matter-head {
+        flex-direction: column;
+      }
+
+      .source-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .source-meta dt {
+        margin-top: 0.3rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Matter ledger · dev</p>
+      <h1>What is owed, blocked, and changing.</h1>
+      <p class="lede">A deterministic view of the matter assertions in this scope, with every change linked back to its evidence.</p>
+    </header>
+
+    <section class="commitments" aria-labelledby="commitments-heading">
+      <p class="eyebrow">First look</p>
+      <h2 id="commitments-heading">Open commitments</h2>
+      
+      <p class="muted">No open matter has a due date.</p>
+      
+    </section>
+
+    <section aria-labelledby="people-heading">
+      <p class="eyebrow">Workload</p>
+      <h2 id="people-heading">By person</h2>
+      
+      <p class="muted">No people are attached to open matters.</p>
+      
+    </section>
+
+    <section aria-labelledby="matters-heading">
+      <p class="eyebrow">Ledger</p>
+      <h2 id="matters-heading">Matters</h2>
+      <ol class="matter-list">
+        
+        <li class="matter" id="matter-sub_12ba4ee262a67a1e6376">
+          <div class="matter-head">
+            <h3 class="matter-title">M4: Record layer, Slack adapter, evidence lifecycle</h3>
+            <span class="status done">done</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>done</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_12ba4ee262a67a1e6376">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_12ba4ee262a67a1e6376" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to done</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/2e18f3daa18759aa1e4a5cc428d603c1c3c7c91c" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:2e18f3daa18759aa1e4a5cc428d603c1c3c7c91c</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_12d13752c6ef78c60dfb">
+          <div class="matter-head">
+            <h3 class="matter-title">Fix CI: make lint and CLI tests pass outside developer machine</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_12d13752c6ef78c60dfb">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_12d13752c6ef78c60dfb" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/3957f06dee16631c30eb6204daee97045a837bf5" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:3957f06dee16631c30eb6204daee97045a837bf5</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_15737a874bc702e727e6">
+          <div class="matter-head">
+            <h3 class="matter-title">ledger phase 2: the project ledgers itself</h3>
+            <span class="status done">done</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>done</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_15737a874bc702e727e6">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_15737a874bc702e727e6" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to done</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/da715b5c3e6065975f6a1725faffaeb54efe686a" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:da715b5c3e6065975f6a1725faffaeb54efe686a</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_1ca9ecbc858f8276b19d">
+          <div class="matter-head">
+            <h3 class="matter-title">Test: assert CLI contracts, not rendered layout</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_1ca9ecbc858f8276b19d">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_1ca9ecbc858f8276b19d" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/64948ed37991f001b09e7e505f82e80b36e1ca5e" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:64948ed37991f001b09e7e505f82e80b36e1ca5e</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_2f61116c228ead71042c">
+          <div class="matter-head">
+            <h3 class="matter-title">Publish as matterhorn-memory on PyPI</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_2f61116c228ead71042c">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_2f61116c228ead71042c" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/28abe2eedd57965df6ad408beb792f18ee4c16f9" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:28abe2eedd57965df6ad408beb792f18ee4c16f9</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_2fda0cbf3ba66b86ec5b">
+          <div class="matter-head">
+            <h3 class="matter-title">M1: deterministic engine core, SQLite store, query family, CLI</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_2fda0cbf3ba66b86ec5b">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_2fda0cbf3ba66b86ec5b" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/66dd721cb5642b1fb8fe0e84c979e1942b7f3700" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:66dd721cb5642b1fb8fe0e84c979e1942b7f3700</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_84d3d6b9b2d3acf998fe">
+          <div class="matter-head">
+            <h3 class="matter-title">ledger: break the self-feeding loop, pin batch size, refresh content</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_84d3d6b9b2d3acf998fe">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_84d3d6b9b2d3acf998fe" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/b36ee6c508cefe538b1b4958ed77aac5880b2e35" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:b36ee6c508cefe538b1b4958ed77aac5880b2e35</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_8a6a366948569d59dad9">
+          <div class="matter-head">
+            <h3 class="matter-title">ledger phase 1: GitHub adapter, devlog, repeatable fill</h3>
+            <span class="status done">done</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>done</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_8a6a366948569d59dad9">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_8a6a366948569d59dad9" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to done</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/81aa5612c023a8a02851090f8d0c17b5d2c1c325" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:81aa5612c023a8a02851090f8d0c17b5d2c1c325</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_9c2d53b05d4941a18f9f">
+          <div class="matter-head">
+            <h3 class="matter-title">Hands-on acceptance manual</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_9c2d53b05d4941a18f9f">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_9c2d53b05d4941a18f9f" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/96c1a2b6f01b71b955bacccf919989c060a70534" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:96c1a2b6f01b71b955bacccf919989c060a70534</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_aa76b6d1748ac5e46046">
+          <div class="matter-head">
+            <h3 class="matter-title">Keep internal project brief out of version control</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_aa76b6d1748ac5e46046">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_aa76b6d1748ac5e46046" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/6e594243f2f1e73998aae8b713345cfa5c9275e4" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:6e594243f2f1e73998aae8b713345cfa5c9275e4</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_b0239011fbf1d562c2ff">
+          <div class="matter-head">
+            <h3 class="matter-title">M6: events, export/import, daily flush</h3>
+            <span class="status done">done</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>done</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_b0239011fbf1d562c2ff">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_b0239011fbf1d562c2ff" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to done</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/e6d2180f47945bdeb29f90ff4a56cbcf54447ec5" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:e6d2180f47945bdeb29f90ff4a56cbcf54447ec5</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_b08f5de6a8854006957f">
+          <div class="matter-head">
+            <h3 class="matter-title">M2+M3: distillation gate, protocol surfaces, adapters, PostgreSQL, release</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_b08f5de6a8854006957f">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_b08f5de6a8854006957f" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/d021c7cfc1e8f3069f5e04edfe0e9a8c49b0f188" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:d021c7cfc1e8f3069f5e04edfe0e9a8c49b0f188</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_defe9050cccd7d37acf1">
+          <div class="matter-head">
+            <h3 class="matter-title">Project strategy documentation</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>github:misshqiong</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_defe9050cccd7d37acf1">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_defe9050cccd7d37acf1" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/blob/main/devlog/0001-project-strategy.md" target="_blank" rel="noreferrer noopener">devlog:0001</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_df41a59e3d810443a158">
+          <div class="matter-head">
+            <h3 class="matter-title">CI gate exit contract fix and terminal correction path</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_df41a59e3d810443a158">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_df41a59e3d810443a158" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/ad2c7b0eeacab7a969e90dac8183374c449bd3d1" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:ad2c7b0eeacab7a969e90dac8183374c449bd3d1</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_ed23d55f6b21eeee8e5f">
+          <div class="matter-head">
+            <h3 class="matter-title">M0: normative SPEC.md and golden conformance suite</h3>
+            <span class="status done">completed</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>completed</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_ed23d55f6b21eeee8e5f">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_ed23d55f6b21eeee8e5f" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to completed</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/36cd602ba5a0314960a523df1e496e63d820b3d5" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:36cd602ba5a0314960a523df1e496e63d820b3d5</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+        <li class="matter" id="matter-sub_f9332335f57301acbd67">
+          <div class="matter-head">
+            <h3 class="matter-title">M5: two-verb facade (add and matters)</h3>
+            <span class="status done">done</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd>—</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>done</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-sub_f9332335f57301acbd67">Timeline · 1 changes</button>
+            <ol class="timeline" id="timeline-sub_f9332335f57301acbd67" hidden>
+              
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="2026-07-29T00:00:00.000000Z">2026-07-29</time>
+                <p class="timeline-text">Status set to done</p>
+                <p class="evidence">Evidence:
+                  
+                  <a href="https://github.com/misshqiong/matterhorn/commit/54d391cb4ad53911dbb82a4e84d94d488331e07e" target="_blank" rel="noreferrer noopener">github:misshqiong/matterhorn:commit:54d391cb4ad53911dbb82a4e84d94d488331e07e</a>
+                  
+                </p>
+              </li>
+              
+            </ol>
+          </div>
+        </li>
+        
+      </ol>
+    </section>
+
+    
+
+    <footer>
+      <p>Related: <a href="email-ledger.html">Email demo</a></p>
+      <p>Deterministically rendered from 48 assertions · reproduce: <code>mh export dev --format html</code></p>
+      <p>Overdue is evaluated as of <time datetime="2026-07-29T09:18:56.717832Z">2026-07-29</time>, the maximum <code>recorded_at</code> in this scope.</p>
+    </footer>
+  </main>
+  <script>
+    document.querySelectorAll(".timeline-toggle").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var timeline = document.getElementById(button.getAttribute("aria-controls"));
+        var expanded = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", String(!expanded));
+        timeline.hidden = expanded;
+      });
+    });
+  </script>
+</body>
+</html>

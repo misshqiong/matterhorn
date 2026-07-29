@@ -32,6 +32,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+  "Jinja2>=3.1,<4",
   "pydantic>=2,<3",
   "PyYAML>=6",
   "typer>=0.27,<1",
@@ -71,7 +72,7 @@ mh = "matterhorn.cli.app:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-matterhorn = ["schemas/*/*.yaml"]
+matterhorn = ["schemas/*/*.yaml", "templates/*.j2"]
 
 [tool.setuptools.data-files]
 "share/matterhorn/spec" = ["spec/SPEC.md"]

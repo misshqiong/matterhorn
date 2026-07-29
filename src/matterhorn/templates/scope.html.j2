@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>{{ scope_id }} · Matter ledger</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: #f5f3ee;
+      --surface: #fffdf8;
+      --surface-soft: #f0ede5;
+      --ink: #211f1a;
+      --muted: #6c675d;
+      --line: #d9d3c7;
+      --accent: #315c49;
+      --accent-soft: #dcebe2;
+      --danger: #a32626;
+      --danger-soft: #f8dede;
+      --warning: #805900;
+      --warning-soft: #f6e8b9;
+      --done: #2d5d48;
+      --done-soft: #dcebe2;
+      --shadow: 0 12px 34px rgb(54 47 36 / 8%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #171815;
+        --surface: #20221e;
+        --surface-soft: #292c27;
+        --ink: #f1eee6;
+        --muted: #b8b3a8;
+        --line: #3d413a;
+        --accent: #9ed3b7;
+        --accent-soft: #203b30;
+        --danger: #ff9b9b;
+        --danger-soft: #4a2424;
+        --warning: #f3cb69;
+        --warning-soft: #433719;
+        --done: #a8dabe;
+        --done-soft: #203b30;
+        --shadow: 0 12px 34px rgb(0 0 0 / 24%);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+
+    a {
+      color: var(--accent);
+      text-underline-offset: 0.18em;
+    }
+
+    button,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .shell {
+      width: min(72rem, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 3.5rem 0 2rem;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.35rem;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 26ch;
+      margin-bottom: 0.5rem;
+      font-size: clamp(1.7rem, 4vw, 2.5rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      margin-bottom: 1rem;
+      font-size: clamp(1.35rem, 3vw, 2rem);
+      letter-spacing: -0.025em;
+    }
+
+    h3 {
+      margin-bottom: 0.25rem;
+      font-size: 1.1rem;
+    }
+
+    .lede,
+    .section-note,
+    .muted {
+      color: var(--muted);
+    }
+
+    .lede {
+      max-width: 60ch;
+      margin-bottom: 2rem;
+      font-size: 1.05rem;
+    }
+
+    section {
+      margin-top: 3rem;
+      scroll-margin-top: 1rem;
+    }
+
+    .commitments {
+      margin-top: 1.5rem;
+    }
+
+    .commitment-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+      gap: 0.9rem;
+    }
+
+    .commitment-list,
+    .person-list,
+    .matter-list,
+    .timeline,
+    .source-list {
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .commitment {
+      min-width: 0;
+      padding: 0.95rem 1.05rem;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 0.85rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .commitment.overdue {
+      border-left-color: var(--danger);
+    }
+
+    .deadline {
+      display: inline-flex;
+      width: fit-content;
+      padding: 0.3rem 0.55rem;
+      border-radius: 0.45rem;
+      background: var(--surface-soft);
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+    }
+
+    .deadline.overdue,
+    .overdue-text {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .commitment-meta {
+      margin: 0.25rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .person-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+      gap: 0.75rem;
+    }
+
+    .person {
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 0.8rem;
+      background: var(--surface);
+    }
+
+    .person {
+      font-size: 0.9rem;
+    }
+
+    .person strong {
+      display: block;
+      margin-bottom: 0.15rem;
+      font-size: 0.86rem;
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .matter-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
+      gap: 1.1rem;
+      align-items: start;
+    }
+
+    .matter {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      transition: translate 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .matter:hover {
+      translate: 0 -2px;
+      box-shadow: 0 16px 40px rgb(54 47 36 / 13%);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .matter,
+      .matter:hover {
+        translate: none;
+        transition: none;
+      }
+    }
+
+    .matter-head {
+      display: flex;
+      gap: 0.8rem;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 1.1rem 1.15rem 0.4rem;
+    }
+
+    .matter-title {
+      min-width: 0;
+      margin: 0;
+      font-size: 1.12rem;
+      line-height: 1.25;
+    }
+
+    .status {
+      flex: 0 0 auto;
+      padding: 0.28rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 850;
+      letter-spacing: 0.025em;
+      text-transform: uppercase;
+    }
+
+    .status.blocked {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .status.done {
+      color: var(--done);
+      background: var(--done-soft);
+    }
+
+    .status.progress {
+      color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .status.open,
+    .status.neutral {
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .facts {
+      display: grid;
+      gap: 0.55rem;
+      margin: 0;
+      padding: 0.45rem 1.15rem 0.9rem;
+    }
+
+    .fact {
+      display: grid;
+      grid-template-columns: 6.2rem minmax(0, 1fr);
+      gap: 0.6rem;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    .fact dt {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .fact dd {
+      margin: 0;
+      font-size: 0.94rem;
+    }
+
+    .human-badge {
+      display: inline-flex;
+      margin-left: 0.4rem;
+      padding: 0.12rem 0.38rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 0.72rem;
+      font-weight: 750;
+      vertical-align: 0.08em;
+    }
+
+    .timeline-wrap {
+      padding: 0.15rem 1.15rem 1rem;
+      border-top: 1px solid var(--line);
+      margin-top: 0.2rem;
+    }
+
+    .timeline-toggle {
+      padding-top: 0.8rem;
+    }
+
+    .timeline-toggle {
+      width: 100%;
+      padding: 0;
+      border: 0;
+      color: var(--ink);
+      background: transparent;
+      font: inherit;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .timeline-toggle::after {
+      float: right;
+      content: "＋";
+      color: var(--muted);
+    }
+
+    .timeline-toggle[aria-expanded="true"]::after {
+      content: "−";
+    }
+
+    .timeline {
+      position: relative;
+      margin-top: 1.15rem;
+      padding-left: 1.2rem;
+    }
+
+    .timeline::before {
+      position: absolute;
+      top: 0.3rem;
+      bottom: 0.3rem;
+      left: 0.22rem;
+      width: 2px;
+      background: var(--line);
+      content: "";
+    }
+
+    .timeline-item {
+      position: relative;
+      padding: 0 0 1.15rem 0.8rem;
+    }
+
+    .timeline-item:last-child {
+      padding-bottom: 0;
+    }
+
+    .timeline-item::before {
+      position: absolute;
+      top: 0.38rem;
+      left: -1.12rem;
+      width: 0.58rem;
+      height: 0.58rem;
+      border: 2px solid var(--surface);
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+      content: "";
+    }
+
+    .timeline-date {
+      display: block;
+      margin-bottom: 0.14rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timeline-text {
+      margin: 0;
+      font-weight: 650;
+    }
+
+    .evidence {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .source-list {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .source {
+      padding: clamp(1rem, 3vw, 1.4rem);
+      border: 1px solid var(--line);
+      border-radius: 0.85rem;
+      background: var(--surface);
+      scroll-margin-top: 1rem;
+    }
+
+    .source:target {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .source-meta {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.2rem 0.8rem;
+      margin: 0.75rem 0;
+      font-size: 0.86rem;
+    }
+
+    .source-meta dt {
+      color: var(--muted);
+      font-weight: 750;
+    }
+
+    .source-meta dd {
+      min-width: 0;
+      margin: 0;
+    }
+
+    .source-body {
+      max-height: 13rem;
+      overflow: auto;
+      padding: 0.85rem;
+      border-radius: 0.6rem;
+      background: var(--surface-soft);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.9rem;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    footer p {
+      margin-bottom: 0.35rem;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 38rem) {
+      .shell {
+        width: min(100% - 1rem, 72rem);
+        padding-top: 2rem;
+      }
+
+      .matter-head {
+        flex-direction: column;
+      }
+
+      .source-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .source-meta dt {
+        margin-top: 0.3rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Matter ledger · {{ scope_id }}</p>
+      <h1>What is owed, blocked, and changing.</h1>
+      <p class="lede">A deterministic view of the matter assertions in this scope, with every change linked back to its evidence.</p>
+    </header>
+
+    <section class="commitments" aria-labelledby="commitments-heading">
+      <p class="eyebrow">First look</p>
+      <h2 id="commitments-heading">Open commitments</h2>
+      {% if commitments %}
+      <ol class="commitment-list">
+        {% for item in commitments %}
+        <li class="commitment{% if item.overdue %} overdue{% endif %}">
+          <time class="deadline{% if item.overdue %} overdue{% endif %}" datetime="{{ item.due_instant }}">{{ item.due }}{% if item.overdue %} · overdue{% endif %}</time>
+          <div>
+            <h3><a href="#matter-{{ item.subject_key }}">{{ item.title }}</a></h3>
+            <p class="commitment-meta">Owner: {{ item.owners }} · Next: {{ item.next_step }}</p>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="muted">No open matter has a due date.</p>
+      {% endif %}
+    </section>
+
+    <section aria-labelledby="people-heading">
+      <p class="eyebrow">Workload</p>
+      <h2 id="people-heading">By person</h2>
+      {% if people %}
+      <ul class="person-list">
+        {% for item in people %}
+        <li class="person"><strong>{{ item.person }}</strong>{{ item.in_progress }} in progress, {{ item.blocked }} blocked</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">No people are attached to open matters.</p>
+      {% endif %}
+    </section>
+
+    <section aria-labelledby="matters-heading">
+      <p class="eyebrow">Ledger</p>
+      <h2 id="matters-heading">Matters</h2>
+      <ol class="matter-list">
+        {% for matter in matters %}
+        <li class="matter" id="matter-{{ matter.subject_key }}">
+          <div class="matter-head">
+            <h3 class="matter-title">{{ matter.title }}</h3>
+            <span class="status {{ matter.status_class }}">{{ matter.status.display }}</span>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Owners</dt>
+              <dd>{{ matter.owners.display }}{% if matter.owners.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</dd>
+            </div>
+            <div class="fact">
+              <dt>Participants</dt>
+              <dd>{{ matter.participants.display }}{% if matter.participants.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</dd>
+            </div>
+            <div class="fact">
+              <dt>Blockers</dt>
+              <dd>{{ matter.blockers.display }}{% if matter.blockers.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</dd>
+            </div>
+            <div class="fact">
+              <dt>Next step</dt>
+              <dd>{{ matter.next_step.display }}{% if matter.next_step.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</dd>
+            </div>
+            <div class="fact">
+              <dt>Due</dt>
+              <dd{% if matter.overdue %} class="overdue-text"{% endif %}>{{ matter.due.display }}{% if matter.due.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</dd>
+            </div>
+            <div class="fact">
+              <dt>Status evidence</dt>
+              <dd>{{ matter.status.display }}{% if matter.status.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</dd>
+            </div>
+          </dl>
+          <div class="timeline-wrap">
+            <button class="timeline-toggle" type="button" aria-expanded="false" aria-controls="timeline-{{ matter.subject_key }}">Timeline · {{ matter.timeline|length }} changes</button>
+            <ol class="timeline" id="timeline-{{ matter.subject_key }}" hidden>
+              {% for entry in matter.timeline %}
+              <li class="timeline-item">
+                <time class="timeline-date" datetime="{{ entry.instant }}">{{ entry.date }}</time>
+                <p class="timeline-text">{{ entry.text }}{% if entry.human %}<span class="human-badge">✏️ human correction</span>{% endif %}</p>
+                <p class="evidence">Evidence:
+                  {% for link in entry.evidence %}
+                  <a href="{{ link.href }}"{% if link.external %} target="_blank" rel="noreferrer noopener"{% endif %}>{{ link.label }}</a>{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+                </p>
+              </li>
+              {% else %}
+              <li class="muted">No tracked timeline changes.</li>
+              {% endfor %}
+            </ol>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+
+    {% if appendix %}
+    <section aria-labelledby="sources-heading">
+      <p class="eyebrow">Evidence</p>
+      <h2 id="sources-heading">Source emails</h2>
+      <p class="section-note">Email evidence stays inside this file so every source link works offline.</p>
+      <ol class="source-list">
+        {% for source in appendix %}
+        <li class="source" id="{{ source.anchor_id }}">
+          <h3>{{ source.subject }}</h3>
+          <dl class="source-meta">
+            <dt>From</dt><dd>{{ source.sender }}</dd>
+            <dt>Date</dt><dd><time datetime="{{ source.sent_at }}">{{ source.sent_at }}</time></dd>
+            {% if source.recipients %}<dt>To / Cc</dt><dd>{{ source.recipients }}</dd>{% endif %}
+            <dt>Source</dt><dd><code>{{ source.source_id }}</code></dd>
+          </dl>
+          <div class="source-body">{{ source.body }}</div>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% endif %}
+
+    <footer>
+      {% if related_links %}<p>Related: {% for link in related_links %}<a href="{{ link.href }}">{{ link.label }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+      {% endif %}<p>Deterministically rendered from {{ assertion_count }} assertions · reproduce: <code>mh export {{ scope_id }} --format html</code></p>
+      <p>Overdue is evaluated as of <time datetime="{{ as_of_instant }}">{{ as_of_date }}</time>{% if default_as_of %}, the maximum <code>recorded_at</code> in this scope{% else %}, supplied by <code>--as-of</code>{% endif %}.</p>
+    </footer>
+  </main>
+  <script>
+    document.querySelectorAll(".timeline-toggle").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var timeline = document.getElementById(button.getAttribute("aria-controls"));
+        var expanded = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", String(!expanded));
+        timeline.hidden = expanded;
+      });
+    });
+  </script>
+</body>
+</html>

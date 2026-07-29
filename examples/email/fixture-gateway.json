@@ -1,0 +1,284 @@
+{
+  "record_extraction": [
+    {
+      "cards": [
+        {
+          "date": "2026-05-12",
+          "occurred_at": "2026-05-12T09:00:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "open",
+          "participants": [
+            {
+              "id": "mira.venn@lumenfinch.example",
+              "display_name": "Mira Venn",
+              "role": "owner"
+            },
+            {
+              "id": "sora.pell@lumenfinch.example",
+              "display_name": "Sora Pell",
+              "role": "participant"
+            },
+            {
+              "id": "theo.rill@pebblearc.example",
+              "display_name": "Theo Rill",
+              "role": "participant"
+            },
+            {
+              "id": "ivo.quill@pebblearc.example",
+              "display_name": "Ivo Quill",
+              "role": "participant"
+            }
+          ],
+          "next_step": "Pebble Arc sends the interface checklist",
+          "due": "2026-06-01T17:00:00Z",
+          "source_ids": [
+            "m1",
+            "m2"
+          ]
+        },
+        {
+          "date": "2026-05-20",
+          "occurred_at": "2026-05-20T08:45:00Z",
+          "title": "Aster Relay vendor rollout",
+          "outcome": {
+            "type": "decision",
+            "content": "Adopt option A, the compact serial bridge"
+          },
+          "source_ids": [
+            "m3",
+            "m4"
+          ]
+        },
+        {
+          "date": "2026-05-22",
+          "occurred_at": "2026-05-22T15:20:00Z",
+          "title": "Aster Relay vendor rollout",
+          "progress": "Option A enclosure assembled and bench-tested",
+          "source_ids": [
+            "m5"
+          ]
+        },
+        {
+          "date": "2026-05-26",
+          "occurred_at": "2026-05-26T11:00:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "in_progress",
+          "next_step": "Theo confirms the certification slot",
+          "due": "2026-06-10T17:00:00Z",
+          "source_ids": [
+            "m6"
+          ]
+        },
+        {
+          "date": "2026-05-28",
+          "occurred_at": "2026-05-28T16:10:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "blocked",
+          "blocker": "Power-module certification is incomplete",
+          "next_step": "Ivo submits the expanded certificate",
+          "source_ids": [
+            "m7"
+          ]
+        },
+        {
+          "date": "2026-05-30",
+          "occurred_at": "2026-05-30T09:00:00Z",
+          "title": "Aster Relay vendor rollout",
+          "cleared_fields": [
+            "participants"
+          ],
+          "source_ids": [
+            "m8",
+            "m9"
+          ]
+        },
+        {
+          "date": "2026-05-30",
+          "occurred_at": "2026-05-30T09:01:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "in_progress",
+          "participants": [
+            {
+              "id": "theo.rill@pebblearc.example",
+              "display_name": "Theo Rill",
+              "role": "owner"
+            },
+            {
+              "id": "mira.venn@lumenfinch.example",
+              "display_name": "Mira Venn",
+              "role": "participant"
+            },
+            {
+              "id": "sora.pell@lumenfinch.example",
+              "display_name": "Sora Pell",
+              "role": "participant"
+            },
+            {
+              "id": "ivo.quill@pebblearc.example",
+              "display_name": "Ivo Quill",
+              "role": "participant"
+            }
+          ],
+          "source_ids": [
+            "m8"
+          ]
+        },
+        {
+          "date": "2026-06-04",
+          "occurred_at": "2026-06-04T14:25:00Z",
+          "title": "Aster Relay vendor rollout",
+          "outcome": {
+            "type": "decision",
+            "content": "Reverse option A and explicitly switch to option B"
+          },
+          "source_ids": [
+            "m10"
+          ]
+        },
+        {
+          "date": "2026-06-05",
+          "occurred_at": "2026-06-05T17:05:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "in_progress",
+          "cleared_fields": [
+            "blocker"
+          ],
+          "source_ids": [
+            "m11"
+          ]
+        },
+        {
+          "date": "2026-06-08",
+          "occurred_at": "2026-06-08T10:15:00Z",
+          "title": "Aster Relay vendor rollout",
+          "next_step": "Theo sends daily recovery notes",
+          "due": "2026-06-20T17:00:00Z",
+          "source_ids": [
+            "m12"
+          ]
+        },
+        {
+          "date": "2026-06-15",
+          "occurred_at": "2026-06-15T11:35:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "ready",
+          "progress": "Option B harness passed integration",
+          "source_ids": [
+            "m13"
+          ]
+        },
+        {
+          "date": "2026-06-20",
+          "occurred_at": "2026-06-20T16:00:00Z",
+          "title": "Aster Relay vendor rollout",
+          "status": "done",
+          "progress": "Aster Relay hardware delivery was accepted",
+          "source_ids": [
+            "m14"
+          ]
+        }
+      ]
+    },
+    {
+      "cards": [
+        {
+          "date": "2026-06-12",
+          "occurred_at": "2026-06-12T09:30:00Z",
+          "title": "Aster Relay acceptance memo",
+          "status": "open",
+          "participants": [
+            {
+              "id": "theo.rill@pebblearc.example",
+              "display_name": "Theo Rill",
+              "role": "owner"
+            },
+            {
+              "id": "mira.venn@lumenfinch.example",
+              "display_name": "Mira Venn",
+              "role": "participant"
+            },
+            {
+              "id": "sora.pell@lumenfinch.example",
+              "display_name": "Sora Pell",
+              "role": "participant"
+            }
+          ],
+          "next_step": "Theo sends the first acceptance-memo draft",
+          "due": "2026-06-15T17:00:00Z",
+          "source_ids": [
+            "m1"
+          ]
+        },
+        {
+          "date": "2026-06-16",
+          "occurred_at": "2026-06-16T10:00:00Z",
+          "title": "Aster Relay acceptance memo",
+          "status": "in_progress",
+          "next_step": "Theo sends a revised memo",
+          "source_ids": [
+            "m2"
+          ]
+        },
+        {
+          "date": "2026-07-01",
+          "occurred_at": "2026-07-01T14:00:00Z",
+          "title": "Aster Relay acceptance memo",
+          "status": "blocked",
+          "blocker": "Signed acceptance memo has not been received",
+          "next_step": "Theo sends the revised memo for signature",
+          "due": "2026-06-15T17:00:00Z",
+          "source_ids": [
+            "m3"
+          ]
+        }
+      ]
+    }
+  ],
+  "distillation": [
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    },
+    {
+      "candidates": []
+    }
+  ]
+}
