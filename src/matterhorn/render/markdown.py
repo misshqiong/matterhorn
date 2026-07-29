@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 from typing import Any
 
-from matterhorn.engine.canonical import canonical_json
+from matterhorn.canonical import canonical_json
 
 REPRODUCE_COMMAND = (
     "git clone https://github.com/misshqiong/matterhorn && cd matterhorn "

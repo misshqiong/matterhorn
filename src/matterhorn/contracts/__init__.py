@@ -1,6 +1,7 @@
 """Language-neutral contracts represented as Pydantic models."""
 
 from matterhorn.contracts.models import (
+    FIELD_WIDE_RETRACT,
     AddRecordsReport,
     Assertion,
     AuthorKind,
@@ -34,6 +35,8 @@ from matterhorn.contracts.models import (
     Record,
     RecordAttachment,
     RecordAuthor,
+    RecordExtractionReport,
+    RecordExtractor,
     RecordReaction,
     ReplayReport,
     RetractGuard,
@@ -41,6 +44,7 @@ from matterhorn.contracts.models import (
     SemanticDefinition,
     SourceRef,
     SubjectDefinition,
+    SubjectRecord,
     SyncPosition,
     TaskGate,
     TaskReceipt,
@@ -49,6 +53,7 @@ from matterhorn.contracts.models import (
 )
 
 __all__ = [
+    "FIELD_WIDE_RETRACT",
     "AddRecordsReport",
     "Assertion",
     "AuthorKind",
@@ -82,6 +87,8 @@ __all__ = [
     "Record",
     "RecordAttachment",
     "RecordAuthor",
+    "RecordExtractionReport",
+    "RecordExtractor",
     "RecordReaction",
     "ReplayReport",
     "RetractGuard",
@@ -89,6 +96,7 @@ __all__ = [
     "SemanticDefinition",
     "SourceRef",
     "SubjectDefinition",
+    "SubjectRecord",
     "SyncPosition",
     "TaskGate",
     "TaskReceipt",

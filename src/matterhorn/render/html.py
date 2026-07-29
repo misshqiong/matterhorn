@@ -11,7 +11,9 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from matterhorn.canonical import as_utc, canonical_json, instant_text
 from matterhorn.contracts import (
+    FIELD_WIDE_RETRACT,
     Assertion,
     Cardinality,
     ExportEnvelope,
@@ -21,9 +23,7 @@ from matterhorn.contracts import (
     SchemaProfile,
     SourceRef,
 )
-from matterhorn.engine.canonical import as_utc, canonical_json, instant_text
-from matterhorn.engine.extractor import FIELD_WIDE_RETRACT
-from matterhorn.engine.projector import project_assertions
+from matterhorn.projection import project_assertions
 
 SourceLinkResolver = Callable[[SourceRef, str], tuple[str, bool]]
 

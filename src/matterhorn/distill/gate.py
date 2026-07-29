@@ -7,21 +7,22 @@ from typing import Any
 
 from pydantic import Field, ValidationError, computed_field, field_validator
 
+from matterhorn.canonical import (
+    as_utc,
+    canonical_json,
+    derive_child_subject_key,
+    normalize_title,
+)
 from matterhorn.contracts import (
     EpisodeCard,
     ExtractionMode,
     Operation,
     SchemaProfile,
     SourceRef,
+    SubjectRecord,
 )
 from matterhorn.contracts.models import StrictModel
 from matterhorn.distill.traceability import resolve_traceable_sources
-from matterhorn.engine.canonical import as_utc, canonical_json
-from matterhorn.engine.identity import (
-    SubjectRecord,
-    derive_child_subject_key,
-    normalize_title,
-)
 
 
 class GateReason(str, Enum):

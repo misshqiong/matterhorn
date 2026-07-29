@@ -62,6 +62,35 @@ def test_record_contract_enforces_container_namespace() -> None:
         Record.model_validate({**_record(), "native_id": "different"})
 
 
+def test_add_records_uses_injected_extractor(tmp_path) -> None:
+    class StubReport:
+        def __init__(self):
+            self.cards = []
+            self.rejection_counts = {}
+
+    class RecordingExtractor:
+        def __init__(self):
+            self.calls = []
+
+        def extract(self, **kwargs):
+            self.calls.append(kwargs)
+            return StubReport()
+
+    extractor = RecordingExtractor()
+    engine = Engine(tmp_path / "injected.db", extractor=extractor)
+    report = engine.add_records([_record()], scope_id="team", batch_size=3)
+
+    assert extractor.calls == [
+        {
+            "scope_id": "team",
+            "records": [Record.model_validate(_record())],
+            "batch_size": 3,
+        }
+    ]
+    assert report.records_processed == 1
+    assert report.cards_accepted == 0
+
+
 def test_record_edit_appends_and_delete_revokes_without_removing(tmp_path) -> None:
     gateway = SequenceGateway([_response("blocked"), _response("open")])
     engine = Engine(

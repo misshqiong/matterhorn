@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
+from matterhorn.canonical import object_key
 from matterhorn.contracts import (
     Cardinality,
     EvidenceRef,
@@ -11,7 +12,6 @@ from matterhorn.contracts import (
     EvidenceSummary,
     SchemaProfile,
 )
-from matterhorn.engine.canonical import object_key
 from matterhorn.store import QuerySubjectRow, QueryValueRow, Store
 
 

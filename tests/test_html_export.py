@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from matterhorn.contracts import ExportEnvelope
 from matterhorn.contracts.schema import resolve_schema
-from matterhorn.html import render_scope_html
+from matterhorn.render import render_scope_html
 
 FIXTURES = Path(__file__).parent / "fixtures" / "html"
 

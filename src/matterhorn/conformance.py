@@ -14,10 +14,10 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from matterhorn.canonical import canonical_json, instant_text
 from matterhorn.contracts import SchemaProfile
 from matterhorn.contracts.schema import resolve_schema
-from matterhorn.engine.canonical import canonical_json, instant_text
-from matterhorn.engine.engine import Engine
+from matterhorn.defaults import Engine
 from matterhorn.store import SQLiteStore, Store
 
 

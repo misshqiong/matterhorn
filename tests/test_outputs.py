@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from matterhorn import Engine
-from matterhorn.engine.canonical import canonical_json
+from matterhorn.canonical import canonical_json
 from matterhorn.errors import ImportRefusedError
 from matterhorn.scheduler import ServiceScheduler, parse_daily_flush_at
 from matterhorn.webhooks import WebhookDispatcher

@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from typing import Any
 
+from matterhorn.canonical import (
+    as_utc,
+    derive_assertion_id,
+    object_key,
+)
 from matterhorn.contracts import (
+    FIELD_WIDE_RETRACT,
     Assertion,
     EpisodeCard,
     ExtractionMode,
@@ -14,13 +20,6 @@ from matterhorn.contracts import (
     RetractGuard,
     SchemaProfile,
 )
-from matterhorn.engine.canonical import (
-    as_utc,
-    derive_assertion_id,
-    object_key,
-)
-
-FIELD_WIDE_RETRACT = "*"
 
 
 @dataclass(frozen=True)

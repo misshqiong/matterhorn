@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -131,6 +132,18 @@ class Record(StrictModel):
         )
 
 
+@dataclass(frozen=True)
+class SubjectRecord:
+    scope_id: str
+    subject_key: str
+    subject_type: str
+    title: str
+    normalized_title: str
+    source_ids: frozenset[str]
+    parent_subject_key: str | None = None
+    thread_ids: frozenset[str] = frozenset()
+
+
 class EvidenceStatus(str, Enum):
     active = "active"
     revoked = "revoked"
@@ -195,6 +208,26 @@ class EpisodeCard(StrictModel):
         return value
 
 
+@runtime_checkable
+class RecordExtractionReport(Protocol):
+    @property
+    def cards(self) -> list[EpisodeCard]: ...
+
+    @property
+    def rejection_counts(self) -> dict[str, int]: ...
+
+
+@runtime_checkable
+class RecordExtractor(Protocol):
+    def extract(
+        self,
+        *,
+        scope_id: str,
+        records: list[Record],
+        batch_size: int,
+    ) -> RecordExtractionReport: ...
+
+
 class Cardinality(str, Enum):
     SINGLE = "SINGLE"
     SET = "SET"
@@ -215,6 +248,9 @@ class RetractGuard(str, Enum):
 class Operation(str, Enum):
     ASSERT = "ASSERT"
     RETRACT = "RETRACT"
+
+
+FIELD_WIDE_RETRACT = "*"
 
 
 class Origin(str, Enum):

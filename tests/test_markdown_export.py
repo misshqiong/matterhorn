@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from matterhorn import Engine
-from matterhorn.markdown import render_scope_markdown
+from matterhorn.render import render_scope_markdown
 
 FIXTURES = Path(__file__).parent / "fixtures" / "markdown"
 

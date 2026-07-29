@@ -31,8 +31,8 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
+from matterhorn.canonical import stable_hash
 from matterhorn.contracts import EpisodeCard
-from matterhorn.engine.canonical import stable_hash
 
 
 def map_reme_digest(

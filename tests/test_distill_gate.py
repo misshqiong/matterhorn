@@ -4,9 +4,8 @@ import json
 
 import pytest
 
-from matterhorn.contracts import EpisodeCard, SchemaProfile
+from matterhorn.contracts import EpisodeCard, SchemaProfile, SubjectRecord
 from matterhorn.distill import GateReason, validate_response
-from matterhorn.engine.identity import SubjectRecord
 
 
 def _profile() -> SchemaProfile:

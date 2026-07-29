@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
@@ -70,6 +72,26 @@ def derive_assertion_id(
 
 def stable_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def normalize_title(value: str) -> str:
+    lowered = value.lower()
+    without_punctuation = "".join(
+        " " if unicodedata.category(char).startswith(("P", "S")) else char
+        for char in lowered
+    )
+    return re.sub(r"\s+", " ", without_punctuation).strip()
+
+
+def derive_child_subject_key(
+    scope_id: str,
+    parent_subject_key: str,
+    subject_type: str,
+    title: str,
+) -> str:
+    normalized = normalize_title(title)
+    digest = stable_hash([scope_id, parent_subject_key, subject_type, normalized])
+    return f"sub_{digest}"
 
 
 def derive_event_id(

@@ -15,11 +15,11 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectRecord,
     SyncPosition,
     TaskResult,
     TaskStatus,
 )
-from matterhorn.engine.identity import SubjectRecord
 
 
 @dataclass(frozen=True)

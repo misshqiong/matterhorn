@@ -31,8 +31,8 @@ from datetime import date
 from pathlib import PurePosixPath
 from typing import Any
 
+from matterhorn.canonical import stable_hash
 from matterhorn.contracts import EpisodeCard
-from matterhorn.engine.canonical import stable_hash
 
 
 def map_openviking_digest(

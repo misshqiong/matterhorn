@@ -1,43 +1,7 @@
 from __future__ import annotations
 
-import re
-import unicodedata
-from dataclasses import dataclass
-
-from matterhorn.contracts import EpisodeCard, SchemaProfile
-from matterhorn.engine.canonical import stable_hash
-
-
-def normalize_title(value: str) -> str:
-    lowered = value.lower()
-    without_punctuation = "".join(
-        " " if unicodedata.category(char).startswith(("P", "S")) else char
-        for char in lowered
-    )
-    return re.sub(r"\s+", " ", without_punctuation).strip()
-
-
-@dataclass(frozen=True)
-class SubjectRecord:
-    scope_id: str
-    subject_key: str
-    subject_type: str
-    title: str
-    normalized_title: str
-    source_ids: frozenset[str]
-    parent_subject_key: str | None = None
-    thread_ids: frozenset[str] = frozenset()
-
-
-def derive_child_subject_key(
-    scope_id: str,
-    parent_subject_key: str,
-    subject_type: str,
-    title: str,
-) -> str:
-    normalized = normalize_title(title)
-    digest = stable_hash([scope_id, parent_subject_key, subject_type, normalized])
-    return f"sub_{digest}"
+from matterhorn.canonical import normalize_title, stable_hash
+from matterhorn.contracts import EpisodeCard, SchemaProfile, SubjectRecord
 
 
 def resolve_subject(

@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import Field, ValidationError
 
+from matterhorn.canonical import canonical_json, stable_hash
 from matterhorn.contracts import (
     EpisodeCard,
     Outcome,
@@ -26,7 +27,6 @@ from matterhorn.distill.traceability import (
     restore_source_aliases,
     source_aliases,
 )
-from matterhorn.engine.canonical import canonical_json, stable_hash
 
 DEFAULT_EXTRACTION_BATCH_SIZE = 5
 

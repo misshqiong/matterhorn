@@ -1,7 +1,8 @@
 """Matterhorn public SDK."""
 
 from matterhorn.contracts import EpisodeCard, Message, Record, TaskReceipt, TaskResult
-from matterhorn.engine.engine import Engine, Matter
+from matterhorn.defaults import Engine
+from matterhorn.engine.engine import Matter
 
 __all__ = [
     "Engine",

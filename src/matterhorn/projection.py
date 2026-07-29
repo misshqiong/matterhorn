@@ -1,9 +1,13 @@
+"""Deterministic assertion projection shared by engine and renderers."""
+
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
 
+from matterhorn.canonical import instant_text, stable_hash
 from matterhorn.contracts import (
+    FIELD_WIDE_RETRACT,
     Assertion,
     Cardinality,
     Interval,
@@ -12,8 +16,6 @@ from matterhorn.contracts import (
     ProjectionStats,
     SchemaProfile,
 )
-from matterhorn.engine.canonical import instant_text, stable_hash
-from matterhorn.engine.extractor import FIELD_WIDE_RETRACT
 
 
 def _rank(assertion: Assertion) -> tuple:

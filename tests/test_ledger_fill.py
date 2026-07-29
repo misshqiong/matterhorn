@@ -7,7 +7,7 @@ import pytest
 
 from matterhorn import Engine
 from matterhorn.adapters.github import map_devlog, map_git_log
-from matterhorn.engine.canonical import canonical_json
+from matterhorn.canonical import canonical_json
 from matterhorn.gateway_config import configured_gateway
 from scripts.ledger_fill import (
     GatewaySelection,

@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from matterhorn.canonical import canonical_json
 from matterhorn.contracts import EpisodeCard, ExtractionMode, SchemaProfile
 from matterhorn.distill.traceability import source_aliases
-from matterhorn.engine.canonical import canonical_json
 
 
 @dataclass(frozen=True)

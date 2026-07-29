@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import RLock
 
+from matterhorn.canonical import canonical_json, derive_event_id, instant_text
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
@@ -19,13 +20,12 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectRecord,
     SyncPosition,
     TaskGate,
     TaskResult,
     TaskStatus,
 )
-from matterhorn.engine.canonical import canonical_json, derive_event_id, instant_text
-from matterhorn.engine.identity import SubjectRecord
 from matterhorn.store.base import (
     DistillQueueItem,
     QuerySubjectRow,

@@ -6,6 +6,13 @@ from datetime import datetime
 from threading import RLock
 from typing import Any
 
+from matterhorn.canonical import (
+    as_utc,
+    canonical_json,
+    derive_event_id,
+    instant_text,
+    json_value,
+)
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
@@ -17,19 +24,12 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectRecord,
     SyncPosition,
     TaskGate,
     TaskResult,
     TaskStatus,
 )
-from matterhorn.engine.canonical import (
-    as_utc,
-    canonical_json,
-    derive_event_id,
-    instant_text,
-    json_value,
-)
-from matterhorn.engine.identity import SubjectRecord
 from matterhorn.store.base import (
     DistillQueueItem,
     QuerySubjectRow,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from matterhorn.canonical import derive_event_id
 from matterhorn.contracts import (
     Assertion,
     Cardinality,
@@ -13,7 +14,6 @@ from matterhorn.contracts import (
     Origin,
     SchemaProfile,
 )
-from matterhorn.engine.canonical import derive_event_id
 
 
 def derive_change_events(

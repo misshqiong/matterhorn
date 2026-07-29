@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ledger-preview2",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8766", "--directory", "/private/tmp/claude-501/-Users-aurelvana-Documents-code-chat-memory/a07744f9-a8d3-4f40-8d64-487e9d190128/scratchpad/preview"],
+      "port": 8766
+    }
+  ]
+}

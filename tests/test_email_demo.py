@@ -9,7 +9,7 @@ from pathlib import Path
 from matterhorn import Engine
 from matterhorn.adapters.email_mbox import map_mbox
 from matterhorn.gateway_config import FixtureFileGateway
-from matterhorn.html import render_scope_html
+from matterhorn.render import render_scope_html
 
 ROOT = Path(__file__).resolve().parents[1]
 EMAIL_EXAMPLE = ROOT / "examples" / "email"

@@ -4,8 +4,13 @@ from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
 
-from matterhorn.contracts import Cardinality, Interval, MemoryCard, SchemaProfile
-from matterhorn.engine.identity import SubjectRecord
+from matterhorn.contracts import (
+    Cardinality,
+    Interval,
+    MemoryCard,
+    SchemaProfile,
+    SubjectRecord,
+)
 
 
 def materialize(
@@ -51,4 +56,3 @@ def materialize(
             )
         )
     return cards
-

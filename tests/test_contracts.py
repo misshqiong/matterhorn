@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from matterhorn.canonical import derive_assertion_id, object_key
 from matterhorn.contracts import EpisodeCard, Operation, SourceRef
-from matterhorn.engine.canonical import derive_assertion_id, object_key
 
 
 def test_assertion_id_matches_language_neutral_golden_bytes() -> None:
@@ -50,4 +50,3 @@ def test_episode_card_contract_rejects_unknown_fields() -> None:
                 "free_form_fact": "forbidden",
             }
         )
-

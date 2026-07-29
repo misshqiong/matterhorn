@@ -12,10 +12,10 @@ from typing import Any
 import typer
 import yaml
 
+from matterhorn.canonical import canonical_json
 from matterhorn.contracts import Correction, ExportEnvelope
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
-from matterhorn.engine.canonical import canonical_json
-from matterhorn.engine.engine import Engine
+from matterhorn.defaults import Engine
 from matterhorn.errors import ResourceNotFoundError
 
 app = typer.Typer(help="Matterhorn deterministic temporal memory engine.")
@@ -390,7 +390,7 @@ def export_scope(
                 raise ValueError("--related expects LABEL=HREF")
             related_pairs.append((label, href))
         if output_format == ExportFormat.html:
-            from matterhorn.html import render_scope_html
+            from matterhorn.render import render_scope_html
 
             payload = render_scope_html(
                 engine.export(selected_scope),
@@ -399,7 +399,7 @@ def export_scope(
                 related=related_pairs,
             )
         elif output_format == ExportFormat.markdown:
-            from matterhorn.markdown import render_scope_markdown
+            from matterhorn.render import render_scope_markdown
 
             payload = render_scope_markdown(engine, selected_scope)
         else:

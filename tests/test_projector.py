@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
+from matterhorn.canonical import derive_assertion_id, object_key
 from matterhorn.contracts import Assertion, SchemaProfile, SourceRef
-from matterhorn.engine.canonical import derive_assertion_id, object_key
-from matterhorn.engine.projector import project_assertions
+from matterhorn.projection import project_assertions
 
 
 def _profile():
@@ -75,4 +75,3 @@ def test_same_value_at_same_or_later_instant_does_not_split() -> None:
     intervals, _ = project_assertions([first, second], _profile())
     assert len(intervals) == 1
     assert intervals[0].valid_to is None
-

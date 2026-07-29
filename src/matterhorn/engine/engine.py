@@ -8,7 +8,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from matterhorn.canonical import (
+    as_utc,
+    derive_assertion_id,
+    instant_text,
+    normalize_title,
+    object_key,
+    stable_hash,
+)
 from matterhorn.contracts import (
+    FIELD_WIDE_RETRACT,
     AddRecordsReport,
     Assertion,
     ChangeEvent,
@@ -27,8 +36,10 @@ from matterhorn.contracts import (
     Operation,
     Origin,
     Record,
+    RecordExtractor,
     ReplayReport,
     SchemaProfile,
+    SubjectRecord,
     TaskReceipt,
     TaskResult,
     TaskStatus,
@@ -36,19 +47,12 @@ from matterhorn.contracts import (
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_response
 from matterhorn.distill.traceability import restore_source_aliases
-from matterhorn.engine.canonical import (
-    as_utc,
-    derive_assertion_id,
-    instant_text,
-    object_key,
-    stable_hash,
-)
 from matterhorn.engine.events import derive_change_events
-from matterhorn.engine.extractor import FIELD_WIDE_RETRACT, extract_card
-from matterhorn.engine.identity import SubjectRecord, normalize_title, resolve_subject
+from matterhorn.engine.extractor import extract_card
+from matterhorn.engine.identity import resolve_subject
 from matterhorn.engine.materializer import materialize
-from matterhorn.engine.projector import project_assertions
 from matterhorn.errors import ImportRefusedError, ResourceNotFoundError
+from matterhorn.projection import project_assertions
 from matterhorn.query import QueryService
 from matterhorn.store import SQLiteStore, Store
 
@@ -88,6 +92,7 @@ class Engine:
         clock: Clock | Iterable[datetime] | None = None,
         llm: LlmGateway | None = None,
         gateway: LlmGateway | None = None,
+        extractor: RecordExtractor | None = None,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -95,6 +100,7 @@ class Engine:
         if llm is not None and gateway is not None:
             raise ValueError("pass either llm or gateway, not both")
         self._write_gateway: LlmGateway = gateway or llm or NullGateway()
+        self._extractor = extractor
         self.query = QueryService(self.store, self.profile)
 
     def add(
@@ -248,8 +254,6 @@ class Engine:
     ) -> AddRecordsReport:
         """Extract and ingest previously unseen communication observations."""
 
-        from matterhorn.adapters.messages import MessageCardExtractor
-
         validated = [
             record if isinstance(record, Record) else Record.model_validate(record)
             for record in records
@@ -278,8 +282,10 @@ class Engine:
             pending.append((record, observation_hash))
 
         active = [record for record, _ in pending if record.revoked_at is None]
+        if active and self._extractor is None:
+            raise RuntimeError("record extraction requires a RecordExtractor")
         extraction = (
-            MessageCardExtractor(self._write_gateway, self.profile).extract(
+            self._extractor.extract(
                 scope_id=scope_id,
                 records=active,
                 batch_size=batch_size,
