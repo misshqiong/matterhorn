@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.db
+ledger/*.db
 .pytest_cache/
 dist/
 build/
