@@ -1,4 +1,4 @@
 interface:
   display_name: "Matterhorn Memory"
   short_description: "Consult and correct evidence-backed temporal memory"
-  default_prompt: "Consult Matterhorn before answering about known subjects, cite temporal evidence, and file corrections when a human identifies an error."
+  default_prompt: "Use add_messages as the default write door and list_matters as the default read door; cite temporal evidence and file corrections when a human identifies an error."

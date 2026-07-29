@@ -20,6 +20,8 @@ from matterhorn.engine import Engine
 class ExtractingGateway:
     def complete(self, **kwargs) -> str:
         payload = json.loads(kwargs["user"])
+        if "records" not in payload:
+            return json.dumps({"candidates": []})
         source_id = payload["records"][0]["record_id"]
         return json.dumps(
             {
@@ -86,11 +88,7 @@ def _engine(tmp_path) -> Engine:
         tmp_path / "protocol.db",
         _profile(),
         gateway=ExtractingGateway(),
-        clock=[
-            datetime(2026, 1, 1, 11, tzinfo=UTC),
-            datetime(2026, 1, 1, 12, tzinfo=UTC),
-            datetime(2026, 1, 1, 13, tzinfo=UTC),
-        ],
+        clock=lambda: datetime(2026, 1, 1, 13, tzinfo=UTC),
     )
 
 
@@ -109,66 +107,87 @@ def _record():
 
 def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
     async def scenario() -> None:
-        transport = httpx.ASGITransport(app=create_app(engine=_engine(tmp_path)))
+        engine = _engine(tmp_path)
+        transport = httpx.ASGITransport(app=create_app(engine=engine))
         async with httpx.AsyncClient(
             transport=transport, base_url="http://matterhorn.test"
         ) as client:
             assert (await client.get("/healthz")).json() == {"status": "ok"}
             add = await client.post(
-                "/v1/add_episode_cards", json={"scope_id": "s", "cards": [_card()]}
+                "/v1/scopes/s/cards", json={"cards": [_card()]}
             )
             assert add.status_code == 200
-            add_records = await client.post(
-                "/v1/add_records",
-                json={"scope_id": "s", "records": [_record()]},
+            assert add.json()["accepted"] == 1
+            engine.flush("s")
+
+            message = await client.post(
+                "/v1/scopes/s/messages",
+                json={
+                    "messages": [
+                        {
+                            "id": "m2",
+                            "sender": {"id": "u2", "name": "User Two"},
+                            "text": "Record thing is open.",
+                            "sent_at": "2026-01-01T10:30:00Z",
+                            "conversation_id": "C1",
+                        }
+                    ]
+                },
             )
-            assert add_records.status_code == 200
-            assert add_records.json()["records_processed"] == 1
-            assert add_records.json()["cards_accepted"] == 1
-            predicate = {
-                "scope_id": "s",
-                "subject_key": "thing-1",
-                "predicate": "phase",
-            }
-            current = await client.post("/v1/query_current", json=predicate)
-            timeline = await client.post("/v1/query_timeline", json=predicate)
-            at = await client.post(
-                "/v1/query_at",
-                json={**predicate, "instant": "2026-01-01T10:00:00Z"},
+            assert message.status_code == 200
+            task_id = message.json()["task_id"]
+            assert (await client.get(f"/v1/tasks/{task_id}")).json()["status"] == (
+                "pending"
             )
-            by_person = await client.post(
-                "/v1/query_by_person", json={"scope_id": "s", "person_id": "p1"}
+            engine.flush("s")
+            task = await client.get(f"/v1/tasks/{task_id}")
+            assert task.status_code == 200
+            assert task.json()["gate"] == {"accepted": 1, "rejected": {}}
+
+            params = {"subject_key": "thing-1", "predicate": "phase"}
+            current = await client.get(
+                "/v1/scopes/s/query/current", params=params
             )
-            listed = await client.post("/v1/list_matters", json={"scope_id": "s"})
-            for response in [current, timeline, at, by_person, listed]:
+            timeline = await client.get(
+                "/v1/scopes/s/query/timeline", params=params
+            )
+            at = await client.get(
+                "/v1/scopes/s/query/at",
+                params={**params, "instant": "2026-01-01T10:00:00Z"},
+            )
+            by_person = await client.get(
+                "/v1/scopes/s/query/by-person", params={"person_id": "p1"}
+            )
+            listed = await client.get("/v1/scopes/s/matters")
+            for response in [current, timeline, at, by_person, listed, task]:
                 assert response.status_code == 200
                 assert response.json()
             correction = await client.post(
-                "/v1/correct",
+                "/v1/scopes/s/corrections",
                 json={
-                    "correction": {
-                        "scope_id": "s",
-                        "subject_key": "thing-1",
-                        "subject_type": "THING",
-                        "predicate": "phase",
-                        "object_value": "closed",
-                        "valid_from": "2026-01-01T00:00:00Z",
-                        "source_refs": [
-                            {
-                                "source_id": "human-note",
-                                "sent_at": "2026-01-01T12:00:00Z",
-                                "sender": "human",
-                            }
-                        ],
-                    }
+                    "subject_key": "thing-1",
+                    "subject_type": "THING",
+                    "predicate": "phase",
+                    "object_value": "closed",
+                    "valid_from": "2026-01-01T00:00:00Z",
+                    "source_refs": [
+                        {
+                            "source_id": "human-note",
+                            "sent_at": "2026-01-01T12:00:00Z",
+                            "sender": "human",
+                        }
+                    ],
                 },
             )
             assert correction.status_code == 200
-            corrected = await client.post("/v1/query_current", json=predicate)
+            corrected = await client.get(
+                "/v1/scopes/s/query/current", params=params
+            )
             assert corrected.json()[0]["value"] == "closed"
-            invalid = await client.post("/v1/list_matters", json={})
+            invalid = await client.get("/v1/scopes/s/query/current")
             assert invalid.status_code == 422
             assert invalid.json()["error"]["code"] == "REQUEST_VALIDATION_ERROR"
+            assert (await client.post("/v1/add_episode_cards", json={})).status_code == 404
 
     asyncio.run(scenario())
 
@@ -209,18 +228,62 @@ def test_read_packages_have_no_import_path_to_distill() -> None:
         walk(module, path)
 
 
-def test_mcp_official_sdk_round_trip_all_eight_tools(tmp_path) -> None:
+def test_service_mode_quiet_period_auto_flushes_old_messages(tmp_path) -> None:
+    async def scenario() -> None:
+        engine = _engine(tmp_path)
+        app = create_app(
+            engine=engine,
+            quiet_period_minutes=10,
+            scheduler_poll_seconds=0.01,
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=transport,
+                base_url="http://matterhorn.test",
+            ) as client,
+        ):
+            added = await client.post(
+                "/v1/scopes/s/messages",
+                json={
+                    "messages": [
+                        {
+                            "id": "m1",
+                            "sender": {"id": "u1"},
+                            "text": "Record thing is open.",
+                            "sent_at": "2026-01-01T10:30:00Z",
+                        }
+                    ]
+                },
+            )
+            task_id = added.json()["task_id"]
+            for _ in range(100):
+                status = (
+                    await client.get(f"/v1/tasks/{task_id}")
+                ).json()["status"]
+                if status == "completed":
+                    break
+                await asyncio.sleep(0.01)
+            assert status == "completed"
+
+    asyncio.run(scenario())
+
+
+def test_mcp_official_sdk_round_trip_all_nine_tools(tmp_path) -> None:
     from mcp.shared.memory import create_connected_server_and_client_session
 
     from matterhorn.mcp.server import create_server
     from matterhorn.service import MatterhornService
 
     async def scenario() -> None:
-        server = create_server(MatterhornService(_engine(tmp_path)))
+        engine = _engine(tmp_path)
+        server = create_server(MatterhornService(engine))
         async with create_connected_server_and_client_session(server) as client:
             tools = await client.list_tools()
             assert [item.name for item in tools.tools] == [
-                "add_episode_cards",
+                "add_messages",
+                "add_cards",
                 "add_records",
                 "query_current",
                 "query_timeline",
@@ -231,10 +294,31 @@ def test_mcp_official_sdk_round_trip_all_eight_tools(tmp_path) -> None:
             ]
             added = _structured(
                 await client.call_tool(
-                    "add_episode_cards", {"scope_id": "s", "cards": [_card()]}
+                    "add_cards", {"scope_id": "s", "cards": [_card()]}
                 )
             )
             assert added["ok"] is True
+            assert added["data"]["accepted"] == 1
+            engine.flush("s")
+            added_messages = _structured(
+                await client.call_tool(
+                    "add_messages",
+                    {
+                        "scope_id": "s",
+                        "messages": [
+                            {
+                                "id": "m2",
+                                "conversation_id": "C2",
+                                "sender": {"id": "u2"},
+                                "text": "Record thing is open.",
+                                "sent_at": "2026-01-01T10:30:00Z",
+                            }
+                        ],
+                    },
+                )
+            )
+            assert added_messages["ok"] is True
+            engine.flush("s")
             added_records = _structured(
                 await client.call_tool(
                     "add_records",
@@ -382,6 +466,6 @@ def test_mcp_stdio_entrypoints_use_official_protocol(entrypoint, tmp_path) -> No
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert len(tools.tools) == 8
+            assert len(tools.tools) == 9
 
     asyncio.run(scenario())

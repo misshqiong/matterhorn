@@ -1,5 +1,26 @@
 # Core concepts
 
+## The onion and its promise boundary
+
+```text
+Public door: add(messages)
+        │
+        ▼
+[Message → EpisodeCard extraction: LLM best-effort and replaceable]
+        │
+════════╪════ Engine promise boundary ═══════════════════════════════════
+        ▼
+   EpisodeCard ──► validation ──► assertions ──► intervals ──► answers
+        ▲          deterministic, idempotent, replayable (INV-1…INV-11)
+        │
+Advanced door: add_cards(episode_cards)
+```
+
+The card is the narrow waist. Extraction below it is best-effort. At and above
+the evidence-backed EpisodeCard, Matterhorn makes its hard deterministic
+promise. A new input type is admissible only if it maps losslessly to that
+contract with traceable sources.
+
 ## Two time axes
 
 `valid_from` says when a fact became true in the business world.
@@ -31,3 +52,7 @@ The model may propose structured write candidates, but a validation gate can
 reject them. Read paths only inspect persisted assertions, intervals, and
 materializations. That makes current state, historical reconstruction, source
 evidence, and correction precedence repeatable and testable.
+
+`add()` and `add_cards()` return persistent task receipts before extraction.
+`flush()` or service-mode quiet-period scheduling advances the task. A task's
+gate report makes accepted candidates and per-reason rejections observable.

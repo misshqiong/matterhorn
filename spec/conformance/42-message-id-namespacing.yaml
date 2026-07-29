@@ -1,0 +1,65 @@
+case_id: message-id-namespacing
+title: Colliding native message ids in two conversations remain distinct evidence
+invariants: [P5, P9, INV-2, INV-5, INV-7]
+schema_profile: org-matters/v1
+scope_id: team-a
+clock:
+  - "2026-07-28T15:00:00+08:00"
+  - "2026-07-28T15:01:00+08:00"
+  - "2026-07-28T15:02:00+08:00"
+cards: []
+message_batches:
+  - messages:
+      - id: duplicate
+        conversation_id: alpha
+        sender: {id: u1, name: Ada}
+        text: "Alpha is open."
+        sent_at: "2026-07-28T14:00:00+08:00"
+      - id: duplicate
+        conversation_id: beta
+        sender: {id: u2, name: Bob}
+        text: "Beta is open."
+        sent_at: "2026-07-28T14:30:00+08:00"
+message_model_responses:
+  - cards:
+      - date: "2026-07-28"
+        title: Alpha
+        status: open
+        source_ids: ["team-a:alpha:duplicate"]
+      - date: "2026-07-28"
+        title: Beta
+        status: open
+        source_ids: ["team-a:beta:duplicate"]
+model_responses:
+  - {candidates: []}
+  - {candidates: []}
+corrections: []
+expect:
+  task_results:
+    - status: completed
+      cards_produced: 2
+      new_assertions: 2
+      gate: {accepted: 2, rejected: {}}
+  assertions:
+    - predicate: status
+      object_value: open
+      source_refs:
+        - source_id: "team-a:alpha:duplicate"
+          sent_at: "2026-07-28T06:00:00.000000Z"
+          sender: Ada
+          excerpt: "Alpha is open."
+          uri: null
+    - predicate: status
+      object_value: open
+      source_refs:
+        - source_id: "team-a:beta:duplicate"
+          sent_at: "2026-07-28T06:30:00.000000Z"
+          sender: Bob
+          excerpt: "Beta is open."
+          uri: null
+  intervals:
+    - predicate: status
+      object_value: open
+    - predicate: status
+      object_value: open
+  subject_count: 2

@@ -19,6 +19,9 @@ from matterhorn.contracts import (
     ProjectionStats,
     SourceRef,
     SyncPosition,
+    TaskGate,
+    TaskResult,
+    TaskStatus,
 )
 from matterhorn.engine.canonical import canonical_json, instant_text
 from matterhorn.engine.identity import SubjectRecord
@@ -27,6 +30,7 @@ from matterhorn.store.base import (
     QuerySubjectRow,
     QueryValueRow,
     RecordObservationRow,
+    TaskRow,
 )
 
 SCHEMA_SQL = """
@@ -150,6 +154,22 @@ CREATE TABLE IF NOT EXISTS gate_stats (
     count INTEGER NOT NULL,
     PRIMARY KEY (scope_id, counter)
 );
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id TEXT PRIMARY KEY,
+    scope_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    accepted INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    newest_message_at TEXT,
+    status TEXT NOT NULL,
+    cards_produced INTEGER NOT NULL DEFAULT 0,
+    new_assertions INTEGER NOT NULL DEFAULT 0,
+    gate_accepted INTEGER NOT NULL DEFAULT 0,
+    gate_rejected_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_scope_status
+    ON tasks(scope_id, status, created_at, task_id);
 """
 
 
@@ -250,6 +270,7 @@ class SQLiteStore:
     def clear_scope(self, scope_id: str) -> None:
         with self.transaction():
             for table in (
+                "tasks",
                 "distill_queue",
                 "gate_stats",
                 "projection_stats",
@@ -632,6 +653,105 @@ class SQLiteStore:
             rejections=counters,
         )
 
+    def create_task(
+        self,
+        *,
+        task_id: str,
+        scope_id: str,
+        kind: str,
+        payload: dict,
+        accepted: int,
+        created_at: datetime,
+        newest_message_at: datetime | None,
+    ) -> bool:
+        cursor = self.connection.execute(
+            """
+            INSERT OR IGNORE INTO tasks(
+              task_id,scope_id,kind,payload_json,accepted,created_at,
+              newest_message_at,status
+            ) VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (
+                task_id,
+                scope_id,
+                kind,
+                canonical_json(payload),
+                accepted,
+                instant_text(created_at),
+                (
+                    instant_text(newest_message_at)
+                    if newest_message_at is not None
+                    else None
+                ),
+                TaskStatus.pending.value,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def task(self, task_id: str) -> TaskRow | None:
+        row = self.connection.execute(
+            "SELECT * FROM tasks WHERE task_id=?", (task_id,)
+        ).fetchone()
+        return self._task_row(row) if row is not None else None
+
+    def tasks(
+        self, scope_id: str, *, status: TaskStatus | None = None
+    ) -> list[TaskRow]:
+        sql = """
+            SELECT * FROM tasks WHERE scope_id=?
+        """
+        parameters: tuple = (scope_id,)
+        if status is not None:
+            sql += " AND status=?"
+            parameters = (scope_id, status.value)
+        sql += " ORDER BY created_at,task_id COLLATE BINARY"
+        return [
+            self._task_row(row)
+            for row in self.connection.execute(sql, parameters)
+        ]
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        status: TaskStatus,
+        cards_produced: int = 0,
+        new_assertions: int = 0,
+        gate_accepted: int = 0,
+        gate_rejected: dict[str, int] | None = None,
+    ) -> None:
+        cursor = self.connection.execute(
+            """
+            UPDATE tasks SET
+              status=?,cards_produced=?,new_assertions=?,
+              gate_accepted=?,gate_rejected_json=?
+            WHERE task_id=?
+            """,
+            (
+                status.value,
+                cards_produced,
+                new_assertions,
+                gate_accepted,
+                canonical_json(gate_rejected or {}),
+                task_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise KeyError(f"unknown task_id: {task_id}")
+
+    def quiet_scopes(self, cutoff: datetime) -> list[str]:
+        rows = self.connection.execute(
+            """
+            SELECT scope_id FROM tasks
+            WHERE status=? AND kind='messages' AND newest_message_at IS NOT NULL
+            GROUP BY scope_id
+            HAVING MAX(newest_message_at) <= ?
+            ORDER BY scope_id COLLATE BINARY
+            """,
+            (TaskStatus.pending.value, instant_text(cutoff)),
+        )
+        return [row["scope_id"] for row in rows]
+
     def query_current_values(
         self,
         scope_id: str,
@@ -940,6 +1060,28 @@ class SQLiteStore:
             subject_type=row["subject_type"],
             title=row["title"],
             current=json.loads(row["current_json"]),
+        )
+
+    @staticmethod
+    def _task_row(row: sqlite3.Row) -> TaskRow:
+        status = TaskStatus(row["status"])
+        return TaskRow(
+            task_id=row["task_id"],
+            scope_id=row["scope_id"],
+            kind=row["kind"],
+            payload=json.loads(row["payload_json"]),
+            accepted=row["accepted"],
+            created_at=row["created_at"],
+            newest_message_at=row["newest_message_at"],
+            result=TaskResult(
+                status=status,
+                cards_produced=row["cards_produced"],
+                new_assertions=row["new_assertions"],
+                gate=TaskGate(
+                    accepted=row["gate_accepted"],
+                    rejected=json.loads(row["gate_rejected_json"]),
+                ),
+            ),
         )
 
     @staticmethod

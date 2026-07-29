@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
+from typing import Any
 
 from matterhorn.distill import (
     AnthropicGateway,
@@ -12,12 +15,38 @@ from matterhorn.distill import (
 )
 
 
+class FixtureFileGateway:
+    """Offline gateway used by the shipped quickstart and conformance transcripts."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._payload = json.loads(self.path.read_text(encoding="utf-8"))
+        self._indices: dict[str, int] = {}
+
+    def complete(
+        self, *, system: str, user: str, response_schema: dict
+    ) -> str:
+        del system, user
+        properties = response_schema.get("properties", {})
+        key = "record_extraction" if "cards" in properties else "distillation"
+        configured: Any = self._payload.get(key)
+        if configured is None:
+            raise ValueError(f"fixture gateway has no {key!r} response")
+        responses = configured if isinstance(configured, list) else [configured]
+        index = self._indices.get(key, 0)
+        if index >= len(responses):
+            raise ValueError(f"fixture gateway exhausted {key!r} responses")
+        self._indices[key] = index + 1
+        return json.dumps(responses[index], ensure_ascii=False)
+
+
 def configured_gateway(
     *,
     provider: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    fixture_path: str | Path | None = None,
 ) -> LlmGateway:
     selected = provider or os.environ.get("MATTERHORN_PROVIDER", "null")
     resolved_base_url = (
@@ -36,6 +65,15 @@ def configured_gateway(
 
     if selected == "null":
         return NullGateway()
+    if selected == "fixture":
+        resolved_fixture = fixture_path or os.environ.get(
+            "MATTERHORN_FIXTURE_PATH"
+        )
+        if resolved_fixture is None:
+            raise ValueError(
+                "fixture requires MATTERHORN_FIXTURE_PATH pointing to a JSON file"
+            )
+        return FixtureFileGateway(resolved_fixture)
     if selected == "openai-compatible":
         if not all((resolved_base_url, resolved_api_key, resolved_model)):
             raise ValueError(

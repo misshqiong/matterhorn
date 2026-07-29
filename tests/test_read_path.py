@@ -15,7 +15,7 @@ def test_every_query_ignores_exploding_llm_gateway(tmp_path) -> None:
         clock=lambda: datetime(2026, 1, 2, tzinfo=UTC),
         llm=ExplodingGateway(),
     )
-    engine.ingest(
+    engine._ingest_cards_sync(
         [
             {
                 "card_id": "c1",

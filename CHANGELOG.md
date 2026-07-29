@@ -3,6 +3,29 @@
 All notable changes follow Keep a Changelog conventions. Matterhorn uses
 semantic versioning.
 
+## [0.5.0] - 2026-07-29
+
+### Added
+
+- Two-verb SDK facade: `add(messages)` plus zero-LLM `matters()`, with the
+  closed minimal Message contract and scope/conversation source namespacing.
+- Persistent SQLite/PostgreSQL task receipts, `task()`, synchronous `flush()`,
+  `wait=True`, and per-task gate rejection breakdowns.
+- Resource-style REST routes, MCP `add_messages`, advanced `add_cards`, and CLI
+  `mh add`, `mh matters`, `mh flush`, and `mh task`.
+- Idempotent `mh init`, `matterhorn.toml` defaults, an offline demo message
+  file, and service-mode-only quiet-period auto-flush.
+- Three language-neutral Message-door conformance cases covering the happy
+  path, colliding IDs, and receipt/flush replay.
+
+### Changed
+
+- `ingest()` is now a deprecated alias for asynchronous `add_cards()`;
+  deterministic card application remains the internal promise boundary.
+- README and Skill front doors now lead with `add_messages` and
+  `list_matters`, and document the best-effort/deterministic onion boundary.
+- REST removes all legacy RPC-style endpoints.
+
 ## [0.4.0] - 2026-07-29
 
 ### Added

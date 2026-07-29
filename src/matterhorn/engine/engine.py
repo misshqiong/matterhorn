@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Iterable, Iterator
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -11,16 +13,22 @@ from matterhorn.contracts import (
     Correction,
     DreamReport,
     EpisodeCard,
+    FlushReport,
+    Message,
     Operation,
     Origin,
     Record,
     SchemaProfile,
+    TaskReceipt,
+    TaskResult,
+    TaskStatus,
 )
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_response
 from matterhorn.engine.canonical import (
     as_utc,
     derive_assertion_id,
+    instant_text,
     object_key,
     stable_hash,
 )
@@ -34,11 +42,35 @@ from matterhorn.store import SQLiteStore, Store
 Clock = Callable[[], datetime]
 
 
+@dataclass(frozen=True)
+class Matter:
+    title: str
+    status: Any
+    owners: list[Any]
+    participants: list[Any]
+    blocked_by: list[Any]
+    next_step: Any
+    due: Any
+    subject_key: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "status": self.status,
+            "owners": self.owners,
+            "participants": self.participants,
+            "blocked_by": self.blocked_by,
+            "next_step": self.next_step,
+            "due": self.due,
+            "subject_key": self.subject_key,
+        }
+
+
 class Engine:
     def __init__(
         self,
         store: str | Path | Store,
-        schema: str | Path | SchemaProfile,
+        schema: str | Path | SchemaProfile = "org-matters/v1",
         *,
         clock: Clock | Iterable[datetime] | None = None,
         llm: LlmGateway | None = None,
@@ -52,7 +84,101 @@ class Engine:
         self._write_gateway: LlmGateway = gateway or llm or NullGateway()
         self.query = QueryService(self.store, self.profile)
 
+    def add(
+        self,
+        scope_id: str,
+        messages: list[Message | dict[str, Any]],
+        *,
+        wait: bool = False,
+    ) -> TaskReceipt | TaskResult:
+        """Queue minimal public messages without touching the LLM."""
+
+        if not scope_id:
+            raise ValueError("scope_id is required")
+        validated = [
+            message
+            if isinstance(message, Message)
+            else Message.model_validate(message)
+            for message in messages
+        ]
+        records = [_message_to_record(scope_id, message) for message in validated]
+        receipt = self._enqueue_task(
+            scope_id=scope_id,
+            kind="messages",
+            payload={
+                "records": [
+                    record.model_dump(mode="json") for record in records
+                ]
+            },
+            accepted=len(validated),
+            newest_message_at=max(
+                (message.sent_at for message in validated),
+                default=None,
+            ),
+        )
+        if wait:
+            self.flush(scope_id)
+            return self.task(receipt.task_id)
+        return receipt
+
+    def add_cards(
+        self,
+        cards: list[EpisodeCard | dict[str, Any]],
+        scope_id: str | None = None,
+        *,
+        wait: bool = False,
+    ) -> TaskReceipt | TaskResult:
+        """Queue advanced EpisodeCard input and return a persistent receipt."""
+
+        prepared = []
+        for card in cards:
+            if isinstance(card, EpisodeCard):
+                prepared.append(card)
+                continue
+            payload = dict(card)
+            if scope_id is not None:
+                payload.setdefault("scope_id", scope_id)
+            prepared.append(EpisodeCard.model_validate(payload))
+        if scope_id is None:
+            scopes = {card.scope_id for card in prepared}
+            if len(scopes) != 1:
+                raise ValueError("add_cards requires exactly one scope")
+            scope_id = next(iter(scopes))
+        if not scope_id:
+            raise ValueError("scope_id is required")
+        if any(card.scope_id != scope_id for card in prepared):
+            raise ValueError("all card scope_id values MUST match scope_id")
+        receipt = self._enqueue_task(
+            scope_id=scope_id,
+            kind="cards",
+            payload={
+                "cards": [card.model_dump(mode="json") for card in prepared]
+            },
+            accepted=len(prepared),
+            newest_message_at=None,
+        )
+        if wait:
+            self.flush(scope_id)
+            return self.task(receipt.task_id)
+        return receipt
+
     def ingest(
+        self,
+        cards: list[EpisodeCard | dict[str, Any]],
+        scope_id: str | None = None,
+        *,
+        wait: bool = False,
+    ) -> TaskReceipt | TaskResult:
+        """Deprecated alias for :meth:`add_cards`."""
+
+        warnings.warn(
+            "Engine.ingest() is deprecated; use Engine.add_cards() and flush()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.add_cards(cards, scope_id=scope_id, wait=wait)
+
+    def _ingest_cards_sync(
         self,
         cards: list[EpisodeCard | dict[str, Any]],
         scope_id: str | None = None,
@@ -164,7 +290,7 @@ class Engine:
                     _record_observed_at(record),
                 )
             if cards:
-                emitted = self.ingest(cards, scope_id=scope_id)
+                emitted = self._ingest_cards_sync(cards, scope_id=scope_id)
             if pending and not backfill:
                 by_container: dict[str, list[Record]] = {}
                 for record, _ in pending:
@@ -196,6 +322,152 @@ class Engine:
             assertion_ids=[assertion.assertion_id for assertion in emitted],
             sync_positions=self.store.sync_positions(scope_id),
         )
+
+    def matters(self, scope_id: str) -> list[Matter]:
+        """Return ergonomic projected matters without touching the LLM."""
+
+        result = []
+        for subject in self.query.list_matters(scope_id):
+            current = subject.current
+            result.append(
+                Matter(
+                    title=subject.title,
+                    status=current.get("status"),
+                    owners=_as_list(current.get("owned_by")),
+                    participants=_as_list(current.get("participated_by")),
+                    blocked_by=_as_list(current.get("blocked_by")),
+                    next_step=current.get("next_step"),
+                    due=current.get("due_at"),
+                    subject_key=subject.subject_key,
+                )
+            )
+        return result
+
+    def task(self, task_id: str) -> TaskResult:
+        row = self.store.task(task_id)
+        if row is None:
+            raise KeyError(f"unknown task_id: {task_id}")
+        return row.result
+
+    def flush(self, scope_id: str) -> FlushReport:
+        """Synchronously run all pending extraction and distillation for a scope."""
+
+        pending = self.store.tasks(scope_id, status=TaskStatus.pending)
+        processed: list[str] = []
+        for row in pending:
+            with self.store.transaction():
+                self.store.update_task(row.task_id, status=TaskStatus.running)
+            before_assertions = {
+                item.assertion_id for item in self.store.assertions(scope_id)
+            }
+            cards_produced = gate_accepted = 0
+            gate_rejected: dict[str, int] = {}
+            failed = False
+            gate_before = self.gate_statistics(scope_id)
+            try:
+                if row.kind == "messages":
+                    record_report = self.add_records(
+                        row.payload["records"],
+                        scope_id=scope_id,
+                    )
+                    cards_produced = record_report.cards_accepted
+                    gate_accepted += record_report.cards_accepted
+                    gate_rejected = _merge_counts(
+                        gate_rejected, record_report.drop_reasons
+                    )
+                elif row.kind == "cards":
+                    cards = [
+                        EpisodeCard.model_validate(item)
+                        for item in row.payload["cards"]
+                    ]
+                    cards_produced = sum(
+                        self.store.card_payload_hash(scope_id, card.card_id) is None
+                        for card in cards
+                    )
+                    self._ingest_cards_sync(cards, scope_id=scope_id)
+                    gate_accepted += cards_produced
+                else:
+                    raise ValueError(f"unknown task kind: {row.kind}")
+
+                dream = self.dream(scope_id)
+                gate_accepted += dream.accepted_candidates
+                gate_after = self.gate_statistics(scope_id)
+                gate_rejected = _merge_counts(
+                    gate_rejected,
+                    {
+                        reason: count - gate_before.rejections.get(reason, 0)
+                        for reason, count in gate_after.rejections.items()
+                        if count - gate_before.rejections.get(reason, 0)
+                    },
+                )
+                failed = dream.failed > 0
+            except Exception:  # noqa: BLE001
+                failed = True
+
+            after_assertions = {
+                item.assertion_id for item in self.store.assertions(scope_id)
+            }
+            with self.store.transaction():
+                self.store.update_task(
+                    row.task_id,
+                    status=TaskStatus.failed if failed else TaskStatus.completed,
+                    cards_produced=cards_produced,
+                    new_assertions=len(after_assertions - before_assertions),
+                    gate_accepted=gate_accepted,
+                    gate_rejected=gate_rejected,
+                )
+            processed.append(row.task_id)
+        if not pending and self.store.distill_queue_count(scope_id):
+            self.dream(scope_id)
+        return FlushReport(
+            scope_id=scope_id,
+            tasks_processed=len(processed),
+            task_ids=processed,
+            remaining=len(
+                self.store.tasks(scope_id, status=TaskStatus.pending)
+            ),
+        )
+
+    def flush_quiet(self, quiet_period_minutes: float = 10) -> list[FlushReport]:
+        if quiet_period_minutes < 0:
+            raise ValueError("quiet_period_minutes MUST be non-negative")
+        cutoff = self._clock() - timedelta(minutes=quiet_period_minutes)
+        return [self.flush(scope_id) for scope_id in self.store.quiet_scopes(cutoff)]
+
+    def _enqueue_task(
+        self,
+        *,
+        scope_id: str,
+        kind: str,
+        payload: dict[str, Any],
+        accepted: int,
+        newest_message_at: datetime | None,
+    ) -> TaskReceipt:
+        created_at = self._clock()
+        nonce = 0
+        while True:
+            task_id = "task_" + stable_hash(
+                [
+                    scope_id,
+                    kind,
+                    payload,
+                    instant_text(created_at),
+                    nonce,
+                ]
+            )
+            with self.store.transaction():
+                inserted = self.store.create_task(
+                    task_id=task_id,
+                    scope_id=scope_id,
+                    kind=kind,
+                    payload=payload,
+                    accepted=accepted,
+                    created_at=created_at,
+                    newest_message_at=newest_message_at,
+                )
+            if inserted:
+                return TaskReceipt(accepted=accepted, task_id=task_id)
+            nonce += 1
 
     def sync_positions(self, scope_id: str):
         return self.store.sync_positions(scope_id)
@@ -445,3 +717,46 @@ def _record_observed_at(record: Record) -> datetime:
         for instant in (record.sent_at, record.edited_at, record.revoked_at)
         if instant is not None
     )
+
+
+def _message_to_record(scope_id: str, message: Message) -> Record:
+    container_id = (
+        f"{scope_id}:{message.conversation_id}"
+        if message.conversation_id is not None
+        else scope_id
+    )
+    return Record.model_validate(
+        {
+            "record_id": f"{container_id}:{message.id}",
+            "container_id": container_id,
+            "thread_id": (
+                f"{container_id}:{message.reply_to}"
+                if message.reply_to is not None
+                else None
+            ),
+            "sent_at": message.sent_at,
+            "author": {
+                "id": message.sender.id,
+                "display_name": message.sender.name,
+                "kind": "human",
+            },
+            "content": message.text,
+            "native_id": message.id,
+            "kind": "message",
+        }
+    )
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _merge_counts(
+    left: dict[str, int], right: dict[str, int]
+) -> dict[str, int]:
+    result = dict(left)
+    for key, value in right.items():
+        result[key] = result.get(key, 0) + value
+    return result

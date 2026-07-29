@@ -1,0 +1,55 @@
+case_id: message-receipt-flush-idempotent
+title: Repeated message batches get receipts but create no duplicate assertions
+invariants: [P1, P9, INV-2, INV-3]
+schema_profile: org-matters/v1
+scope_id: repeat
+clock:
+  - "2026-07-28T16:00:00Z"
+  - "2026-07-28T16:01:00Z"
+  - "2026-07-28T16:02:00Z"
+  - "2026-07-28T16:03:00Z"
+cards: []
+message_batches:
+  - messages:
+      - id: m1
+        sender: {id: u1}
+        text: "Launch is open."
+        sent_at: "2026-07-28T15:00:00Z"
+  - messages:
+      - id: m1
+        sender: {id: u1}
+        text: "Launch is open."
+        sent_at: "2026-07-28T15:00:00Z"
+message_model_responses:
+  - cards:
+      - date: "2026-07-28"
+        title: Launch
+        status: open
+        source_ids: ["repeat:m1"]
+model_responses:
+  - {candidates: []}
+corrections: []
+expect:
+  task_results:
+    - status: completed
+      cards_produced: 1
+      new_assertions: 1
+      gate: {accepted: 1, rejected: {}}
+    - status: completed
+      cards_produced: 0
+      new_assertions: 0
+      gate: {accepted: 0, rejected: {}}
+  second_task_results:
+    - status: completed
+      cards_produced: 0
+      new_assertions: 0
+    - status: completed
+      cards_produced: 0
+      new_assertions: 0
+  assertions:
+    - predicate: status
+      object_value: open
+  intervals:
+    - predicate: status
+      object_value: open
+  subject_count: 1

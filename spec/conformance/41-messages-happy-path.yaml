@@ -1,0 +1,67 @@
+case_id: messages-happy-path
+title: Minimal public messages produce a deterministic projected matter
+invariants: [P1, P4, P5, P9, INV-7, INV-10]
+schema_profile: org-matters/v1
+scope_id: team-a
+clock:
+  - "2026-07-28T14:01:00+08:00"
+  - "2026-07-28T14:02:00+08:00"
+cards: []
+message_batches:
+  - messages:
+      - id: m1
+        conversation_id: payments
+        sender: {id: u1, name: 王腾}
+        text: "支付重构由我负责，接口拆分已完成，下一步联调。"
+        sent_at: "2026-07-28T14:00:00+08:00"
+message_model_responses:
+  - cards:
+      - date: "2026-07-28"
+        title: Payment refactor
+        status: in_progress
+        participants:
+          - {id: u1, display_name: 王腾, role: owner}
+        progress: API split completed
+        next_step: Integration testing
+        source_ids: ["team-a:payments:m1"]
+model_responses:
+  - candidates: []
+corrections: []
+expect:
+  task_results:
+    - status: completed
+      cards_produced: 1
+      new_assertions: 5
+      gate: {accepted: 1, rejected: {}}
+  assertions:
+    - predicate: status
+      object_value: in_progress
+    - predicate: owned_by
+      object_value: u1
+    - predicate: participated_by
+      object_value: u1
+    - predicate: progress
+      object_value: API split completed
+    - predicate: next_step
+      object_value: Integration testing
+  intervals:
+    - predicate: status
+      object_value: in_progress
+    - predicate: owned_by
+      object_value: u1
+    - predicate: participated_by
+      object_value: u1
+    - predicate: progress
+      object_value: API split completed
+    - predicate: next_step
+      object_value: Integration testing
+  subject_count: 1
+  queries:
+    - name: list_matters
+      result:
+        - title: Payment refactor
+          current:
+            status: in_progress
+            owned_by: [u1]
+            participated_by: [u1]
+            next_step: Integration testing

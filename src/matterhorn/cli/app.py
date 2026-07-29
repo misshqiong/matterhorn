@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,29 @@ app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
 
+CONFIG_NAME = "matterhorn.toml"
+DEFAULT_DB = "matterhorn.db"
+DEFAULT_SCHEMA = "org-matters/v1"
+
+
+def _load_config() -> dict[str, Any]:
+    path = Path.cwd() / CONFIG_NAME
+    if not path.is_file():
+        return {}
+    try:
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise typer.BadParameter(f"could not load {CONFIG_NAME}: {error}") from error
+    if not isinstance(payload, dict):
+        raise typer.BadParameter(f"{CONFIG_NAME} MUST contain a TOML table")
+    return payload
+
+
+def _setting(value: Any, default: Any, key: str) -> Any:
+    if value != default:
+        return value
+    return _load_config().get(key, default)
+
 
 def _engine(
     db: str,
@@ -29,6 +54,8 @@ def _engine(
     *,
     gateway: Any = None,
 ) -> Engine:
+    db = _setting(db, DEFAULT_DB, "db")
+    schema = _setting(schema, DEFAULT_SCHEMA, "schema")
     try:
         profile = resolve_schema(schema, schema_dir=schema_dir)
     except FileNotFoundError as error:
@@ -48,12 +75,14 @@ def _write_gateway(
 ):
     from matterhorn.gateway_config import configured_gateway
 
+    config = _load_config()
     try:
         return configured_gateway(
-            provider=provider,
+            provider=provider or config.get("provider"),
             base_url=base_url,
             api_key=api_key,
             model=model,
+            fixture_path=config.get("fixture_path"),
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
@@ -67,6 +96,191 @@ def _cursor_map(values: list[str] | None) -> dict[str, str]:
             raise typer.BadParameter("--cursor must be CONTAINER_ID=OPAQUE_CURSOR")
         result[container] = cursor
     return result
+
+
+def _scope(value: str | None) -> str:
+    selected = value or _load_config().get("scope")
+    if not isinstance(selected, str) or not selected:
+        raise typer.BadParameter("scope is required (argument, --scope, or config)")
+    return selected
+
+
+def _read_yaml_or_json(path: str) -> Any:
+    try:
+        text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+        return yaml.safe_load(text)
+    except (OSError, yaml.YAMLError) as error:
+        raise typer.BadParameter(f"could not load input: {error}") from error
+
+
+@app.command("init")
+def init_project(
+    schema: str = typer.Option(DEFAULT_SCHEMA, help="Built-in schema profile id."),
+    db: Path = typer.Option(Path(DEFAULT_DB), help="SQLite database path."),
+) -> None:
+    """Scaffold an idempotent local setup and an offline five-minute demo."""
+
+    config_path = Path.cwd() / CONFIG_NAME
+    demo_path = Path.cwd() / "demo-messages.yaml"
+    fixture_path = Path.cwd() / "matterhorn-demo-gateway.json"
+    if not config_path.exists():
+        config_path.write_text(
+            "\n".join(
+                [
+                    f"db = {json.dumps(str(db), ensure_ascii=False)}",
+                    f"schema = {json.dumps(schema, ensure_ascii=False)}",
+                    'scope = "demo"',
+                    'provider = "fixture"',
+                    'fixture_path = "matterhorn-demo-gateway.json"',
+                    "quiet_period_minutes = 10",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    if not demo_path.exists():
+        demo_path.write_text(
+            """messages:
+  - id: m1
+    conversation_id: payments
+    sender: {id: u1, name: 王腾}
+    text: 支付重构由我负责，已完成接口拆分，下一步联调。
+    sent_at: 2026-07-28T14:00:00+08:00
+""",
+            encoding="utf-8",
+        )
+    if not fixture_path.exists():
+        fixture_path.write_text(
+            json.dumps(
+                {
+                    "record_extraction": {
+                        "cards": [
+                            {
+                                "date": "2026-07-28",
+                                "title": "Payment refactor",
+                                "status": "in_progress",
+                                "participants": [
+                                    {
+                                        "id": "u1",
+                                        "display_name": "王腾",
+                                        "role": "owner",
+                                    }
+                                ],
+                                "progress": "API split completed",
+                                "next_step": "Integration testing",
+                                "source_ids": ["demo:payments:m1"],
+                            }
+                        ]
+                    },
+                    "distillation": {"candidates": []},
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    selected_config = _load_config()
+    selected_db = Path(str(selected_config.get("db", db)))
+    from matterhorn.store import SQLiteStore
+
+    store = SQLiteStore(selected_db)
+    store.close()
+    typer.echo(f"Initialized {config_path.name} and {selected_db}")
+    typer.echo("Next:")
+    typer.echo("  mh add demo-messages.yaml")
+    typer.echo("  mh flush demo")
+    typer.echo("  mh matters demo")
+
+
+@app.command("add")
+def add_messages(
+    input_file: str = typer.Argument(
+        "-",
+        help="YAML/JSON messages file, or - for stdin.",
+    ),
+    scope_id: str | None = typer.Option(None, "--scope", help="Memory scope."),
+    wait: bool = typer.Option(False, help="Run the pipeline synchronously."),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+    provider: str | None = typer.Option(None),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None),
+) -> None:
+    """Queue minimal messages from YAML/JSON without calling an LLM."""
+
+    payload = _read_yaml_or_json(input_file)
+    messages = payload.get("messages") if isinstance(payload, dict) else payload
+    if not isinstance(messages, list):
+        raise typer.BadParameter("input MUST be a message list or {messages: [...]}")
+    selected_scope = _scope(
+        scope_id
+        or (payload.get("scope_id") if isinstance(payload, dict) else None)
+    )
+    engine = _engine(
+        db,
+        schema,
+        schema_dir,
+        gateway=_write_gateway(provider, base_url, api_key, model),
+    )
+    try:
+        result = engine.add(selected_scope, messages, wait=wait)
+    except (ValueError, TypeError) as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(result.model_dump(mode="json"))
+
+
+@app.command("matters")
+def matters(
+    scope_id: str | None = typer.Argument(None),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """List ergonomic projected matters with owners and blockers."""
+
+    result = _engine(db, schema, schema_dir).matters(_scope(scope_id))
+    _print([item.to_dict() for item in result])
+
+
+@app.command("flush")
+def flush(
+    scope_id: str | None = typer.Argument(None),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+    provider: str | None = typer.Option(None),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None),
+) -> None:
+    """Synchronously run pending extraction, distillation, and projection."""
+
+    engine = _engine(
+        db,
+        schema,
+        schema_dir,
+        gateway=_write_gateway(provider, base_url, api_key, model),
+    )
+    _print(engine.flush(_scope(scope_id)).model_dump(mode="json"))
+
+
+@app.command("task")
+def task(
+    task_id: str,
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Inspect a persistent task receipt and gate breakdown."""
+
+    try:
+        result = _engine(db, schema, schema_dir).task(task_id)
+    except KeyError as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(result.model_dump(mode="json"))
 
 
 @app.command()
@@ -89,7 +303,7 @@ def ingest(
     if not isinstance(cards, list):
         raise typer.BadParameter("input must be a card, a list, or {cards: [...]}")
     engine = _engine(db, schema, schema_dir)
-    emitted = engine.ingest(cards)
+    emitted = engine._ingest_cards_sync(cards)
     _print(
         {
             "cards": len(cards),
@@ -193,7 +407,9 @@ def extract(
         try:
             card = mapper(payload, scope_id=selected_scope)
             engine = _engine(db, schema, schema_dir)
-            emitted = engine.ingest([card], scope_id=card.scope_id)
+            emitted = engine._ingest_cards_sync(
+                [card], scope_id=card.scope_id
+            )
         except Exception as error:
             raise typer.BadParameter(str(error)) from error
         _print(
@@ -514,8 +730,8 @@ def dream(
 
 @app.command("mcp")
 def mcp_command(
-    db: str = typer.Option("matterhorn.db"),
-    schema: str = typer.Option("org-matters/v1"),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
     provider: str | None = typer.Option(
         None, help="Defaults to MATTERHORN_PROVIDER."
     ),
@@ -523,23 +739,25 @@ def mcp_command(
     api_key: str | None = typer.Option(None),
     model: str | None = typer.Option(None, help="Defaults to MATTERHORN_MODEL."),
 ) -> None:
-    """Run the eight-tool Matterhorn MCP server over stdio."""
+    """Run the nine-tool Matterhorn MCP server over stdio."""
     from matterhorn.mcp.runtime import run_stdio
 
+    config = _load_config()
     run_stdio(
-        db=str(db),
-        schema=schema,
-        provider=provider,
+        db=str(_setting(db, DEFAULT_DB, "db")),
+        schema=_setting(schema, DEFAULT_SCHEMA, "schema"),
+        provider=provider or config.get("provider"),
         base_url=base_url,
         api_key=api_key,
         model=model,
+        fixture_path=config.get("fixture_path"),
     )
 
 
 @app.command()
 def serve(
-    db: str = typer.Option("matterhorn.db"),
-    schema: str = typer.Option("org-matters/v1"),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
     host: str = typer.Option("127.0.0.1"),
     port: int = typer.Option(8000),
     provider: str | None = typer.Option(
@@ -548,19 +766,31 @@ def serve(
     base_url: str | None = typer.Option(None),
     api_key: str | None = typer.Option(None),
     model: str | None = typer.Option(None, help="Defaults to MATTERHORN_MODEL."),
+    quiet_period_minutes: float | None = typer.Option(
+        None,
+        help="Auto-flush quiet message scopes; config default is 10 minutes.",
+    ),
 ) -> None:
-    """Serve the Matterhorn REST API and OpenAPI document."""
+    """Serve REST with service-mode-only quiet-period auto-flush."""
     import uvicorn
 
     from matterhorn.api import create_app
 
+    config = _load_config()
+    quiet = (
+        quiet_period_minutes
+        if quiet_period_minutes is not None
+        else float(config.get("quiet_period_minutes", 10))
+    )
     uvicorn.run(
         create_app(
-            engine=Engine(
+            engine=_engine(
                 db,
                 schema,
+                None,
                 gateway=_write_gateway(provider, base_url, api_key, model),
-            )
+            ),
+            quiet_period_minutes=quiet,
         ),
         host=host,
         port=port,

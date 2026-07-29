@@ -3,7 +3,7 @@
 这份手册让你**亲手验证**引擎是否兑现了立项承诺，而不是读代码或相信测试名字。
 
 每个步骤都给出：**命令** → **期望输出** → **看到别的说明什么坏了**。
-本文所有命令都在 macOS / Python 3.12 上实跑验证过。M4 的 SQLite 命令于
+本文所有命令都在 macOS / Python 3.12 上实跑验证过。M5 的 SQLite 命令于
 2026-07-29 再次实跑；当前沙箱无法连接 PostgreSQL，所以 §6 保留为宿主机验收
 步骤，不把它记作本轮观察结果。
 
@@ -36,13 +36,71 @@ python3.12 -m venv .venv
 
 ---
 
+## 五分钟旅程
+
+下面严格模拟一个从临时空目录开始的新用户；使用 `mh init` 生成的本地 fixture
+网关，不访问网络：
+
+```bash
+D=$(mktemp -d /tmp/matterhorn-m5-journey.XXXXXX)
+cd "$D"
+/absolute/path/to/.venv/bin/mh init
+/absolute/path/to/.venv/bin/mh add demo-messages.yaml
+/absolute/path/to/.venv/bin/mh flush demo
+/absolute/path/to/.venv/bin/mh matters demo
+```
+
+**2026-07-29 本次实跑输出**：
+
+```text
+Initialized matterhorn.toml and matterhorn.db
+Next:
+  mh add demo-messages.yaml
+  mh flush demo
+  mh matters demo
+{
+  "accepted": 1,
+  "task_id": "task_3a45070d9359d93df6cdba20ac2e8f96e637c637a24b7bb845ee0943d8f80a33"
+}
+{
+  "scope_id": "demo",
+  "tasks_processed": 1,
+  "task_ids": [
+    "task_3a45070d9359d93df6cdba20ac2e8f96e637c637a24b7bb845ee0943d8f80a33"
+  ],
+  "remaining": 0
+}
+[
+  {
+    "title": "Payment refactor",
+    "status": "in_progress",
+    "owners": ["u1"],
+    "participants": ["u1"],
+    "blocked_by": [],
+    "next_step": "Integration testing",
+    "due": null,
+    "subject_key": "sub_4ad6c81d95364b1dc371"
+  }
+]
+```
+
+验收点：
+
+1. `add` 只返回 receipt，事项在 `flush` 前不会凭空出现；
+2. `matterhorn.toml` 让后续命令不再重复 `--db/--schema`；
+3. `matters` 的 owner/status/next_step 来自确定性投影；
+4. 把当前目录接入 Claude Code 的 `mh mcp` 后，问“谁负责支付重构？”，agent
+   应先用 `list_matters`，答案为 `u1`，而不是让模型重新生成一份事实。
+
+---
+
 ## 1. 冒烟（1 分钟）
 
 ```bash
 ./.venv/bin/python -m pytest -q
 ```
 
-**本次实跑**：`119 passed, 40 skipped, 7 warnings`。40 个 skip 是 PostgreSQL
+**本次实跑**：`131 passed, 43 skipped, 7 warnings`。43 个 skip 是 PostgreSQL
 conformance 用例——没设 DSN 时跳过，§6 会把它们跑起来。7 个 warning 全部来自
 旧 `ChatMessage` 兼容测试触发的预期弃用提示。
 
@@ -50,7 +108,7 @@ conformance 用例——没设 DSN 时跳过，§6 会把它们跑起来。7 个
 ./.venv/bin/mh conformance run
 ```
 
-**期望**：最后一行 `SUMMARY passed=40 failed=0 total=40`。
+**期望**：最后一行 `SUMMARY passed=43 failed=0 total=43`。
 
 ---
 
@@ -222,11 +280,17 @@ class Exploding:
     def complete(self, **k):
         raise AssertionError("读路径调用了模型 —— INV-10 被违反")
 
+class EmptySemantic:
+    def complete(self, **k):
+        return '{"candidates":[]}'
+
 db = os.path.join(tempfile.mkdtemp(), "t.db")
-e = Engine(store=db, schema="org-matters/v1", llm=Exploding())
-e.ingest([EpisodeCard(card_id="a", scope_id="s", date="2026-06-01", title="Thing",
+e = Engine(store=db, schema="org-matters/v1", llm=EmptySemantic())
+e.add_cards([EpisodeCard(card_id="a", scope_id="s", date="2026-06-01", title="Thing",
     status="open",
-    source_refs=[{"source_id":"m1","sent_at":"2026-06-01T09:00:00Z","sender":"u1"}])])
+    source_refs=[{"source_id":"m1","sent_at":"2026-06-01T09:00:00Z","sender":"u1"}])],
+    wait=True)
+e._write_gateway = Exploding()  # 验收探针：此后任何网关访问都会失败
 sk = e.query.list_matters("s")[0].subject_key
 
 e.query.current("s", sk, "status")
@@ -266,9 +330,9 @@ YAML
 
 **期望**：第一次 `"assertions_emitted": 1`，**第二次 `0`**（幂等），`replay` 报 `"status": "rebuilt"`。
 
-> 这两条不用你单独验也行——**conformance runner 对 40 个用例中的每一个都会自动
+> 这两条不用你单独验也行——**conformance runner 对 43 个用例中的每一个都会自动
 > 额外跑两遍**：重复 ingest 断言状态不变、replay 重建后区间集完全相等。
-> 也就是说 INV-2/INV-3 是被 40 次而不是 1 次守住的。
+> 也就是说 INV-2/INV-3 是被 43 次而不是 1 次守住的。
 
 ### 3.6 INV-1 / INV-7：封闭谓词与溯源必备
 
@@ -335,22 +399,22 @@ class FakeGateway:
 gw = FakeGateway()
 db = os.path.join(tempfile.mkdtemp(), "d.db")
 e = Engine(store=db, schema="org-matters/v1", llm=gw)
-e.ingest([EpisodeCard(card_id="k1", scope_id="s", date="2026-05-01",
+receipt = e.add_cards([EpisodeCard(card_id="k1", scope_id="s", date="2026-05-01",
     title="Billing vendor selection", status="open",
     source_refs=[{"source_id":"msg-1","sent_at":"2026-05-01T09:00:00Z","sender":"u1"}])])
 
-print("① ingest 期间模型被调用次数 =", gw.calls, "（必须是 0）")
+print("① add_cards 期间模型被调用次数 =", gw.calls, "（必须是 0）")
 
-r = e.dream("s")
-print("② dream:", r.model_dump())
+e.flush("s")
+print("② task:", e.task(receipt.task_id).model_dump())
 print("③ 关卡账本:", e.gate_statistics("s"))
 
 sk = e.query.list_matters("s")[0].subject_key
 print("④ 确定性 status 未被模型污染:",
       [(v.value, v.origin) for v in e.query.current("s", sk, "status")])
 
-r2 = e.dream("s")
-print("⑤ 再次 dream 是否为空操作: new_assertions =", r2.new_assertions)
+r2 = e.flush("s")
+print("⑤ 再次 flush 是否为空操作: tasks_processed =", r2.tasks_processed)
 PY
 ./.venv/bin/python /tmp/gate.py
 ```
@@ -358,13 +422,13 @@ PY
 **期望**（逐条对照）：
 
 ```
-① ingest 期间模型被调用次数 = 0                       ← P1：写入路径不同步调模型
-② dream: {... 'accepted_candidates': 1, 'rejected_candidates': 3,
-           'new_assertions': 1, 'new_subjects': 1 ...}
+① add_cards 期间模型被调用次数 = 0                    ← P1：add 只入队
+② task: {... 'status': 'completed', 'new_assertions': 2,
+           'gate': {'accepted': 2, 'rejected': {...}} ...}
 ③ 关卡账本: accepted=1 rejections={'SOURCE_NOT_TRACEABLE': 1,
            'NOT_SEMANTIC': 1, 'UNKNOWN_PARENT_SUBJECT': 1}
 ④ 确定性 status 未被模型污染: [('open', 'model')]      ← 模型改不动确定性谓词
-⑤ 再次 dream 是否为空操作: new_assertions = 0          ← P9
+⑤ 再次 flush 是否为空操作: tasks_processed = 0         ← P9
 ```
 
 **四个验收点**：
@@ -386,24 +450,34 @@ PY
 
 ```bash
 D=$(mktemp -d)
-./.venv/bin/mh serve --db $D/s.db --host 127.0.0.1 --port 8899 &
+cd $D
+/absolute/path/to/.venv/bin/mh init >/dev/null
+/absolute/path/to/.venv/bin/mh serve --host 127.0.0.1 --port 8899 &
 sleep 4
 curl -s http://127.0.0.1:8899/healthz; echo
-curl -s -X POST http://127.0.0.1:8899/v1/add_episode_cards -H 'content-type: application/json' \
- -d '{"cards":[{"card_id":"s1","scope_id":"demo","date":"2026-02-01","title":"Pick vendor",
-      "status":"open","source_refs":[{"source_id":"m1","sent_at":"2026-02-01T09:00:00Z","sender":"u1"}]}]}'; echo
-curl -s -X POST http://127.0.0.1:8899/v1/list_matters -H 'content-type: application/json' \
- -d '{"scope_id":"demo"}'; echo
+/absolute/path/to/.venv/bin/python -c \
+  'import json,yaml; print(json.dumps(yaml.safe_load(open("demo-messages.yaml"))))' \
+  > demo-messages.json
+R=$(curl -s -X POST http://127.0.0.1:8899/v1/scopes/demo/messages \
+  -H 'content-type: application/json' -d @demo-messages.json)
+echo "$R"
+TASK=$(echo "$R" | /absolute/path/to/.venv/bin/python -c \
+  'import json,sys; print(json.load(sys.stdin)["task_id"])')
+/absolute/path/to/.venv/bin/mh flush demo >/dev/null
+curl -s http://127.0.0.1:8899/v1/tasks/$TASK; echo
+curl -s http://127.0.0.1:8899/v1/scopes/demo/matters; echo
 curl -s -o /dev/null -w "docs=%{http_code}\n" http://127.0.0.1:8899/docs
 pkill -f "mh serve"
 ```
 
-**期望**（实跑输出）：
+**期望核心输出**：
 
 ```
 {"status":"ok"}
-{"cards":1,"assertions_emitted":1,"assertion_ids":["d8cacac7..."]}
-[{"subject_key":"sub_e7db73bc...","subject_type":"MATTER","title":"Pick vendor","current":{"status":"open"}}]
+{"accepted":1,"task_id":"task_..."}
+{"status":"completed","cards_produced":1,"new_assertions":5,
+ "gate":{"accepted":1,"rejected":{}}}
+[{"title":"Payment refactor","status":"in_progress","owners":["u1"],...}]
 docs=200
 ```
 
@@ -431,7 +505,7 @@ PY
 **期望**：
 
 ```
-tools: ['add_episode_cards', 'add_records', 'correct', 'list_matters',
+tools: ['add_cards', 'add_messages', 'add_records', 'correct', 'list_matters',
         'query_at', 'query_by_person', 'query_current', 'query_timeline']
 ```
 
@@ -477,7 +551,7 @@ tools: ['add_episode_cards', 'add_records', 'correct', 'list_matters',
 ./.venv/bin/python -m pytest -q \
   tests/test_cli.py::test_extract_cli_wires_records_to_cards_ingest_and_sync_status \
   tests/test_protocols.py::test_rest_round_trip_all_endpoints_and_correction \
-  tests/test_protocols.py::test_mcp_official_sdk_round_trip_all_eight_tools
+  tests/test_protocols.py::test_mcp_official_sdk_round_trip_all_nine_tools
 ```
 
 **实跑输出**：`3 passed in 0.52s`。
@@ -512,11 +586,11 @@ MATTERHORN_TEST_POSTGRES_DSN="postgresql://matterhorn@127.0.0.1:55432/matterhorn
   --dsn "postgresql://matterhorn@127.0.0.1:55432/matterhorn"
 ```
 
-**期望**：`159 passed`、零失败、零 skip，
-`SUMMARY passed=40 failed=0 total=40`。这是 §1 的 119 个非 PG/SQLite 测试
-加上 40 个 PostgreSQL conformance 用例；本轮沙箱没有把它观察成实跑结果。
+**期望**：`174 passed`、零失败、零 skip，
+`SUMMARY passed=43 failed=0 total=43`。这是 §1 的 131 个本地通过项
+加上 43 个 PostgreSQL conformance 用例；本轮沙箱没有把它观察成实跑结果。
 
-若仍看到 `40 skipped`，说明 DSN 没生效，PG 根本没被验证。
+若仍看到 `43 skipped`，说明 DSN 没生效，PG 根本没被验证。
 
 **进阶：验证排序不依赖数据库 locale**（一个答案取决于部署 locale 的规范不算规范）：
 
@@ -601,4 +675,4 @@ PGDIR=$(mktemp -d)/pgdata && mkdir -p $PGDIR \
   ; pg_ctl -D $PGDIR stop >/dev/null && rm -rf $PGDIR
 ```
 
-**通过标准**：零失败，零 skip；40 个 PostgreSQL conformance 用例全部执行。
+**通过标准**：零失败，零 skip；43 个 PostgreSQL conformance 用例全部执行。

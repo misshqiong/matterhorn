@@ -1,6 +1,6 @@
 # Human correction
 
-This is the complete P8 flow: ingest a model-origin observation, query it,
+This is the complete P8 flow: add a model-origin observation, query it,
 append a human assertion at the same effective instant, and query again.
 
 ```console

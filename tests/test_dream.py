@@ -98,7 +98,7 @@ def test_dream_happy_path_and_second_run_is_noop(tmp_path) -> None:
             datetime(2026, 1, 1, 12, tzinfo=UTC),
         ],
     )
-    engine.ingest([_card()])
+    engine._ingest_cards_sync([_card()])
     first = engine.dream("s")
     second = engine.dream("s")
     assert first.new_assertions == 1
@@ -163,7 +163,7 @@ def test_dream_creates_child_subject_only_inside_successful_transaction(tmp_path
         ],
     )
     card = _card() | {"subject_key": "parent-1"}
-    engine.ingest([card])
+    engine._ingest_cards_sync([card])
     assert [item.subject_type for item in engine.store.subjects("s")] == ["PARENT"]
 
     report = engine.dream("s")
@@ -193,7 +193,7 @@ def test_gateway_error_keeps_queue_and_deterministic_state(tmp_path) -> None:
         gateway=ExplodingGateway(),
         clock=[datetime(2026, 1, 1, 11, tzinfo=UTC)],
     )
-    deterministic = engine.ingest([_card()])
+    deterministic = engine._ingest_cards_sync([_card()])
     before = engine.store.assertions("s")
     report = engine.dream("s")
     queued = engine.store.distill_queue("s")
@@ -217,7 +217,7 @@ def test_human_correction_at_same_instant_outranks_model(tmp_path) -> None:
             datetime(2026, 1, 1, 13, tzinfo=UTC),
         ],
     )
-    engine.ingest([_card()])
+    engine._ingest_cards_sync([_card()])
     engine.dream("s")
     engine.correct(
         {

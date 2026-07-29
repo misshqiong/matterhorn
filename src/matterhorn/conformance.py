@@ -187,6 +187,18 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid record_model_responses"
         )
+    if "message_batches" in case and not isinstance(
+        case["message_batches"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid message_batches"
+        )
+    if "message_model_responses" in case and not isinstance(
+        case["message_model_responses"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid message_model_responses"
+        )
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -205,16 +217,23 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         else SchemaProfile.model_validate(profile_value)
     )
     record_model_responses = case.get("record_model_responses", [])
+    message_model_responses = case.get("message_model_responses", [])
     dream_model_responses = case.get("model_responses", [])
     has_gateway_fixtures = (
-        "record_model_responses" in case or "model_responses" in case
+        "record_model_responses" in case
+        or "message_model_responses" in case
+        or "model_responses" in case
     )
     engine = Engine(
         store,
         profile,
         clock=FixedClock(case.get("clock", [])),
         gateway=FixtureGateway(
-            [*record_model_responses, *dream_model_responses]
+            [
+                *record_model_responses,
+                *message_model_responses,
+                *dream_model_responses,
+            ]
         )
         if has_gateway_fixtures
         else None,
@@ -222,7 +241,9 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     expected_error = case.get("expect_error")
     if expected_error:
         try:
-            engine.ingest(case.get("cards", []), scope_id=case["scope_id"])
+            engine._ingest_cards_sync(
+                case.get("cards", []), scope_id=case["scope_id"]
+            )
             for correction in case.get("corrections", []):
                 engine.correct(correction)
         except Exception as error:
@@ -238,7 +259,9 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         _equal(engine.store.intervals(case["scope_id"]), [], "error intervals")
         return
 
-    engine.ingest(case.get("cards", []), scope_id=case["scope_id"])
+    engine._ingest_cards_sync(
+        case.get("cards", []), scope_id=case["scope_id"]
+    )
     record_reports = [
         engine.add_records(
             batch.get("records", []),
@@ -248,8 +271,12 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         )
         for batch in case.get("record_batches", [])
     ]
+    message_tasks = _run_message_batches(engine, case)
     first_dream = None
-    if case.get("model_responses") is not None:
+    if (
+        case.get("model_responses") is not None
+        and not case.get("message_batches")
+    ):
         first_dream = engine.dream(case["scope_id"])
     for correction in case.get("corrections", []):
         engine.correct(correction)
@@ -270,6 +297,22 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             ],
             expect["record_reports"],
             "record_reports",
+        )
+    if "task_results" in expect:
+        _equal(
+            [
+                {
+                    key: _plain(result)[key]
+                    for key in wanted
+                }
+                for result, wanted in zip(
+                    message_tasks,
+                    expect["task_results"],
+                    strict=True,
+                )
+            ],
+            expect["task_results"],
+            "task_results",
         )
     if "dream_report" in expect:
         actual_report = _plain(first_dream)
@@ -322,7 +365,9 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             _equal(actual, expected, f"query {query['name']}")
 
     initial = _snapshot(engine, case["scope_id"])
-    engine.ingest(case.get("cards", []), scope_id=case["scope_id"])
+    engine._ingest_cards_sync(
+        case.get("cards", []), scope_id=case["scope_id"]
+    )
     second_record_reports = [
         engine.add_records(
             batch.get("records", []),
@@ -332,8 +377,12 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         )
         for batch in case.get("record_batches", [])
     ]
+    second_message_tasks = _run_message_batches(engine, case)
     second_dream = None
-    if case.get("model_responses") is not None:
+    if (
+        case.get("model_responses") is not None
+        and not case.get("message_batches")
+    ):
         second_dream = engine.dream(case["scope_id"])
     if "second_dream" in expect:
         actual_report = _plain(second_dream)
@@ -358,12 +407,42 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             expect["second_record_reports"],
             "second_record_reports",
         )
+    if "second_task_results" in expect:
+        _equal(
+            [
+                {
+                    key: _plain(result)[key]
+                    for key in wanted
+                }
+                for result, wanted in zip(
+                    second_message_tasks,
+                    expect["second_task_results"],
+                    strict=True,
+                )
+            ],
+            expect["second_task_results"],
+            "second_task_results",
+        )
     for correction in case.get("corrections", []):
         engine.correct(correction)
     _equal(_snapshot(engine, case["scope_id"]), initial, "idempotent re-ingest")
 
     engine.replay(case["scope_id"])
     _equal(_snapshot(engine, case["scope_id"]), initial, "replay snapshot")
+
+
+def _run_message_batches(
+    engine: Engine, case: dict[str, Any]
+) -> list[Any]:
+    results = []
+    for batch in case.get("message_batches", []):
+        receipt = engine.add(
+            case["scope_id"],
+            batch.get("messages", []),
+        )
+        engine.flush(case["scope_id"])
+        results.append(engine.task(receipt.task_id))
+    return results
 
 
 def _plain(value: Any) -> Any:

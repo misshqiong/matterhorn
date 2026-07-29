@@ -3,7 +3,7 @@
 Install the official MCP SDK extra:
 
 ```console
-pip install 'matterhorn[mcp]'
+pip install 'matterhorn-memory[mcp]'
 ```
 
 Add `.mcp.json` at the Claude Code project root:
@@ -23,9 +23,8 @@ Add `.mcp.json` at the Claude Code project root:
 Copy the Matterhorn Skill to `.claude/skills/matterhorn/SKILL.md`. A complete
 checked-in setup is under [examples/claude-code](../examples/claude-code).
 
-The server exposes exactly eight typed tools. Use `list_matters` to discover
-subjects, `query_current` for current facts, `query_timeline` to explain
-changes, `query_at` for historical reconstruction, person queries for current
-relationships, `add_records` for raw communication, `add_episode_cards` for
-pre-built evidence-backed cards, and `correct` when a human explicitly fixes
-memory.
+The server exposes exactly nine typed tools. Use `add_messages` as the default
+write door and `list_matters` as the default read door. `query_current`,
+`query_timeline`, `query_at`, and `query_by_person` provide detail.
+`add_cards` and `add_records` are advanced inputs; `correct` appends a human
+correction.

@@ -9,5 +9,6 @@ status=open sources=msg-1
 next_step=Run conformance
 ```
 
-The example creates a temporary SQLite database, ingests one evidence-backed
-card, and reads two projected values without an LLM.
+The example creates a temporary SQLite database, queues one evidence-backed
+card, flushes it with an empty offline semantic fixture, and reads two
+projected values without an LLM on the read path.

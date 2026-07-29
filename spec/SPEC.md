@@ -1,6 +1,6 @@
 # Matterhorn Normative Specification
 
-Version: 0.4.0
+Version: 0.5.0
 
 This document is the language-neutral source of truth for Matterhorn
 implementations. The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY**
@@ -38,6 +38,10 @@ are normative.
   cards, assertions, intervals, or materializations; every pipeline stage MUST
   be safe to replay.
 
+**Input admission rule.** A new input form is admissible if and only if it maps
+losslessly to an `EpisodeCard` with traceable sources. An implementation MUST
+reject an input that cannot satisfy that rule rather than weakening P5.
+
 ## 2. Invariants
 
 - **INV-1 — Closed predicates.** A persisted assertion's predicate MUST exist
@@ -67,7 +71,8 @@ are normative.
 - **INV-6 — Read-after-write consistency.** Card validation, identity,
   extraction, assertion persistence, projection, statistics, and
   materialization for a batch MUST commit in one store transaction. A query
-  issued after `ingest()` returns MUST see that committed projection.
+  issued after the synchronous card-application stage returns MUST see that
+  committed projection.
 - **INV-7 — Mandatory and retained provenance.** `EpisodeCard.source_refs`,
   `Assertion.source_refs`, and `Correction.source_refs` MUST be non-empty; a
   value without source evidence MUST be rejected before persistence. Every
@@ -100,9 +105,39 @@ are normative.
   all are revoked. A conclusion supported only by revoked evidence therefore
   remains queryable but is visibly flagged.
 
-## 3. Record and EpisodeCard contracts
+## 3. Message, Record, and EpisodeCard contracts
 
-### 3.1 Record
+### 3.1 Minimal public Message
+
+`Message` is the default public input. Unknown fields MUST be rejected. Its
+closed contract contains exactly four required top-level fields and two
+optional fields:
+
+| Field | Type | Presence | Rule |
+| --- | --- | --- | --- |
+| `id` | string | required | Non-empty provider/native message identity. |
+| `sender` | object | required | Exactly required non-empty `id` and optional nullable `name`; unknown fields are rejected. |
+| `text` | string | required | Original human-readable message content. |
+| `sent_at` | datetime | required | Original message time, under the canonical datetime rules. |
+| `conversation_id` | string or null | optional | Provider conversation identity. |
+| `reply_to` | string or null | optional | Provider/native parent message identity. |
+
+These fields preserve the gate's traceability, time, and participant
+requirements and therefore do not weaken P5. Before a Message becomes Record
+evidence, its public `id` MUST be namespaced exactly as:
+
+```text
+scope_id + ":" + conversation_id + ":" + id   when conversation_id is present
+scope_id + ":" + id                            otherwise
+```
+
+The resulting value is the Record `record_id` and eventual
+`SourceRef.source_id`. The Record `container_id` is `scope_id:conversation_id`
+when present and `scope_id` otherwise. A non-null `reply_to` becomes a thread
+boundary under that same container namespace. Consequently, equal native IDs
+from different scopes or conversations MUST remain distinct INV-5 evidence.
+
+### 3.2 Record
 
 `Record` is the provider-neutral communication input. Unknown fields MUST be
 rejected. Date-times follow the canonical rules in this specification.
@@ -138,7 +173,7 @@ messages as shared evidence.
 compatibility alias for the M3 Python API. New protocol and conformance inputs
 MUST use `Record`.
 
-### 3.2 EpisodeCard
+### 3.3 EpisodeCard
 
 Unknown fields MUST be rejected. Date-times MUST be RFC 3339 values. A date-time
 without an offset is interpreted as UTC; canonical output is UTC.
@@ -498,6 +533,50 @@ intervals, projection statistics, and memory cards for the scope, and rebuild
 them using sections 9 and 10. Canonical JSON snapshots before and after MUST be
 byte-identical.
 
+### 11.1 Public receipts, persistent tasks, and flush
+
+`Engine.add(scope_id, messages)` and `Engine.add_cards(scope_id, cards)` MUST
+validate and persist a task, then return immediately without gateway access:
+
+```text
+{"accepted": integer, "task_id": string}
+```
+
+`accepted` is the number of validated input Messages or EpisodeCards. Task IDs,
+creation instants, and status transitions MUST use the Engine's injectable
+clock rather than an uninjectable wall-clock source. Task rows MUST be stored
+by both SQLite and PostgreSQL and MUST survive Engine/process restart.
+
+The default state is `pending`. `flush(scope_id)` MUST visit pending tasks in
+stable creation order and synchronously execute pending Message-to-Record,
+Record-to-card extraction, deterministic card application, semantic
+distillation, projection, and materialization. `add(..., wait=true)` and
+`add_cards(..., wait=true)` MUST run that same flush path and return the
+completed task result inline. `Engine.task(task_id)` and every task protocol
+response have exactly:
+
+```text
+{
+  "status": "pending" | "running" | "completed" | "failed",
+  "cards_produced": integer,
+  "new_assertions": integer,
+  "gate": {
+    "accepted": integer,
+    "rejected": {reason_code: count}
+  }
+}
+```
+
+The gate object MUST aggregate the task's Record-to-card and semantic gate
+outcomes without borrowing prior scope counters. Repeating an identical
+Message batch MUST create a new receipt, but the observation ledger and
+assertion IDs MUST make the later completed task report zero new assertions.
+
+`ingest()` is a deprecated Python alias for `add_cards()` and MUST retain its
+receipt semantics. The synchronous card-application mechanism remains an
+internal engine promise boundary, not the user's front door. `add_records`
+remains importable as an advanced/internal integration entry.
+
 ## 12. Golden conformance YAML format
 
 Each `spec/conformance/*.yaml` file contains one mapping:
@@ -509,8 +588,10 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-11`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
-| `clock` | Ordered RFC 3339 instants injected for new cards, accepted semantic assertions, and corrections. |
+| `clock` | Ordered RFC 3339 instants injected for task creation, new cards, accepted semantic assertions, and corrections. |
 | `cards` | Ordered EpisodeCard mappings. |
+| `message_batches` | Optional ordered `{messages}` batches passed through `add`, each followed by `flush`. |
+| `message_model_responses` | Optional ordered closed Message/Record-to-card fixture responses consumed by message batches. |
 | `record_batches` | Optional ordered `{records,cursors?,backfill?}` batches passed to `add_records`. |
 | `record_model_responses` | Optional ordered closed Record-to-card responses, one for each batch containing unseen non-revoked Records. |
 | `corrections` | Ordered Correction mappings, default `[]`. |
@@ -526,6 +607,8 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.second_dream` | Optional partial field mapping checked after identical card re-ingest and a second `dream()`. |
 | `expect.record_reports` | Optional ordered partial mappings checked against first-pass `add_records` reports. |
 | `expect.second_record_reports` | Optional ordered partial mappings checked after exact Record re-ingest. |
+| `expect.task_results` | Optional ordered partial task-result mappings for first-pass message batches. |
+| `expect.second_task_results` | Optional ordered partial task-result mappings after exact message re-add. |
 
 For assertions and intervals, each expected mapping declares its compared
 fields. The runner projects each actual item onto exactly those fields, then
@@ -533,7 +616,7 @@ compares **order-insensitive exact multisets**: neither an extra nor a missing
 projected mapping is allowed. Nested `supporting_assertion_ids` and query
 `source_ids` lists remain order-sensitive. Datetimes use canonical UTC form.
 Query results are order-sensitive according to section 10. Every case runner
-MUST also re-ingest the same card and Record batches and compare a canonical
+MUST also re-add the same Message, card, and Record batches and compare a canonical
 whole-store snapshot including observation ledger, source lifecycle, and sync
 positions, then invoke replay and compare it again. Error cases MUST verify the
 transaction left the scope empty.
@@ -589,8 +672,9 @@ subject fields remain strings so that the validation gate can classify
 attempted unregistered and wrong-mode writes with their specific reason codes;
 the prompt's enumerated registry is the model-facing closed vocabulary.
 
-`ingest()` MUST NOT call a gateway. In the same transaction as deterministic
-ingest, each newly accepted card MUST be inserted once into `distill_queue`
+The internal synchronous card-application stage MUST NOT call a gateway. In
+the same transaction as deterministic card application, each newly accepted
+card MUST be inserted once into `distill_queue`
 with its resolved subject identity. Re-ingesting an identical card MUST NOT
 enqueue a duplicate.
 
@@ -660,17 +744,18 @@ they MUST NOT duplicate identity, extraction, correction, projection, or query
 logic. Transport errors MUST be returned as structured `{code,message}` errors
 and MUST NOT expose Python tracebacks as protocol results.
 
-The MCP server MUST expose exactly these eight tools:
+The MCP server MUST expose exactly these nine tools:
 
 | Tool | When an agent uses it |
 | --- | --- |
-| `add_episode_cards` | After a conversation, persist evidence-backed episode observations. |
-| `add_records` | Ingest raw communication Records through gated card extraction. |
+| `add_messages` | Default write door: queue the section 3.1 minimal Message contract and return a receipt. |
+| `add_cards` | Advanced write door for callers that already produce evidence-backed EpisodeCards; return a receipt. |
+| `add_records` | Advanced/internal provider integration for normalized Records. |
 | `query_current` | Read value(s) currently true for one subject and predicate. |
 | `query_timeline` | Explain changes and supporting evidence over time. |
 | `query_at` | Reconstruct what was true at an effective-time instant. |
 | `query_by_person` | Find current subjects related to a person identifier. |
-| `list_matters` | Discover primary subjects available in a scope; the compatibility name has no concrete domain semantics. |
+| `list_matters` | Default read door: discover ergonomic projected matters in a scope. |
 | `correct` | File an origin-human assertion when a human says memory is wrong. |
 
 It MUST be launchable as `mh mcp` and `python -m matterhorn.mcp` over stdio.
@@ -680,6 +765,12 @@ The `mcp` installation extra MUST require the official SDK version range
 substitute a compatibility server or look-alike protocol. If the SDK is
 missing, importing the MCP server MUST raise an actionable `ImportError` that
 names the `matterhorn[mcp]` extra.
+
+The Python facade MUST expose `add`, `matters`, `flush`, `task`, `add_cards`,
+`query.*`, `correct`, and advanced/internal `add_records`. `matters(scope_id)`
+MUST return projection-derived objects with at least `title`, `status`,
+`owners`, `participants`, `blocked_by`, `next_step`, `due`, and `subject_key`.
+It MUST NOT call a gateway.
 
 `mh dream` MUST treat `--api-key` and `--base-url` as explicit overrides.
 Without an API-key override it MUST read `MATTERHORN_API_KEY` first, then
@@ -695,31 +786,48 @@ The same command MUST expose the pure ReMe and OpenViking digest adapters as
 `--adapter reme` and `--adapter openviking`; those paths map directly to a
 validated EpisodeCard and MUST NOT configure or call a gateway.
 
+The CLI MUST additionally expose `mh init`, `mh add`, `mh matters`, `mh flush`,
+and `mh task`. `mh add` MUST accept YAML/JSON from a file or stdin. `mh init
+[--schema ID] [--db PATH]` MUST idempotently create the SQLite database and a
+small `matterhorn.toml` containing default database, schema, scope, and
+quiet-period settings, then print the next three runnable commands. CLI
+commands MUST read that file so `--db` and `--schema` are not repeatedly
+required.
+
 The REST app factory MUST expose OpenAPI and these endpoints:
 
 ```text
 GET  /healthz
-POST /v1/add_episode_cards
-POST /v1/add_records
-POST /v1/query_current
-POST /v1/query_timeline
-POST /v1/query_at
-POST /v1/query_by_person
-POST /v1/list_matters
-POST /v1/correct
+POST /v1/scopes/{scope_id}/messages
+POST /v1/scopes/{scope_id}/cards
+GET  /v1/scopes/{scope_id}/matters
+GET  /v1/scopes/{scope_id}/query/current
+GET  /v1/scopes/{scope_id}/query/timeline
+GET  /v1/scopes/{scope_id}/query/at
+GET  /v1/scopes/{scope_id}/query/by-person
+POST /v1/scopes/{scope_id}/corrections
+GET  /v1/tasks/{task_id}
 ```
 
-Each POST body and response MUST have a Pydantic contract. `mh serve` MUST
-launch the app. MCP and REST read handlers, their shared service, and
+The old `/v1/add_episode_cards`-style RPC endpoints MUST NOT be exposed, and
+wire protocols MUST NOT retain legacy aliases. Each request and response MUST
+have a Pydantic contract. `mh serve` MUST launch the app. MCP and REST read
+handlers, their shared service, and
 `matterhorn.query` MUST NOT import or transitively reach `matterhorn.distill`.
 Installing a gateway that raises on every call and invoking every read tool and
 read endpoint MUST succeed.
+
+Only service mode has quiet-period scheduling. `mh serve` MUST run a background
+loop that flushes a scope when the newest pending Message in that scope is at
+least N minutes old, where N defaults to 10 and is configurable. Embedded mode
+MUST remain host-driven through `flush()` or `wait=true`; v0.5 MUST NOT expose a
+general cron system.
 
 ## 16. Record-to-card extraction
 
 The built-in Record extractor is a P1 write-path component and MUST use the
 same `LlmGateway.complete(system, user, response_schema)` SPI as semantic
-distillation. Its input is the closed section 3.1 Record contract.
+distillation. Its input is the closed section 3.2 Record contract.
 `ChatMessage{message_id,sent_at,sender,content}` is a deprecated Python alias
 only and is not a protocol input.
 

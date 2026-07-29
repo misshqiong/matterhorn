@@ -25,6 +25,22 @@ class SourceRef(StrictModel):
     uri: str | None = None
 
 
+class MessageSender(StrictModel):
+    id: str = Field(min_length=1)
+    name: str | None = None
+
+
+class Message(StrictModel):
+    """The minimal public message contract."""
+
+    id: str = Field(min_length=1)
+    sender: MessageSender
+    text: str
+    sent_at: datetime
+    conversation_id: str | None = None
+    reply_to: str | None = None
+
+
 class AuthorKind(str, Enum):
     human = "human"
     bot = "bot"
@@ -390,6 +406,37 @@ class GateStatistics(StrictModel):
     scope_id: str
     accepted: int = 0
     rejections: dict[str, int] = Field(default_factory=dict)
+
+
+class TaskStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class TaskReceipt(StrictModel):
+    accepted: int
+    task_id: str
+
+
+class TaskGate(StrictModel):
+    accepted: int = 0
+    rejected: dict[str, int] = Field(default_factory=dict)
+
+
+class TaskResult(StrictModel):
+    status: TaskStatus
+    cards_produced: int = 0
+    new_assertions: int = 0
+    gate: TaskGate = Field(default_factory=TaskGate)
+
+
+class FlushReport(StrictModel):
+    scope_id: str
+    tasks_processed: int
+    task_ids: list[str] = Field(default_factory=list)
+    remaining: int
 
 
 class DreamReport(StrictModel):

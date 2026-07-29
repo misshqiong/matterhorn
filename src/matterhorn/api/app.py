@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -7,35 +10,62 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from matterhorn.api.models import (
-    AddEpisodeCardsRequest,
-    AddRecordsRequest,
-    AddRecordsResponse,
-    AtRequest,
-    ByPersonRequest,
-    CorrectRequest,
+    AddCardsRequest,
+    AddMessagesRequest,
+    CorrectionInput,
     HealthResponse,
-    ListMattersRequest,
-    MutationResponse,
-    PredicateRequest,
+    MatterListResponse,
     SubjectListResponse,
     ValueListResponse,
 )
-from matterhorn.contracts import Assertion
+from matterhorn.contracts import Assertion, TaskReceipt, TaskResult
 from matterhorn.service import MatterhornService
 
 
-def create_app(*, engine: Any = None, service: MatterhornService | None = None) -> FastAPI:
+def create_app(
+    *,
+    engine: Any = None,
+    service: MatterhornService | None = None,
+    quiet_period_minutes: float | None = None,
+    scheduler_poll_seconds: float = 30,
+) -> FastAPI:
     if service is None:
         if engine is None:
             raise ValueError("create_app requires engine or service")
         service = MatterhornService(engine)
 
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        task = None
+        if quiet_period_minutes is not None:
+
+            async def loop() -> None:
+                while True:
+                    await asyncio.sleep(scheduler_poll_seconds)
+                    await asyncio.to_thread(
+                        service.engine.flush_quiet, quiet_period_minutes
+                    )
+
+            task = asyncio.create_task(loop())
+            application.state.scheduler_task = task
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
     app = FastAPI(
         title="Matterhorn Memory API",
-        version="0.4.0",
+        version="0.5.0",
         description="Deterministic, evidence-backed temporal memory protocol.",
+        lifespan=lifespan,
     )
     app.state.matterhorn_service = service
+    app.state.scheduler_task = None
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(
@@ -67,38 +97,103 @@ def create_app(*, engine: Any = None, service: MatterhornService | None = None) 
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/v1/add_episode_cards", response_model=MutationResponse)
-    def add_episode_cards(request: AddEpisodeCardsRequest):
-        return service.add_episode_cards(
-            cards=request.cards, scope_id=request.scope_id
+    @app.post(
+        "/v1/scopes/{scope_id}/messages",
+        response_model=TaskReceipt | TaskResult,
+    )
+    def add_messages(scope_id: str, request: AddMessagesRequest):
+        return service.add_messages(
+            scope_id=scope_id,
+            messages=request.messages,
+            wait=request.wait,
         )
 
-    @app.post("/v1/add_records", response_model=AddRecordsResponse)
-    def add_records(request: AddRecordsRequest):
-        return service.add_records(**request.model_dump())
+    @app.post(
+        "/v1/scopes/{scope_id}/cards",
+        response_model=TaskReceipt | TaskResult,
+    )
+    def add_cards(scope_id: str, request: AddCardsRequest):
+        return service.add_cards(
+            scope_id=scope_id,
+            cards=[
+                {
+                    key: value
+                    for key, value in card.model_dump(mode="python").items()
+                    if value is not None or key != "scope_id"
+                }
+                for card in request.cards
+            ],
+            wait=request.wait,
+        )
 
-    @app.post("/v1/query_current", response_model=ValueListResponse)
-    def query_current(request: PredicateRequest):
-        return service.query_current(**request.model_dump())
+    @app.get(
+        "/v1/scopes/{scope_id}/matters",
+        response_model=MatterListResponse,
+    )
+    def matters(scope_id: str):
+        return service.list_matters(scope_id=scope_id)
 
-    @app.post("/v1/query_timeline", response_model=ValueListResponse)
-    def query_timeline(request: PredicateRequest):
-        return service.query_timeline(**request.model_dump())
+    @app.get(
+        "/v1/scopes/{scope_id}/query/current",
+        response_model=ValueListResponse,
+    )
+    def query_current(scope_id: str, subject_key: str, predicate: str):
+        return service.query_current(
+            scope_id=scope_id,
+            subject_key=subject_key,
+            predicate=predicate,
+        )
 
-    @app.post("/v1/query_at", response_model=ValueListResponse)
-    def query_at(request: AtRequest):
-        return service.query_at(**request.model_dump())
+    @app.get(
+        "/v1/scopes/{scope_id}/query/timeline",
+        response_model=ValueListResponse,
+    )
+    def query_timeline(scope_id: str, subject_key: str, predicate: str):
+        return service.query_timeline(
+            scope_id=scope_id,
+            subject_key=subject_key,
+            predicate=predicate,
+        )
 
-    @app.post("/v1/query_by_person", response_model=SubjectListResponse)
-    def query_by_person(request: ByPersonRequest):
-        return service.query_by_person(**request.model_dump())
+    @app.get(
+        "/v1/scopes/{scope_id}/query/at",
+        response_model=ValueListResponse,
+    )
+    def query_at(
+        scope_id: str,
+        subject_key: str,
+        predicate: str,
+        instant: datetime,
+    ):
+        return service.query_at(
+            scope_id=scope_id,
+            subject_key=subject_key,
+            predicate=predicate,
+            instant=instant,
+        )
 
-    @app.post("/v1/list_matters", response_model=SubjectListResponse)
-    def list_matters(request: ListMattersRequest):
-        return service.list_matters(**request.model_dump())
+    @app.get(
+        "/v1/scopes/{scope_id}/query/by-person",
+        response_model=SubjectListResponse,
+    )
+    def query_by_person(scope_id: str, person_id: str):
+        return service.query_by_person(
+            scope_id=scope_id,
+            person_id=person_id,
+        )
 
-    @app.post("/v1/correct", response_model=Assertion)
-    def correct(request: CorrectRequest):
-        return service.correct(correction=request.correction)
+    @app.post(
+        "/v1/scopes/{scope_id}/corrections",
+        response_model=Assertion,
+    )
+    def correct(scope_id: str, correction: CorrectionInput):
+        return service.correct(
+            scope_id=scope_id,
+            correction=correction.model_dump(mode="python"),
+        )
+
+    @app.get("/v1/tasks/{task_id}", response_model=TaskResult)
+    def task(task_id: str):
+        return service.task(task_id=task_id)
 
     return app

@@ -15,6 +15,8 @@ from matterhorn.contracts import (
     ProjectionStats,
     SourceRef,
     SyncPosition,
+    TaskResult,
+    TaskStatus,
 )
 from matterhorn.engine.identity import SubjectRecord
 
@@ -63,6 +65,18 @@ class QuerySubjectRow:
     subject_type: str
     title: str
     current: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class TaskRow:
+    task_id: str
+    scope_id: str
+    kind: str
+    payload: dict[str, Any]
+    accepted: int
+    created_at: str
+    newest_message_at: str | None
+    result: TaskResult
 
 
 class Store(Protocol):
@@ -147,6 +161,37 @@ class Store(Protocol):
     ) -> None: ...
 
     def gate_statistics(self, scope_id: str) -> GateStatistics: ...
+
+    def create_task(
+        self,
+        *,
+        task_id: str,
+        scope_id: str,
+        kind: str,
+        payload: dict[str, Any],
+        accepted: int,
+        created_at: datetime,
+        newest_message_at: datetime | None,
+    ) -> bool: ...
+
+    def task(self, task_id: str) -> TaskRow | None: ...
+
+    def tasks(
+        self, scope_id: str, *, status: TaskStatus | None = None
+    ) -> list[TaskRow]: ...
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        status: TaskStatus,
+        cards_produced: int = 0,
+        new_assertions: int = 0,
+        gate_accepted: int = 0,
+        gate_rejected: dict[str, int] | None = None,
+    ) -> None: ...
+
+    def quiet_scopes(self, cutoff: datetime) -> list[str]: ...
 
     def query_current_values(
         self,

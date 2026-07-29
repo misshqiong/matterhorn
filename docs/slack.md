@@ -81,8 +81,9 @@ report = engine.add_records(
 )
 ```
 
-The same Record array and scope are accepted by MCP `add_records` and REST
-`POST /v1/add_records`.
+The same Record array and scope are accepted by the advanced SDK and MCP
+`add_records` entry. REST intentionally exposes the default Message door and
+advanced card door, not a legacy Record RPC route.
 
 ## Events, edits, and deletion
 

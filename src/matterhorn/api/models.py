@@ -1,63 +1,60 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from pydantic import RootModel
+from pydantic import Field, RootModel
 
 from matterhorn.contracts import (
-    AddRecordsReport,
-    Correction,
-    EpisodeCard,
     EvidenceRef,
-    Record,
+    Message,
+    Operation,
+    Outcome,
+    Participant,
+    SourceRef,
 )
 from matterhorn.contracts.models import StrictModel
 
 
-class AddEpisodeCardsRequest(StrictModel):
-    cards: list[EpisodeCard]
+class AddMessagesRequest(StrictModel):
+    messages: list[Message]
+    wait: bool = False
+
+
+class CardInput(StrictModel):
+    card_id: str
     scope_id: str | None = None
+    date: date
+    title: str
+    status: str | None = None
+    participants: list[Participant] = Field(default_factory=list)
+    progress: str | None = None
+    blocker: str | None = None
+    next_step: str | None = None
+    due: datetime | None = None
+    outcome: Outcome | None = None
+    occurred_at: datetime | None = None
+    last_active_at: datetime | None = None
+    source_refs: list[SourceRef] = Field(min_length=1)
+    cleared_fields: list[str] = Field(default_factory=list)
+    subject_key: str | None = None
+    thread_id: str | None = None
 
 
-class MutationResponse(StrictModel):
-    cards: int
-    assertions_emitted: int
-    assertion_ids: list[str]
+class AddCardsRequest(StrictModel):
+    cards: list[CardInput]
+    wait: bool = False
 
 
-class AddRecordsRequest(StrictModel):
-    scope_id: str
-    records: list[Record]
-    cursors: dict[str, str] | None = None
-    backfill: bool = False
-
-
-class AddRecordsResponse(AddRecordsReport):
-    pass
-
-
-class PredicateRequest(StrictModel):
-    scope_id: str
+class CorrectionInput(StrictModel):
     subject_key: str
+    subject_type: str
     predicate: str
-
-
-class AtRequest(PredicateRequest):
-    instant: datetime
-
-
-class ByPersonRequest(StrictModel):
-    scope_id: str
-    person_id: str
-
-
-class ListMattersRequest(StrictModel):
-    scope_id: str
-
-
-class CorrectRequest(StrictModel):
-    correction: Correction
+    operation: Operation = Operation.ASSERT
+    object_value: Any = None
+    object_key: str | None = None
+    valid_from: datetime
+    source_refs: list[SourceRef] = Field(min_length=1)
 
 
 class ValueResponse(StrictModel):
@@ -87,6 +84,21 @@ class SubjectResponse(StrictModel):
 
 
 class SubjectListResponse(RootModel[list[SubjectResponse]]):
+    pass
+
+
+class MatterResponse(StrictModel):
+    title: str
+    status: Any = None
+    owners: list[Any]
+    participants: list[Any]
+    blocked_by: list[Any]
+    next_step: Any = None
+    due: Any = None
+    subject_key: str
+
+
+class MatterListResponse(RootModel[list[MatterResponse]]):
     pass
 
 

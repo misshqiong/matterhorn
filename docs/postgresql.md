@@ -11,8 +11,8 @@ pooling that can move one Engine between database servers.
 
 INV-6 requires card idempotency, identity, extraction, assertion writes,
 projection replacement, statistics, and materialization to commit as one
-transaction. Queries use that same primary connection, so a query after
-`ingest()` returns sees the committed projection.
+transaction. Queries use that same primary connection, so a query issued after
+the synchronous card-application stage returns sees the committed projection.
 
 Run the full cross-backend gate:
 

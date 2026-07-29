@@ -244,7 +244,7 @@ def test_thread_identity_precedes_title_and_cross_thread_merge_needs_two_sources
             ],
         }
 
-    engine.ingest(
+    engine._ingest_cards_sync(
         [
             card("a", "Same title", "C1:t1", ["C1:a", "C1:b"]),
             card("b", "Same title", "C1:t2", ["C1:c"]),
@@ -252,7 +252,7 @@ def test_thread_identity_precedes_title_and_cross_thread_merge_needs_two_sources
     )
     assert len(engine.query.list_matters("s")) == 2
 
-    engine.ingest(
+    engine._ingest_cards_sync(
         [
             card(
                 "c",

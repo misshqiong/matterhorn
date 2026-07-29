@@ -66,9 +66,9 @@ def test_message_extractor_is_profile_driven_traceable_and_idempotent(tmp_path) 
     assert '"value_domain":["open","in_progress","blocked"' in gateway.calls[0]["system"]
 
     engine = Engine(tmp_path / "messages.db", "org-matters/v1")
-    engine.ingest(first.cards)
+    engine._ingest_cards_sync(first.cards)
     snapshot = engine.store.assertions("team-a")
-    assert engine.ingest(second.cards) == []
+    assert engine._ingest_cards_sync(second.cards) == []
     assert engine.store.assertions("team-a") == snapshot
 
 
@@ -156,8 +156,8 @@ def test_digest_adapter_round_trip(tmp_path, fixture, mapper, source_id) -> None
     assert first.source_refs[0].source_id == source_id
 
     engine = Engine(tmp_path / f"{mapper.__name__}.db", "org-matters/v1")
-    engine.ingest([first])
-    assert engine.ingest([second]) == []
+    engine._ingest_cards_sync([first])
+    assert engine._ingest_cards_sync([second]) == []
     current = engine.query.current("team-a", "release", "status")
     assert current[0].value == "open"
     assert current[0].source_ids == [source_id]

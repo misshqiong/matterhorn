@@ -52,5 +52,6 @@ def test_required_release_documents_and_examples_exist() -> None:
         "examples/correction/README.md",
         "examples/slack/README.md",
         "examples/slack/demo.py",
+        "examples/demo-messages.yaml",
     ]
     assert all((ROOT / item).is_file() for item in required)

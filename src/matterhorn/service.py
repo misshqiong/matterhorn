@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from matterhorn.contracts import Correction, EpisodeCard, Record
+from matterhorn.contracts import Correction, EpisodeCard, Message, Record
 
 
 class MatterhornService:
@@ -12,15 +12,27 @@ class MatterhornService:
     def __init__(self, engine: Any):
         self.engine = engine
 
-    def add_episode_cards(
-        self, *, cards: list[EpisodeCard | dict[str, Any]], scope_id: str | None = None
+    def add_messages(
+        self,
+        *,
+        messages: list[Message | dict[str, Any]],
+        scope_id: str,
+        wait: bool = False,
     ) -> dict[str, Any]:
-        assertions = self.engine.ingest(cards, scope_id=scope_id)
-        return {
-            "cards": len(cards),
-            "assertions_emitted": len(assertions),
-            "assertion_ids": [item.assertion_id for item in assertions],
-        }
+        return self.engine.add(
+            scope_id=scope_id, messages=messages, wait=wait
+        ).model_dump(mode="json")
+
+    def add_cards(
+        self,
+        *,
+        cards: list[EpisodeCard | dict[str, Any]],
+        scope_id: str,
+        wait: bool = False,
+    ) -> dict[str, Any]:
+        return self.engine.add_cards(
+            cards=cards, scope_id=scope_id, wait=wait
+        ).model_dump(mode="json")
 
     def add_records(
         self,
@@ -77,12 +89,19 @@ class MatterhornService:
         ]
 
     def list_matters(self, *, scope_id: str) -> list[dict[str, Any]]:
-        return [
-            item.to_dict()
-            for item in self.engine.query.list_matters(scope_id)
-        ]
+        return [item.to_dict() for item in self.engine.matters(scope_id)]
+
+    def task(self, *, task_id: str) -> dict[str, Any]:
+        return self.engine.task(task_id).model_dump(mode="json")
 
     def correct(
-        self, *, correction: Correction | dict[str, Any]
+        self,
+        *,
+        correction: Correction | dict[str, Any],
+        scope_id: str | None = None,
     ) -> dict[str, Any]:
+        if scope_id is not None and not isinstance(correction, Correction):
+            correction = {**correction, "scope_id": scope_id}
+        elif scope_id is not None and correction.scope_id != scope_id:
+            raise ValueError("correction scope_id MUST match the resource scope")
         return self.engine.correct(correction).model_dump(mode="json")

@@ -347,7 +347,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=40 failed=0 total=40" in completed.stdout
+    assert "SUMMARY passed=43 failed=0 total=43" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:
@@ -499,3 +499,72 @@ def test_dream_environment_defaults_and_explicit_overrides(monkeypatch, tmp_path
     gateway, _ = captured[-1]
     assert gateway.api_key == "anthropic-secret"
     assert gateway.base_url == "https://env.example/v1"
+
+
+def test_init_config_and_five_minute_commands_work_offline(tmp_path) -> None:
+    init = subprocess.run(
+        _command("init"),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert init.returncode == 0, init.stderr
+    assert (tmp_path / "matterhorn.toml").is_file()
+    assert (tmp_path / "matterhorn.db").is_file()
+    assert (tmp_path / "demo-messages.yaml").is_file()
+
+    added = subprocess.run(
+        _command("add", "demo-messages.yaml"),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert added.returncode == 0, added.stderr
+    receipt = json.loads(added.stdout)
+    assert receipt["accepted"] == 1
+
+    flushed = subprocess.run(
+        _command("flush", "demo"),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert flushed.returncode == 0, flushed.stderr
+    assert json.loads(flushed.stdout)["tasks_processed"] == 1
+
+    listed = subprocess.run(
+        _command("matters", "demo"),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert listed.returncode == 0, listed.stderr
+    matters = json.loads(listed.stdout)
+    assert matters[0]["title"] == "Payment refactor"
+    assert matters[0]["owners"] == ["u1"]
+
+    task = subprocess.run(
+        _command("task", receipt["task_id"]),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert task.returncode == 0, task.stderr
+    assert json.loads(task.stdout)["gate"] == {
+        "accepted": 1,
+        "rejected": {},
+    }
+
+    repeated = subprocess.run(
+        _command("init"),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert repeated.returncode == 0, repeated.stderr

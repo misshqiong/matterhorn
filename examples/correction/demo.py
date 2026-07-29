@@ -7,10 +7,16 @@ from pathlib import Path
 from matterhorn import Engine
 
 
+class EmptySemanticGateway:
+    def complete(self, **_kwargs) -> str:
+        return '{"candidates":[]}'
+
+
 clock = iter(
     [
         datetime(2026, 7, 29, 9, 5, tzinfo=timezone.utc),
         datetime(2026, 7, 29, 9, 10, tzinfo=timezone.utc),
+        datetime(2026, 7, 29, 9, 15, tzinfo=timezone.utc),
     ]
 )
 with tempfile.TemporaryDirectory(prefix="matterhorn-correction-") as directory:
@@ -18,8 +24,9 @@ with tempfile.TemporaryDirectory(prefix="matterhorn-correction-") as directory:
         Path(directory) / "memory.db",
         "org-matters/v1",
         clock=lambda: next(clock),
+        llm=EmptySemanticGateway(),
     )
-    engine.ingest(
+    engine.add_cards(
         [
             {
                 "card_id": "correction-1",
@@ -38,7 +45,8 @@ with tempfile.TemporaryDirectory(prefix="matterhorn-correction-") as directory:
                     }
                 ],
             }
-        ]
+        ],
+        wait=True,
     )
     before = engine.query.current("demo", "release", "status")[0]
     print(f"before={before.value} origin={before.origin}")

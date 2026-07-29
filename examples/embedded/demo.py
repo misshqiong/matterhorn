@@ -6,9 +6,18 @@ from pathlib import Path
 from matterhorn import Engine
 
 
+class EmptySemanticGateway:
+    def complete(self, **_kwargs) -> str:
+        return '{"candidates":[]}'
+
+
 with tempfile.TemporaryDirectory(prefix="matterhorn-embedded-") as directory:
-    engine = Engine(Path(directory) / "memory.db", "org-matters/v1")
-    assertions = engine.ingest(
+    engine = Engine(
+        Path(directory) / "memory.db",
+        "org-matters/v1",
+        llm=EmptySemanticGateway(),
+    )
+    receipt = engine.add_cards(
         [
             {
                 "card_id": "embedded-1",
@@ -28,8 +37,10 @@ with tempfile.TemporaryDirectory(prefix="matterhorn-embedded-") as directory:
             }
         ]
     )
+    engine.flush("demo")
+    task = engine.task(receipt.task_id)
     status = engine.query.current("demo", "release", "status")[0]
     next_step = engine.query.current("demo", "release", "next_step")[0]
-    print(f"assertions={len(assertions)}")
+    print(f"assertions={task.new_assertions}")
     print(f"status={status.value} sources={','.join(status.source_ids)}")
     print(f"next_step={next_step.value}")

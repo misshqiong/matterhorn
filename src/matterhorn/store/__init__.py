@@ -4,6 +4,7 @@ from matterhorn.store.base import (
     QueryValueRow,
     RecordObservationRow,
     Store,
+    TaskRow,
 )
 from matterhorn.store.sqlite import SQLiteStore
 
@@ -14,4 +15,5 @@ __all__ = [
     "RecordObservationRow",
     "SQLiteStore",
     "Store",
+    "TaskRow",
 ]

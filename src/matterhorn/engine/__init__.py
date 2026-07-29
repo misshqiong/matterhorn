@@ -1,4 +1,3 @@
-from matterhorn.engine.engine import Engine
+from matterhorn.engine.engine import Engine, Matter
 
-__all__ = ["Engine"]
-
+__all__ = ["Engine", "Matter"]

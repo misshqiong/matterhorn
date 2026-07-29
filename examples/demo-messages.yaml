@@ -1,0 +1,8 @@
+messages:
+  - id: m1
+    conversation_id: payments
+    sender:
+      id: u1
+      name: 王腾
+    text: 支付重构由我负责，已完成接口拆分，下一步联调。
+    sent_at: 2026-07-28T14:00:00+08:00

@@ -12,7 +12,7 @@ except ModuleNotFoundError as error:  # pragma: no cover - dependency failure pa
         "install it with `pip install 'matterhorn[mcp]'`."
     ) from error
 
-from matterhorn.contracts import Correction, EpisodeCard, Record
+from matterhorn.contracts import Correction, EpisodeCard, Message, Record
 from matterhorn.contracts.models import StrictModel
 from matterhorn.service import MatterhornService
 
@@ -43,19 +43,41 @@ def create_server(service: MatterhornService) -> FastMCP:
     server = FastMCP(
         "matterhorn",
         instructions=(
-            "Consult this evidence-backed memory before answering questions about "
-            "known subjects. Use correct when a human identifies an error."
+            "Use add_messages as the default write door, then list_matters and "
+            "query tools for deterministic evidence-backed answers. add_cards and "
+            "add_records are advanced inputs. Use correct when a human identifies "
+            "an error."
         ),
     )
 
-    @server.tool(name="add_episode_cards")
-    def add_episode_cards(
-        cards: list[EpisodeCard],
-        scope_id: str | None = None,
+    @server.tool(name="add_messages")
+    def add_messages(
+        messages: list[Message],
+        scope_id: str,
+        wait: bool = False,
     ) -> ToolResponse:
-        """Use after a conversation to store evidence-backed episode observations."""
+        """Default door: queue minimal messages and return a persistent task receipt."""
         return _safe(
-            lambda: service.add_episode_cards(cards=cards, scope_id=scope_id)
+            lambda: service.add_messages(
+                messages=messages,
+                scope_id=scope_id,
+                wait=wait,
+            )
+        )
+
+    @server.tool(name="add_cards")
+    def add_cards(
+        cards: list[EpisodeCard],
+        scope_id: str,
+        wait: bool = False,
+    ) -> ToolResponse:
+        """Advanced: queue validated EpisodeCards when you already have an L1 extractor."""
+        return _safe(
+            lambda: service.add_cards(
+                cards=cards,
+                scope_id=scope_id,
+                wait=wait,
+            )
         )
 
     @server.tool(name="add_records")
@@ -65,7 +87,7 @@ def create_server(service: MatterhornService) -> FastMCP:
         cursors: dict[str, str] | None = None,
         backfill: bool = False,
     ) -> ToolResponse:
-        """Use to extract and ingest traceable communication Records."""
+        """Advanced/internal: ingest provider-normalized traceable Records."""
         return _safe(
             lambda: service.add_records(
                 records=records,
@@ -123,7 +145,7 @@ def create_server(service: MatterhornService) -> FastMCP:
 
     @server.tool(name="list_matters")
     def list_matters(scope_id: str) -> ToolResponse:
-        """Use to discover primary subjects available in a memory scope."""
+        """Default read door: list deterministic projected matters in a scope."""
         return _safe(lambda: service.list_matters(scope_id=scope_id))
 
     @server.tool(name="correct")

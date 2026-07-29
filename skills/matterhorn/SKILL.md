@@ -9,6 +9,14 @@ Treat Matterhorn as derived memory, not a text generator. Its answers come from
 persisted assertions and projected intervals. Do not ask an LLM to reinterpret
 or improve a query result.
 
+## Default workflow
+
+1. Use `add_messages` as the default write door for conversation messages.
+2. Use `list_matters` as the default read door.
+3. Use the query tools only when temporal or evidence detail is needed.
+4. Use `add_cards` only when the caller already has evidence-backed
+   EpisodeCards; `add_records` is an advanced provider-integration door.
+
 ## Read workflow
 
 1. Use `list_matters` when the subject key is unknown.
@@ -28,8 +36,13 @@ Read time fields precisely:
 
 ## Write workflow
 
-Use `add_episode_cards` only for evidence-backed conversation observations.
-Always include at least one source reference. Never invent a `source_id`.
+Call `add_messages` with exactly the minimal message fields. Preserve native
+message IDs, conversation IDs, senders, and timestamps. The tool returns a
+persistent receipt; do not claim extraction completed merely because the task
+was accepted.
+
+For advanced `add_cards`, always include at least one source reference. Never
+invent a `source_id`.
 
 ## Correction workflow
 
