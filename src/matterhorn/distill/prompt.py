@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from matterhorn.contracts import EpisodeCard, ExtractionMode, SchemaProfile
+from matterhorn.distill.traceability import source_aliases
 from matterhorn.engine.canonical import canonical_json
 
 
@@ -12,6 +13,7 @@ class PromptContract:
     system: str
     user: str
     response_schema: dict[str, Any]
+    source_aliases: dict[str, str]
 
 
 def candidate_response_schema(profile: SchemaProfile) -> dict[str, Any]:
@@ -88,9 +90,31 @@ def build_prompt(
         }
         for subject in profile.subjects
     ]
+    aliases = source_aliases(ref.source_id for ref in card.source_refs)
+    card_payload = card.model_dump(mode="json")
+    card_payload["source_refs"] = [
+        {
+            **ref,
+            "source_id": alias,
+        }
+        for alias, ref in zip(
+            aliases,
+            card_payload["source_refs"],
+            strict=True,
+        )
+    ]
     system = (
         "Extract only semantic assertions registered below. "
-        "Use only source_ids from the supplied card. Return JSON only. "
+        "Each supplied source_ref uses a short source alias. Use only those "
+        "aliases (m1, m2, ...) in source_ids; never cite a scope, card, or URI. "
+        "Return JSON only. The top-level key MUST be \"candidates\" "
+        "(exactly), holding an array of candidate objects, e.g. "
+        '{"candidates":[{"subject_key":"sub_...","subject_type":"...",'
+        '"predicate":"...","operation":"ASSERT","object_value":true,'
+        '"valid_from":"2026-01-31T00:00:00Z","source_ids":["m1"],'
+        '"confidence":0.9}]}. Use exactly these field names; any other '
+        "envelope key or field shape is rejected. "
+        "If nothing qualifies, return {\"candidates\":[]}. "
         "When targeting an existing subject, set subject_key. To create a "
         "declared non-primary child, set parent_subject_key and subject_title; "
         "the engine derives subject_key. When uncertain, emit no candidate.\n"
@@ -103,11 +127,12 @@ def build_prompt(
                 "subject_key": subject_key,
                 "subject_type": subject_type,
             },
-            "episode_card": card.model_dump(mode="json"),
+            "episode_card": card_payload,
         }
     )
     return PromptContract(
         system=system,
         user=user,
         response_schema=candidate_response_schema(profile),
+        source_aliases=aliases,
     )

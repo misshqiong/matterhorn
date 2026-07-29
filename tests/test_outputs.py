@@ -19,7 +19,7 @@ class EmptySemanticGateway:
     def complete(self, **kwargs) -> str:
         payload = json.loads(kwargs["user"])
         if "records" in payload:
-            source_id = payload["records"][0]["record_id"]
+            source_id = payload["records"][0]["source_alias"]
             return json.dumps(
                 {
                     "cards": [

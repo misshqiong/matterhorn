@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from matterhorn import Engine
 from matterhorn.adapters.github import map_devlog, map_git_log
+from matterhorn.engine.canonical import canonical_json
 from matterhorn.gateway_config import configured_gateway
 from scripts.ledger_fill import (
     GatewaySelection,
@@ -101,3 +103,42 @@ def test_fixture_fill_is_incremental_without_network(tmp_path: Path) -> None:
     }
     assert second.matters == first.matters
     assert second.evidence == first.evidence
+
+
+def test_export_rebuild_uses_source_checkpoint_without_an_llm_call(
+    tmp_path: Path,
+) -> None:
+    records = _records(tmp_path)
+    source_db = tmp_path / "source.db"
+    rebuilt_db = tmp_path / "rebuilt.db"
+    fill_records(
+        db_path=source_db,
+        records=records,
+        gateway_selection=_gateway(),
+    )
+    source = Engine(source_db)
+    envelope = source.export("dev")
+    source.store.close()
+
+    rebuilt = Engine(rebuilt_db)
+    rebuilt.import_snapshot(envelope)
+    rebuilt.store.close()
+
+    class NoCallGateway:
+        def complete(self, **_kwargs):
+            raise AssertionError("durable source checkpoint called the LLM")
+
+    result = fill_records(
+        db_path=rebuilt_db,
+        records=records,
+        gateway_selection=GatewaySelection(NoCallGateway(), "no-call"),
+    )
+    after = Engine(rebuilt_db)
+    rebuilt_envelope = after.export("dev")
+    after.store.close()
+
+    assert result.add_records["records_processed"] == 0
+    assert result.add_records["records_skipped"] == len(records)
+    assert canonical_json(rebuilt_envelope.model_dump(mode="json")) == canonical_json(
+        envelope.model_dump(mode="json")
+    )

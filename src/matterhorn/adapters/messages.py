@@ -21,8 +21,14 @@ from matterhorn.contracts import (
 from matterhorn.contracts.models import StrictModel
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.distill.gateway import LlmGateway
-from matterhorn.distill.traceability import resolve_traceable_sources
+from matterhorn.distill.traceability import (
+    resolve_traceable_sources,
+    restore_source_aliases,
+    source_aliases,
+)
 from matterhorn.engine.canonical import canonical_json, stable_hash
+
+DEFAULT_EXTRACTION_BATCH_SIZE = 8
 
 
 class ChatMessage(StrictModel):
@@ -145,15 +151,32 @@ class MessageCardExtractor:
         scope_id: str,
         records: list[Record | ChatMessage | dict[str, Any]] | None = None,
         messages: list[ChatMessage | dict[str, Any]] | None = None,
+        batch_size: int = DEFAULT_EXTRACTION_BATCH_SIZE,
     ) -> MessageExtractionReport:
         if records is not None and messages is not None:
             raise ValueError("pass records or deprecated messages, not both")
         supplied = records if records is not None else messages
         if supplied is None:
             raise ValueError("records are required")
+        if batch_size < 1:
+            raise ValueError("batch_size MUST be positive")
         inputs = _validate_inputs(supplied)
         if not inputs:
             return MessageExtractionReport()
+        cards: list[EpisodeCard] = []
+        rejections: list[MessageCardRejection] = []
+        for batch in _thread_batches(inputs, batch_size):
+            report = self._extract_batch(scope_id=scope_id, inputs=batch)
+            cards.extend(report.cards)
+            rejections.extend(report.rejections)
+        return MessageExtractionReport(cards=cards, rejections=rejections)
+
+    def _extract_batch(
+        self,
+        *,
+        scope_id: str,
+        inputs: list[_ExtractionRecord],
+    ) -> MessageExtractionReport:
         modern = any(not item.legacy for item in inputs)
         prompt = build_message_prompt(
             self.profile,
@@ -167,7 +190,14 @@ class MessageCardExtractor:
             response_schema=prompt["response_schema"],
         )
         try:
-            response = MessageCardResponse.model_validate(json.loads(raw))
+            decoded = json.loads(raw)
+            restored = restore_source_aliases(
+                decoded,
+                collection_key="cards",
+                aliases=prompt["source_aliases"],
+                available_source_ids=(item.source_id for item in inputs),
+            )
+            response = MessageCardResponse.model_validate(restored)
         except (json.JSONDecodeError, ValidationError, TypeError) as error:
             return MessageExtractionReport(
                 rejections=[
@@ -230,7 +260,10 @@ class MessageCardExtractor:
             if modern:
                 dumped.pop("subject_key", None)
                 boundaries = sorted(
-                    {by_source[source_id].record.matter_boundary for source_id in candidate.source_ids}
+                    {
+                        by_source[source_id].record.matter_boundary
+                        for source_id in candidate.source_ids
+                    }
                 )
                 thread_id = (
                     boundaries[0]
@@ -307,21 +340,34 @@ def build_message_prompt(
         fields[predicate.source_field]["predicates"].append(predicate.name)
     system = (
         "Convert the supplied communication Records into evidence-backed "
-        "EpisodeCards. Return closed JSON only. Cite only record_id values "
-        "supplied below. Omit fields not listed in active_card_fields. "
+        "EpisodeCards. Return closed JSON only. The top-level key MUST be "
+        '"cards" (exactly), holding an array of card objects, e.g. '
+        '{"cards":[{"date":"2026-01-31","title":"...","status":"open",'
+        '"participants":[{"id":"u1","display_name":"..."}],'
+        '"outcome":{"type":"...","content":"..."},"source_ids":["m1"]}]}. '
+        "Use exactly these field names; any other envelope key or field "
+        "shape is rejected. Each Record has a short "
+        "source_alias. Cite only those aliases (m1, m2, ...) in source_ids; "
+        "never cite a scope, container, thread, native id, or URI. "
+        "Omit fields not listed in active_card_fields. "
         "Empty source_ids are invalid. Thread identity is assigned by the engine. "
         f"schema={profile.schema_id}; "
         f"active_card_fields={canonical_json(fields)}"
     )
+    aliases = source_aliases(item.source_id for item in normalized)
     user = canonical_json(
         {
             "scope_id": scope_id,
             "records": [
                 {
-                    **item.record.model_dump(mode="json"),
-                    "record_id": item.source_id,
+                    "source_alias": alias,
+                    "record": {
+                        key: value
+                        for key, value in item.record.model_dump(mode="json").items()
+                        if key not in {"record_id", "native_id"}
+                    },
                 }
-                for item in normalized
+                for alias, item in zip(aliases, normalized, strict=True)
             ],
         }
     )
@@ -339,7 +385,40 @@ def build_message_prompt(
         for key in schema["$defs"]["MessageCardCandidate"].get("required", [])
         if key in allowed
     ]
-    return {"system": system, "user": user, "response_schema": schema}
+    return {
+        "system": system,
+        "user": user,
+        "response_schema": schema,
+        "source_aliases": aliases,
+    }
+
+
+def _thread_batches(
+    records: list[_ExtractionRecord],
+    batch_size: int,
+) -> list[list[_ExtractionRecord]]:
+    """Pack complete matter boundaries without splitting a thread."""
+
+    grouped: dict[str, list[_ExtractionRecord]] = {}
+    for item in records:
+        grouped.setdefault(item.record.matter_boundary, []).append(item)
+
+    batches: list[list[_ExtractionRecord]] = []
+    current: list[_ExtractionRecord] = []
+    for thread in grouped.values():
+        if len(thread) > batch_size:
+            if current:
+                batches.append(current)
+                current = []
+            batches.append(thread)
+            continue
+        if current and len(current) + len(thread) > batch_size:
+            batches.append(current)
+            current = []
+        current.extend(thread)
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _validate_inputs(

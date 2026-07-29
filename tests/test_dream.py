@@ -112,6 +112,41 @@ def test_dream_happy_path_and_second_run_is_noop(tmp_path) -> None:
     assert engine.gate_statistics("s").accepted == 1
 
 
+def test_dream_prompt_uses_alias_and_restores_real_source_id(tmp_path) -> None:
+    real_source_id = "github:misshqiong/matterhorn:commit:" + "a" * 40
+
+    class AliasGateway:
+        def __init__(self):
+            self.user = ""
+
+        def complete(self, **kwargs) -> str:
+            self.user = kwargs["user"]
+            return json.dumps(_response())
+
+    gateway = AliasGateway()
+    engine = Engine(
+        tmp_path / "dream-alias.db",
+        _profile(),
+        gateway=gateway,
+        clock=[
+            datetime(2026, 1, 1, 11, tzinfo=UTC),
+            datetime(2026, 1, 1, 12, tzinfo=UTC),
+        ],
+    )
+    card = _card()
+    card["source_refs"][0]["source_id"] = real_source_id
+    engine._ingest_cards_sync([card])
+
+    report = engine.dream("s")
+
+    prompt = json.loads(gateway.user)
+    assert prompt["episode_card"]["source_refs"][0]["source_id"] == "m1"
+    assert real_source_id not in gateway.user
+    assert report.accepted_candidates == 1
+    current = engine.query.current("s", "thing-1", "semantic_value")
+    assert current[0].source_ids == [real_source_id]
+
+
 def test_dream_creates_child_subject_only_inside_successful_transaction(tmp_path) -> None:
     profile = SchemaProfile.model_validate(
         {

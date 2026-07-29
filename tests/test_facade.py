@@ -20,7 +20,8 @@ class FacadeGateway:
         if "records" not in payload:
             return json.dumps({"candidates": []})
         cards = []
-        for record in payload["records"]:
+        for item in payload["records"]:
+            record = item["record"]
             conversation = record["container_id"].split(":")[-1]
             cards.append(
                 {
@@ -30,7 +31,7 @@ class FacadeGateway:
                     "participants": [
                         {"id": record["author"]["id"], "role": "owner"}
                     ],
-                    "source_ids": [record["record_id"]],
+                    "source_ids": [item["source_alias"]],
                 }
             )
         return json.dumps({"cards": cards})

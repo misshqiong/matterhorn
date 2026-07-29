@@ -1,0 +1,17 @@
+{
+  "record_extraction": {
+    "cards": [
+      {
+        "date": "2026-07-29",
+        "title": "Matterhorn recent development",
+        "status": "in_progress",
+        "progress": "Three repository commits were grouped with alias-based evidence.",
+        "source_ids": [
+          "m1",
+          "m2",
+          "m3"
+        ]
+      }
+    ]
+  }
+}

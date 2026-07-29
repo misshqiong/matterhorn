@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ from matterhorn.distill import (
     NullGateway,
     OpenAICompatibleGateway,
 )
+
+DEFAULT_TIMEOUT_SECONDS = 60.0
 
 
 class FixtureFileGateway:
@@ -62,6 +65,7 @@ def configured_gateway(
     if resolved_api_key is None and provider_fallback_key is not None:
         resolved_api_key = os.environ.get(provider_fallback_key)
     resolved_model = model or os.environ.get("MATTERHORN_MODEL")
+    resolved_timeout = _timeout_seconds()
 
     if selected == "null":
         return NullGateway()
@@ -85,6 +89,7 @@ def configured_gateway(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
             model=resolved_model,
+            timeout=resolved_timeout,
         )
     if selected == "anthropic":
         if not all((resolved_api_key, resolved_model)):
@@ -92,8 +97,23 @@ def configured_gateway(
                 "anthropic requires an API key and model; use MATTERHORN_MODEL "
                 "and MATTERHORN_API_KEY/ANTHROPIC_API_KEY or explicit overrides"
             )
-        kwargs = {"api_key": resolved_api_key, "model": resolved_model}
+        kwargs = {
+            "api_key": resolved_api_key,
+            "model": resolved_model,
+            "timeout": resolved_timeout,
+        }
         if resolved_base_url is not None:
             kwargs["base_url"] = resolved_base_url
         return AnthropicGateway(**kwargs)
     raise ValueError(f"unknown provider: {selected}")
+
+
+def _timeout_seconds() -> float:
+    raw = os.environ.get("MATTERHORN_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
+    try:
+        value = float(raw)
+    except ValueError as error:
+        raise ValueError("MATTERHORN_TIMEOUT MUST be a number of seconds") from error
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("MATTERHORN_TIMEOUT MUST be a positive finite number")
+    return value

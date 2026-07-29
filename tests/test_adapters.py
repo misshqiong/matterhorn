@@ -25,6 +25,23 @@ class StaticGateway:
         return json.dumps(self.response)
 
 
+def _modern_record(
+    native_id: str,
+    *,
+    thread_id: str | None = None,
+    content: str | None = None,
+) -> dict:
+    return {
+        "record_id": f"C1:{native_id}",
+        "native_id": native_id,
+        "container_id": "C1",
+        "thread_id": thread_id,
+        "sent_at": "2026-07-29T09:00:00Z",
+        "author": {"id": "ada", "kind": "human"},
+        "content": content or native_id,
+    }
+
+
 def test_message_extractor_is_profile_driven_traceable_and_idempotent(tmp_path) -> None:
     gateway = StaticGateway(
         {
@@ -104,6 +121,92 @@ def test_message_extractor_shares_traceability_gate(source_ids, reason) -> None:
     )
     assert report.cards == []
     assert report.rejection_counts == {reason: 1}
+
+
+@pytest.mark.parametrize("citation", ["m1", "C1:commit:" + "a" * 40])
+def test_record_extractor_accepts_aliases_and_full_source_ids(citation) -> None:
+    source_id = "C1:commit:" + "a" * 40
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Alias-safe release",
+                    "source_ids": [citation],
+                }
+            ]
+        }
+    )
+    report = MessageCardExtractor(gateway, "org-matters/v1").extract(
+        scope_id="dev",
+        records=[
+            _modern_record(
+                "commit:" + "a" * 40,
+                content="Release alias-based extraction.",
+            )
+        ],
+    )
+
+    prompt = json.loads(gateway.calls[0]["user"])
+    assert prompt["records"][0]["source_alias"] == "m1"
+    assert source_id not in gateway.calls[0]["user"]
+    assert report.rejection_counts == {}
+    assert [ref.source_id for ref in report.cards[0].source_refs] == [source_id]
+
+
+def test_unknown_source_alias_is_rejected_as_not_traceable() -> None:
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Unknown alias",
+                    "source_ids": ["m999"],
+                }
+            ]
+        }
+    )
+    report = MessageCardExtractor(gateway, "org-matters/v1").extract(
+        scope_id="dev",
+        records=[_modern_record("commit:" + "b" * 40)],
+    )
+
+    assert report.cards == []
+    assert report.rejection_counts == {"SOURCE_NOT_TRACEABLE": 1}
+
+
+def test_record_extraction_batches_without_splitting_threads() -> None:
+    class EmptyGateway:
+        def __init__(self):
+            self.prompts = []
+
+        def complete(self, **kwargs):
+            self.prompts.append(json.loads(kwargs["user"]))
+            return json.dumps({"cards": []})
+
+    gateway = EmptyGateway()
+    records = [
+        _modern_record("t1-a", thread_id="C1:t1"),
+        _modern_record("t2-a", thread_id="C1:t2"),
+        _modern_record("t1-b", thread_id="C1:t1"),
+        _modern_record("t1-c", thread_id="C1:t1"),
+        _modern_record("t3-a", thread_id="C1:t3"),
+    ]
+    report = MessageCardExtractor(gateway, "org-matters/v1").extract(
+        scope_id="dev",
+        records=records,
+        batch_size=2,
+    )
+
+    assert report.cards == []
+    assert [
+        [item["record"]["content"] for item in prompt["records"]]
+        for prompt in gateway.prompts
+    ] == [["t1-a", "t1-b", "t1-c"], ["t2-a", "t3-a"]]
+    assert [
+        [item["source_alias"] for item in prompt["records"]]
+        for prompt in gateway.prompts
+    ] == [["m1", "m2", "m3"], ["m1", "m2"]]
 
 
 def test_message_extractor_drops_fields_outside_active_profile() -> None:

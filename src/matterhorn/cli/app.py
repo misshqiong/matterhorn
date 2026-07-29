@@ -5,6 +5,7 @@ import os
 import sys
 import tomllib
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,11 @@ app.add_typer(conformance_app, name="conformance")
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
 DEFAULT_SCHEMA = "org-matters/v1"
+
+
+class ExportFormat(str, Enum):
+    json = "json"
+    markdown = "markdown"
 
 
 def _load_config() -> dict[str, Any]:
@@ -311,25 +317,39 @@ def events(
 @app.command("export")
 def export_scope(
     scope_id: str | None = typer.Argument(None),
+    output_format: ExportFormat = typer.Option(
+        ExportFormat.json,
+        "--format",
+        help="Output format: json or markdown.",
+    ),
     out: Path | None = typer.Option(
-        None, help="Write the versioned JSON envelope to this file."
+        None, help="Write output to this file instead of stdout."
     ),
     db: str = typer.Option(DEFAULT_DB),
     schema: str = typer.Option(DEFAULT_SCHEMA),
     schema_dir: Path | None = typer.Option(None),
 ) -> None:
-    """Export one scope's owned assertion asset as a JSON document."""
+    """Export a JSON ownership envelope or deterministic Markdown ledger."""
 
+    engine = _engine(db, schema, schema_dir)
     try:
-        snapshot = _engine(db, schema, schema_dir).export(_scope(scope_id))
+        selected_scope = _scope(scope_id)
+        if output_format == ExportFormat.markdown:
+            from matterhorn.markdown import render_scope_markdown
+
+            payload = render_scope_markdown(engine, selected_scope)
+        else:
+            snapshot = engine.export(selected_scope)
+            payload = canonical_json(snapshot.model_dump(mode="json")) + "\n"
     except Exception as error:
         raise typer.BadParameter(str(error)) from error
-    payload = canonical_json(snapshot.model_dump(mode="json")) + "\n"
     if out is None:
         typer.echo(payload, nl=False)
     else:
         out.write_text(payload, encoding="utf-8")
-        typer.echo(f"Exported {snapshot.scope_id} to {out}")
+        typer.echo(
+            f"Exported {selected_scope} as {output_format.value} to {out}"
+        )
 
 
 @app.command("import")
@@ -436,7 +456,13 @@ def extract(
             "Override MATTERHORN_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
         ),
     ),
-    model: str | None = typer.Option(None, help="Override MATTERHORN_MODEL."),
+    model: str | None = typer.Option(
+        None,
+        help=(
+            "Override MATTERHORN_MODEL. MATTERHORN_TIMEOUT controls request "
+            "seconds (default 60)."
+        ),
+    ),
 ) -> None:
     """Extract communication Records into cards and ingest them atomically."""
 
@@ -795,7 +821,13 @@ def dream(
             "then OPENAI_API_KEY or ANTHROPIC_API_KEY for the selected provider."
         ),
     ),
-    model: str | None = typer.Option(None),
+    model: str | None = typer.Option(
+        None,
+        help=(
+            "Override MATTERHORN_MODEL. MATTERHORN_TIMEOUT controls request "
+            "seconds (default 60)."
+        ),
+    ),
 ) -> None:
     """Drain queued cards through the configured write-side LLM gateway."""
     if limit is not None and limit < 0:

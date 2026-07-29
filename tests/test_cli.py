@@ -97,6 +97,7 @@ def test_events_export_import_cli_round_trip(tmp_path) -> None:
     source_db = tmp_path / "source.db"
     target_db = tmp_path / "target.db"
     export_file = tmp_path / "scope.json"
+    markdown_file = tmp_path / "MATTERS.md"
     card_file = tmp_path / "card.yaml"
     card_file.write_text(
         yaml.safe_dump(
@@ -136,6 +137,21 @@ def test_events_export_import_cli_round_trip(tmp_path) -> None:
         str(source_db),
     )
     assert "Exported team" in exported.stdout
+    rendered = _run(
+        "export",
+        "team",
+        "--format",
+        "markdown",
+        "--out",
+        str(markdown_file),
+        "--db",
+        str(source_db),
+    )
+    assert "Exported team as markdown" in rendered.stdout
+    markdown = markdown_file.read_text(encoding="utf-8")
+    assert "# Development ledger" in markdown
+    assert "## Release" in markdown
+    assert "generated from assertions; reproduce:" in markdown
     imported = json.loads(
         _run("import", str(export_file), "--db", str(target_db)).stdout
     )
@@ -427,6 +443,7 @@ def test_dream_help_documents_environment_credentials() -> None:
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "MATTERHORN_BASE_URL",
+        "MATTERHORN_TIMEOUT",
     ]:
         assert name in help_text
 

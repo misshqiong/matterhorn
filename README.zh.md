@@ -3,6 +3,16 @@
 面向 agent 的确定性、可溯源时态记忆：喂入消息，得到事项；状态、负责人、阻塞与历史
 全部由持久化证据推导，而不是在回答时让模型临场生成。
 
+## 📒 开发账本
+
+Matterhorn 用自身追踪这个项目的开发过程。公开的
+[MATTERS.md](MATTERS.md) 每晚由 CI 重新生成；CI 是账本唯一运行 LLM 的地方。
+任何人都能从已提交的 `ledger/assertions.json` 在本地复现读侧，无需 LLM key。
+
+写路径把新增 Git commit 与 GitHub 活动转换成经过 gate 的断言，再替换持久断言导出；
+读路径从断言重建可丢弃的 SQLite 投影，并确定性渲染人类可读账本。完整设计见
+[开发账本说明](docs/ledger.zh.md)。
+
 ## 五分钟旅程
 
 ```console
@@ -30,6 +40,16 @@ mh export demo --out demo-snapshot.json
 
 fixture 只替代演示里的「消息→卡」提取器；处理真实消息时，请在
 `matterhorn.toml` 或环境变量里配置 OpenAI-compatible / Anthropic 写侧网关。
+
+## 写侧网关环境变量
+
+| 变量 | 含义 |
+| --- | --- |
+| `MATTERHORN_PROVIDER` | `openai-compatible` 或 `anthropic` |
+| `MATTERHORN_BASE_URL` | provider base URL；OpenAI-compatible 网关必填 |
+| `MATTERHORN_MODEL` | provider 模型名 |
+| `MATTERHORN_API_KEY` | 首选 provider 凭证；仍支持 provider 原生 key |
+| `MATTERHORN_TIMEOUT` | 正浮点请求超时秒数，默认 `60` |
 
 在当前目录写入 Claude Code 的 `.mcp.json`：
 
@@ -135,6 +155,7 @@ SUMMARY passed=47 failed=0 total=47
 ## 文档
 
 - [快速开始](docs/getting-started.md)
+- [自托管开发账本](docs/ledger.zh.md)
 - [核心概念与承诺边界](docs/core-concepts.md)
 - [MCP 与 Claude Code](docs/mcp-claude-code.md)
 - [人工纠错](docs/corrections.md)

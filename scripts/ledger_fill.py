@@ -25,6 +25,7 @@ from matterhorn.adapters.github import (
     map_git_log,
     map_github_issues,
 )
+from matterhorn.adapters.messages import DEFAULT_EXTRACTION_BATCH_SIZE
 from matterhorn.contracts import Record
 from matterhorn.engine import Engine
 from matterhorn.gateway_config import configured_gateway
@@ -127,14 +128,41 @@ def fill_records(
     gateway_selection: GatewaySelection,
     scope_id: str = DEFAULT_SCOPE,
     source_counts: dict[str, int] | None = None,
+    batch_size: int = DEFAULT_EXTRACTION_BATCH_SIZE,
 ) -> FillResult:
     """Ingest unseen provider Records, drain the write queue, and read back."""
 
+    if batch_size < 1:
+        raise ValueError("batch_size MUST be positive")
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     engine = Engine(path, gateway=gateway_selection.gateway)
     try:
-        add_report = engine.add_records(records, scope_id=scope_id)
+        # Scope exports deliberately omit the observation ledger under SPEC
+        # section 11.3. Imported source lifecycle rows are the self-ledger's
+        # durable source checkpoint, so a rebuilt database does not ask the
+        # model to reinterpret already exported provider identities.
+        known_sources = {
+            item.source_id for item in engine.store.source_metadata(scope_id)
+        }
+        unseen = [
+            record for record in records if record.record_id not in known_sources
+        ]
+        checkpoint_skipped = len(records) - len(unseen)
+        add_report = engine.add_records(
+            unseen,
+            scope_id=scope_id,
+            batch_size=batch_size,
+        )
+        if checkpoint_skipped:
+            add_report = add_report.model_copy(
+                update={
+                    "records_received": len(records),
+                    "records_skipped": (
+                        add_report.records_skipped + checkpoint_skipped
+                    ),
+                }
+            )
         queued_before_flush = engine.store.distill_queue_count(scope_id)
         flush_report = engine.flush(scope_id)
         queued_after_flush = engine.store.distill_queue_count(scope_id)
@@ -242,6 +270,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--owner", default=DEFAULT_OWNER)
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_EXTRACTION_BATCH_SIZE,
+        help=(
+            "Maximum Records per LLM call; complete threads stay together "
+            f"(default: {DEFAULT_EXTRACTION_BATCH_SIZE})."
+        ),
+    )
+    parser.add_argument(
         "--provider",
         choices=["openai-compatible", "anthropic"],
         help="Override MATTERHORN_PROVIDER using mh dream conventions.",
@@ -290,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             gateway_selection=gateway,
             scope_id=args.scope,
             source_counts=counts,
+            batch_size=args.batch_size,
         )
     except (OSError, TypeError, ValueError, RuntimeError) as error:
         print(f"ledger fill failed: {error}", file=sys.stderr)

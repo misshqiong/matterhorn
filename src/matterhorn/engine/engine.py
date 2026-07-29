@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import warnings
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from matterhorn.contracts import (
 )
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_response
+from matterhorn.distill.traceability import restore_source_aliases
 from matterhorn.engine.canonical import (
     as_utc,
     derive_assertion_id,
@@ -242,6 +244,7 @@ class Engine:
         scope_id: str,
         cursors: dict[str, str] | None = None,
         backfill: bool = False,
+        batch_size: int = 8,
     ) -> AddRecordsReport:
         """Extract and ingest previously unseen communication observations."""
 
@@ -279,6 +282,7 @@ class Engine:
             MessageCardExtractor(self._write_gateway, self.profile).extract(
                 scope_id=scope_id,
                 records=active,
+                batch_size=batch_size,
             )
             if active
             else None
@@ -716,8 +720,24 @@ class Engine:
                     user=prompt.user,
                     response_schema=prompt.response_schema,
                 )
+                try:
+                    decoded = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    restored_raw = raw
+                else:
+                    restored_raw = json.dumps(
+                        restore_source_aliases(
+                            decoded,
+                            collection_key="candidates",
+                            aliases=prompt.source_aliases,
+                            available_source_ids=(
+                                ref.source_id for ref in item.card.source_refs
+                            ),
+                        ),
+                        ensure_ascii=False,
+                    )
                 gate = validate_response(
-                    raw,
+                    restored_raw,
                     card=item.card,
                     profile=self.profile,
                     subjects=self.store.subjects(scope_id),

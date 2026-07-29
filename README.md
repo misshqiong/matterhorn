@@ -4,6 +4,18 @@ Deterministic, evidence-backed temporal memory for agents. Feed messages in;
 get matters whose status, owners, blockers, and history are derived from
 persisted evidence—not generated at answer time.
 
+## 📒 Development ledger
+
+This project's own development is tracked by Matterhorn itself. The public
+[MATTERS.md](MATTERS.md) is regenerated nightly by CI, the only place the
+ledger runs an LLM. Anyone can reproduce the read side locally without an LLM
+key from the committed `ledger/assertions.json`.
+
+The write path turns new Git commits and GitHub activity into gated assertions,
+then replaces the durable assertion export. The read path rebuilds a disposable
+SQLite projection from those assertions and deterministically renders the
+human-readable ledger. See [the ledger design](docs/ledger.md).
+
 ## Five-minute journey
 
 ```console
@@ -32,6 +44,16 @@ demo. `mh matters` prints a projected matter such as:
 The fixture is only the demo's replaceable message-to-card extractor. For real
 messages, configure an OpenAI-compatible or Anthropic write gateway in
 `matterhorn.toml` or the documented environment variables.
+
+## Write-gateway environment
+
+| Variable | Meaning |
+| --- | --- |
+| `MATTERHORN_PROVIDER` | `openai-compatible` or `anthropic` |
+| `MATTERHORN_BASE_URL` | Provider base URL; required for OpenAI-compatible gateways |
+| `MATTERHORN_MODEL` | Provider model name |
+| `MATTERHORN_API_KEY` | Preferred provider credential; provider-native keys remain supported |
+| `MATTERHORN_TIMEOUT` | Positive floating-point request timeout in seconds; defaults to `60` |
 
 Connect Claude Code by adding `.mcp.json` in this directory:
 
@@ -156,6 +178,7 @@ SUMMARY passed=47 failed=0 total=47
 ## Guides
 
 - [Getting started](docs/getting-started.md)
+- [Self-hosted development ledger](docs/ledger.md)
 - [Core concepts and the promise boundary](docs/core-concepts.md)
 - [MCP and Claude Code](docs/mcp-claude-code.md)
 - [Human correction](docs/corrections.md)

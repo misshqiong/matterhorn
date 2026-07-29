@@ -22,6 +22,12 @@ mh matters demo
 demo. It is idempotent. The config supplies the default database, schema,
 scope, provider, and service quiet period to later CLI commands.
 
+For a real write gateway, set `MATTERHORN_PROVIDER`,
+`MATTERHORN_BASE_URL`, `MATTERHORN_MODEL`, and `MATTERHORN_API_KEY`.
+`MATTERHORN_TIMEOUT` is a positive floating-point timeout in seconds and
+defaults to `60`. Provider-native `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`
+remain credential fallbacks for their respective providers.
+
 The embedded API has two front-door verbs:
 
 ```python

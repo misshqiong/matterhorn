@@ -22,7 +22,7 @@ class ExtractingGateway:
         payload = json.loads(kwargs["user"])
         if "records" not in payload:
             return json.dumps({"candidates": []})
-        source_id = payload["records"][0]["record_id"]
+        source_id = payload["records"][0]["source_alias"]
         return json.dumps(
             {
                 "cards": [
