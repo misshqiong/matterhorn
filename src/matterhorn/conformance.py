@@ -32,6 +32,17 @@ class ConformanceResult:
     detail: str | None = None
 
 
+_REQUIRED_CASE_FIELDS = {
+    "case_id": str,
+    "title": str,
+    "invariants": list,
+    "schema_profile": (str, dict),
+    "scope_id": str,
+    "clock": list,
+    "cards": list,
+}
+
+
 class FixedClock:
     def __init__(self, values: list[Any]):
         self.values = [
@@ -67,7 +78,10 @@ def discover_cases(suite: str | Path) -> list[Path]:
     directory = Path(suite)
     if not directory.is_dir():
         raise FileNotFoundError(f"conformance suite directory not found: {directory}")
-    return sorted(directory.glob("*.yaml"))
+    cases = sorted(directory.glob("*.yaml"))
+    if not cases:
+        raise ValueError(f"conformance suite contains no YAML cases: {directory}")
+    return cases
 
 
 def default_suite() -> Path:
@@ -84,7 +98,7 @@ def default_suite() -> Path:
 
 def run_case(case_path: str | Path, store: Store | str | Path) -> ConformanceResult:
     path = Path(case_path)
-    case = yaml.safe_load(path.read_text(encoding="utf-8"))
+    case = _load_case(path)
     try:
         _execute_case(case, store)
     except Exception as error:
@@ -109,28 +123,65 @@ def run_suite(
     store_factory: Callable[[Path], Store] | None = None,
 ) -> list[ConformanceResult]:
     cases = discover_cases(suite)
+    loaded_cases = [(case_path, _load_case(case_path)) for case_path in cases]
     with tempfile.TemporaryDirectory(prefix="matterhorn-conformance-") as directory:
         root = Path(directory)
         results = []
-        for case_path in cases:
+        for case_path, case in loaded_cases:
             store = (
                 store_factory(case_path)
                 if store_factory is not None
                 else SQLiteStore(root / f"{case_path.stem}.db")
             )
             try:
-                case = yaml.safe_load(case_path.read_text(encoding="utf-8"))
-                if not isinstance(case, dict) or not isinstance(
-                    case.get("scope_id"), str
-                ):
-                    raise ValueError(
-                        f"invalid conformance case scope_id: {case_path}"
-                    )
                 store.clear_scope(case["scope_id"])
                 results.append(run_case(case_path, store))
             finally:
                 store.close()
         return results
+
+
+def _load_case(path: Path) -> dict[str, Any]:
+    try:
+        case = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise ValueError(f"malformed conformance case {path}: {error}") from error
+    if not isinstance(case, dict):
+        raise ValueError(
+            f"malformed conformance case {path}: top level must be a mapping"
+        )
+    for field, expected_type in _REQUIRED_CASE_FIELDS.items():
+        if field not in case:
+            raise ValueError(
+                f"malformed conformance case {path}: missing {field}"
+            )
+        if not isinstance(case[field], expected_type):
+            raise ValueError(
+                f"malformed conformance case {path}: invalid {field}"
+            )
+    if not case["case_id"] or not case["title"] or not case["invariants"]:
+        raise ValueError(
+            f"malformed conformance case {path}: "
+            "case_id, title, and invariants must be non-empty"
+        )
+    if "corrections" in case and not isinstance(case["corrections"], list):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid corrections"
+        )
+    if "model_responses" in case and not isinstance(
+        case["model_responses"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid model_responses"
+        )
+    if "expect_error" in case:
+        if not isinstance(case["expect_error"], str) or not case["expect_error"]:
+            raise ValueError(
+                f"malformed conformance case {path}: invalid expect_error"
+            )
+    elif not isinstance(case.get("expect"), dict):
+        raise ValueError(f"malformed conformance case {path}: missing expect")
+    return case
 
 
 def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:

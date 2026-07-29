@@ -54,8 +54,150 @@ def test_cli_smoke_end_to_end(tmp_path) -> None:
         ).stdout
     )
     assert current[0]["value"] == "open"
+    historical = json.loads(
+        _run(
+            "query",
+            "at",
+            "demo",
+            "launch",
+            "status",
+            "2026-01-01T00:00:00Z",
+            "--db",
+            str(db),
+        ).stdout
+    )
+    assert historical[0]["value"] == "open"
     replayed = json.loads(_run("replay", "demo", "--db", str(db)).stdout)
     assert replayed["status"] == "rebuilt"
+
+
+def test_correct_cli_direct_flags_change_query_answer(tmp_path) -> None:
+    db = tmp_path / "direct-correction.db"
+    card_file = tmp_path / "direct-card.yaml"
+    card_file.write_text(
+        yaml.safe_dump(
+            {
+                "card_id": "direct-correction-card",
+                "scope_id": "demo",
+                "subject_key": "release",
+                "date": "2026-07-29",
+                "occurred_at": "2026-07-29T09:00:00Z",
+                "title": "Release",
+                "status": "blocked",
+                "source_refs": [
+                    {
+                        "source_id": "model-1",
+                        "sent_at": "2026-07-29T09:00:00Z",
+                        "sender": "bot",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _run("ingest", str(card_file), "--db", str(db))
+    before = json.loads(
+        _run(
+            "query", "current", "demo", "release", "status", "--db", str(db)
+        ).stdout
+    )
+    corrected = json.loads(
+        _run(
+            "correct",
+            "--scope-id",
+            "demo",
+            "--subject-key",
+            "release",
+            "--subject-type",
+            "MATTER",
+            "--predicate",
+            "status",
+            "--object-value",
+            "open",
+            "--valid-from",
+            "2026-07-29T09:00:00Z",
+            "--source-ref",
+            json.dumps(
+                {
+                    "source_id": "human-1",
+                    "sent_at": "2026-07-29T09:05:00Z",
+                    "sender": "ada",
+                }
+            ),
+            "--db",
+            str(db),
+        ).stdout
+    )
+    after = json.loads(
+        _run(
+            "query", "current", "demo", "release", "status", "--db", str(db)
+        ).stdout
+    )
+    assert before[0]["value"] == "blocked"
+    assert corrected["origin"] == "human"
+    assert corrected["source_refs"][0]["source_id"] == "human-1"
+    assert after[0]["value"] == "open"
+    assert after[0]["origin"] == "human"
+
+
+def test_correct_cli_accepts_yaml_file(tmp_path) -> None:
+    db = tmp_path / "file-correction.db"
+    card_file = tmp_path / "file-card.yaml"
+    correction_file = tmp_path / "correction.yaml"
+    card_file.write_text(
+        yaml.safe_dump(
+            {
+                "card_id": "file-correction-card",
+                "scope_id": "demo",
+                "subject_key": "release",
+                "date": "2026-07-29",
+                "title": "Release",
+                "status": "blocked",
+                "source_refs": [
+                    {
+                        "source_id": "model-1",
+                        "sent_at": "2026-07-29T09:00:00Z",
+                        "sender": "bot",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    correction_file.write_text(
+        yaml.safe_dump(
+            {
+                "correction": {
+                    "scope_id": "demo",
+                    "subject_key": "release",
+                    "subject_type": "MATTER",
+                    "predicate": "status",
+                    "object_value": "closed",
+                    "valid_from": "2026-07-30T00:00:00Z",
+                    "source_refs": [
+                        {
+                            "source_id": "human-file-1",
+                            "sent_at": "2026-07-30T00:05:00Z",
+                            "sender": "ada",
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    _run("ingest", str(card_file), "--db", str(db))
+    corrected = json.loads(
+        _run("correct", str(correction_file), "--db", str(db)).stdout
+    )
+    after = json.loads(
+        _run(
+            "query", "current", "demo", "release", "status", "--db", str(db)
+        ).stdout
+    )
+    assert corrected["origin"] == "human"
+    assert after[0]["value"] == "closed"
+    assert after[0]["source_ids"] == ["human-file-1"]
 
 
 def test_dream_help_documents_environment_credentials() -> None:
@@ -80,6 +222,9 @@ def test_conformance_cli_documents_backend_selection() -> None:
     assert "--backend" in help_text
     assert "--dsn" in help_text
     assert "MATTERHORN_TEST_POSTGRES_DSN" in help_text
+    assert "0 when all cases pass" in help_text
+    assert "1 when any valid case fails" in help_text
+    assert "2 when" in help_text
 
 
 def test_conformance_cli_invalid_suite_exits_two(tmp_path) -> None:
@@ -101,17 +246,16 @@ def test_conformance_cli_invalid_suite_exits_two(tmp_path) -> None:
 
 
 def test_conformance_cli_case_failure_exits_one(tmp_path) -> None:
+    case_path = (
+        Path(__file__).resolve().parents[1]
+        / "spec/conformance/01-basic-current.yaml"
+    )
+    case = yaml.safe_load(case_path.read_text(encoding="utf-8"))
+    case["case_id"] = "seeded-failure"
+    case["title"] = "Seeded expectation failure"
+    case["expect"]["queries"][0]["result"][0]["value"] = "closed"
     (tmp_path / "broken.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "case_id": "broken",
-                "title": "Broken case",
-                "schema_profile": "org-matters/v1",
-                "scope_id": "broken",
-                "clock": [],
-                "cards": [],
-            }
-        ),
+        yaml.safe_dump(case),
         encoding="utf-8",
     )
     executable = Path(__file__).resolve().parents[1] / ".venv/bin/mh"
@@ -122,8 +266,25 @@ def test_conformance_cli_case_failure_exits_one(tmp_path) -> None:
         text=True,
     )
     assert completed.returncode == 1
-    assert "FAIL broken" in completed.stdout
+    assert "FAIL seeded-failure" in completed.stdout
     assert "SUMMARY passed=0 failed=1 total=1" in completed.stdout
+
+
+def test_conformance_cli_malformed_case_exits_two(tmp_path) -> None:
+    (tmp_path / "malformed.yaml").write_text(
+        "case_id: [unterminated",
+        encoding="utf-8",
+    )
+    executable = Path(__file__).resolve().parents[1] / ".venv/bin/mh"
+    completed = subprocess.run(
+        [str(executable), "conformance", "run", "--suite", str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 2
+    assert "ERROR malformed conformance case" in completed.stderr
+    assert "Traceback" not in completed.stderr
 
 
 def test_dream_environment_defaults_and_explicit_overrides(monkeypatch, tmp_path) -> None:

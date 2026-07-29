@@ -6,10 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import click
 import typer
 import yaml
 
+from matterhorn.contracts import Correction
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
 from matterhorn.engine.engine import Engine
 
@@ -70,6 +70,134 @@ def ingest(
     )
 
 
+@app.command()
+def correct(
+    correction_file: Path | None = typer.Argument(
+        None,
+        exists=True,
+        readable=True,
+        dir_okay=False,
+        help="YAML/JSON Correction mapping, optionally wrapped as {correction: ...}.",
+    ),
+    scope_id: str | None = typer.Option(None, help="Correction scope."),
+    subject_key: str | None = typer.Option(None, help="Existing subject key."),
+    subject_type: str | None = typer.Option(None, help="Declared subject type."),
+    predicate: str | None = typer.Option(None, help="Registered predicate."),
+    operation: str | None = typer.Option(
+        None, help="ASSERT (default) or RETRACT."
+    ),
+    object_value: str | None = typer.Option(
+        None, help="Correction value as a YAML/JSON scalar or object."
+    ),
+    object_key: str | None = typer.Option(
+        None, help="Optional canonical object key, primarily for RETRACT."
+    ),
+    valid_from: str | None = typer.Option(
+        None, help="Business effective time as an RFC 3339 timestamp."
+    ),
+    source_ref: list[str] | None = typer.Option(
+        None,
+        "--source-ref",
+        help=(
+            "Traceable SourceRef as an inline YAML/JSON mapping. "
+            "Repeat for multiple sources."
+        ),
+    ),
+    db: str = typer.Option(
+        "matterhorn.db", help="SQLite path or writable-primary PostgreSQL DSN."
+    ),
+    schema: str = typer.Option("org-matters/v1", help="Profile id or YAML path."),
+    schema_dir: Path | None = typer.Option(
+        None, help="Optional directory containing additional schema profiles."
+    ),
+) -> None:
+    """Append an origin-human correction and rebuild the ordinary projection."""
+    direct_values = {
+        "scope_id": scope_id,
+        "subject_key": subject_key,
+        "subject_type": subject_type,
+        "predicate": predicate,
+        "operation": operation,
+        "object_value": object_value,
+        "object_key": object_key,
+        "valid_from": valid_from,
+        "source_ref": source_ref,
+    }
+    if correction_file is not None:
+        if any(value is not None for value in direct_values.values()):
+            raise typer.BadParameter(
+                "use either CORRECTION_FILE or direct correction flags, not both"
+            )
+        try:
+            loaded = yaml.safe_load(correction_file.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as error:
+            raise typer.BadParameter(
+                f"could not load correction file: {error}"
+            ) from error
+        payload = (
+            loaded["correction"]
+            if isinstance(loaded, dict) and set(loaded) == {"correction"}
+            else loaded
+        )
+        if not isinstance(payload, dict):
+            raise typer.BadParameter(
+                "correction file must contain a mapping or {correction: {...}}"
+            )
+    else:
+        required = {
+            "--scope-id": scope_id,
+            "--subject-key": subject_key,
+            "--subject-type": subject_type,
+            "--predicate": predicate,
+            "--valid-from": valid_from,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if not source_ref:
+            missing.append("--source-ref")
+        if missing:
+            raise typer.BadParameter(
+                f"direct correction requires {', '.join(missing)}"
+            )
+        parsed_sources = []
+        for raw_source in source_ref:
+            try:
+                parsed_source = yaml.safe_load(raw_source)
+            except yaml.YAMLError as error:
+                raise typer.BadParameter(
+                    f"invalid --source-ref YAML/JSON: {error}"
+                ) from error
+            if not isinstance(parsed_source, dict):
+                raise typer.BadParameter(
+                    "--source-ref must be a YAML/JSON mapping"
+                )
+            parsed_sources.append(parsed_source)
+        try:
+            parsed_value = (
+                yaml.safe_load(object_value) if object_value is not None else None
+            )
+        except yaml.YAMLError as error:
+            raise typer.BadParameter(
+                f"invalid --object-value YAML/JSON: {error}"
+            ) from error
+        payload = {
+            "scope_id": scope_id,
+            "subject_key": subject_key,
+            "subject_type": subject_type,
+            "predicate": predicate,
+            "operation": operation or "ASSERT",
+            "object_value": parsed_value,
+            "object_key": object_key,
+            "valid_from": valid_from,
+            "source_refs": parsed_sources,
+        }
+    try:
+        correction = Correction.model_validate(payload)
+        assertion = _engine(db, schema, schema_dir).correct(correction)
+    except (ValueError, TypeError) as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(assertion.model_dump(mode="json"))
+
+
 @query_app.command("current")
 def query_current(
     scope_id: str,
@@ -107,14 +235,20 @@ def query_at(
     scope_id: str,
     subject_key: str,
     predicate: str,
-    instant: datetime,
+    instant: str,
     db: str = typer.Option("matterhorn.db"),
     schema: str = typer.Option("org-matters/v1"),
     schema_dir: Path | None = typer.Option(None),
 ) -> None:
     """Reconstruct a predicate at an effective-time instant."""
+    try:
+        parsed_instant = datetime.fromisoformat(instant)
+    except ValueError as error:
+        raise typer.BadParameter(
+            "instant must be an RFC 3339 timestamp"
+        ) from error
     result = _engine(db, schema, schema_dir).query.at(
-        scope_id, subject_key, predicate, instant
+        scope_id, subject_key, predicate, parsed_instant
     )
     _print([item.to_dict() for item in result])
 
@@ -311,7 +445,11 @@ def conformance_run(
         ),
     ),
 ) -> None:
-    """Execute every golden case and report a stable per-case result."""
+    """Run all cases.
+
+    Exit status: 0 when all cases pass, 1 when any valid case fails, and 2 when
+    the suite is missing, unreadable, empty, or malformed.
+    """
     from matterhorn.conformance import default_suite, run_suite
 
     if backend not in {"sqlite", "postgres"}:
@@ -338,7 +476,7 @@ def conformance_run(
         results = run_suite(selected, store_factory=store_factory)
     except Exception as error:
         typer.echo(f"ERROR {error}", err=True)
-        raise click.exceptions.Exit(2) from error
+        raise typer.Exit(code=2) from error
     for result in results:
         status = "PASS" if result.passed else "FAIL"
         typer.echo(f"{status} {result.case_id} - {result.title}")
@@ -348,7 +486,7 @@ def conformance_run(
     failed = len(results) - passed
     typer.echo(f"SUMMARY passed={passed} failed={failed} total={len(results)}")
     if failed:
-        raise click.exceptions.Exit(1)
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

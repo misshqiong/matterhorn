@@ -38,6 +38,17 @@ engine.correct({"scope_id": "team", "subject_key": "release",
                    "sender": "ada", "excerpt": "The release is closed."}]})
 ```
 
+Operators can file the same correction from a YAML/JSON file with
+`mh correct correction.yaml --db memory.db`, or use direct flags:
+
+```console
+mh correct --scope-id team --subject-key release --subject-type MATTER \
+  --predicate status --object-value closed \
+  --valid-from 2026-07-29T09:00:00Z \
+  --source-ref '{"source_id":"human-1","sent_at":"2026-07-29T10:00:00Z","sender":"ada"}' \
+  --db memory.db
+```
+
 The next query returns `closed` from the human assertion while retaining the
 older assertion. Run the complete transcript in
 [examples/correction](examples/correction/README.md).

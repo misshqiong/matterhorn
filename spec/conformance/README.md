@@ -112,5 +112,6 @@ mh conformance run --backend postgres --dsn postgresql://...
 
 It prints `PASS|FAIL case_id - title`, then
 `SUMMARY passed=N failed=N total=N`. Exit codes are 0 for all pass, 1 for any
-case failure, and 2 when the suite cannot be loaded. The Python pytest suite
-uses the same runner against SQLite and PostgreSQL.
+valid case failure, and 2 when the suite cannot be loaded because its directory
+or a case file is missing, unreadable, empty, or malformed. The Python pytest
+suite uses the same runner against SQLite and PostgreSQL.

@@ -34,7 +34,8 @@ classifiers = [
 dependencies = [
   "pydantic>=2,<3",
   "PyYAML>=6",
-  "typer>=0.9",
+  "typer>=0.27,<1",
+  "click>=8.4.2,<9",
 ]
 
 [project.urls]

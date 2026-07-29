@@ -697,7 +697,9 @@ The command `mh conformance run [--suite DIR]` MUST execute every `*.yaml`
 file in lexicographic filename order through the same runner used by Python
 tests. It MUST print one `PASS` or `FAIL` line per case and a final stable
 `SUMMARY passed=N failed=N total=N`. Exit status MUST be zero only when every
-case passes, one for case failures, and two for a missing/invalid suite.
+case passes, one when one or more valid cases execute but fail, and two when
+the suite is unusable because its directory or a case file is missing,
+unreadable, empty, or malformed.
 
 The distributed wheel and sdist MUST contain `SPEC.md`, the conformance README,
 and every golden YAML file so another implementation can use the installed
