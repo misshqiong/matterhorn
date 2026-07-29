@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "matterhorn"
+name = "matterhorn-memory"
 version = "0.3.0"
 description = "The deterministic L3 temporal memory layer for agents"
 readme = "README.md"

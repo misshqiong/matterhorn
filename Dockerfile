@@ -18,7 +18,7 @@ WORKDIR /app
 COPY --from=build /build/dist/*.whl /tmp/
 RUN python -m pip install --no-cache-dir \
       'fastapi>=0.115' 'httpx>=0.27' 'uvicorn>=0.30' 'psycopg[binary]>=3.2,<4' \
-    && python -m pip install --no-cache-dir /tmp/matterhorn-*.whl \
+    && python -m pip install --no-cache-dir /tmp/matterhorn_memory-*.whl \
     && rm -f /tmp/*.whl \
     && chown matterhorn:matterhorn /app
 USER matterhorn

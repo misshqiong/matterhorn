@@ -4,7 +4,7 @@
 推导，读取路径绝不调用 LLM。
 
 ```console
-pip install 'matterhorn[api,mcp,postgres]'
+pip install 'matterhorn-memory[api,mcp,postgres]'
 ```
 
 Claude Code 项目级 `.mcp.json`：

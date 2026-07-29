@@ -3,9 +3,9 @@
 Install the surface you need:
 
 ```console
-pip install matterhorn
-pip install 'matterhorn[mcp]'
-pip install 'matterhorn[api,postgres]'
+pip install matterhorn-memory
+pip install 'matterhorn-memory[mcp]'
+pip install 'matterhorn-memory[api,postgres]'
 ```
 
 `Engine("memory.db", profile)` embeds SQLite. A `postgresql://` DSN selects
