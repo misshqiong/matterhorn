@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "matterhorn": {
+      "command": "mh",
+      "args": [
+        "mcp",
+        "--db",
+        ".matterhorn/claude-code.db",
+        "--schema",
+        "org-matters/v1"
+      ]
+    }
+  }
+}

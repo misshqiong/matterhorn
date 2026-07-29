@@ -1,0 +1,22 @@
+{
+  "path": "daily/2026-07-29/session-42.md",
+  "scope_id": "team-a",
+  "frontmatter": {
+    "name": "Matterhorn release",
+    "date": "2026-07-29",
+    "status": "open",
+    "subject_key": "release",
+    "participants": [
+      {"id": "ada", "display_name": "Ada", "role": "owner"}
+    ],
+    "sources": [
+      {
+        "id": "session-42:msg-7",
+        "sent_at": "2026-07-29T09:00:00Z",
+        "sender": "ada",
+        "excerpt": "The release candidate is ready for verification."
+      }
+    ]
+  },
+  "content": "The release candidate is ready for verification."
+}

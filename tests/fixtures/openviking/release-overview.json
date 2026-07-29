@@ -1,0 +1,22 @@
+{
+  "uri": "viking://user/ada/memories/events/matterhorn-release",
+  "name": "Matterhorn release",
+  "scope_id": "team-a",
+  "overview": "The release candidate is ready for verification.",
+  "metadata": {
+    "date": "2026-07-29",
+    "status": "open",
+    "subject_key": "release",
+    "participants": [
+      {"id": "ada", "display_name": "Ada", "role": "owner"}
+    ],
+    "source_refs": [
+      {
+        "uri": "viking://user/ada/sessions/s1/messages.jsonl#msg-7",
+        "sent_at": "2026-07-29T09:00:00Z",
+        "sender": "ada",
+        "excerpt": "The release candidate is ready for verification."
+      }
+    ]
+  }
+}

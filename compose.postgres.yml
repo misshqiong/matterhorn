@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: matterhorn
+      POSTGRES_USER: matterhorn
+      POSTGRES_PASSWORD: matterhorn
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matterhorn -d matterhorn"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  conformance:
+    build:
+      context: .
+      target: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MATTERHORN_TEST_POSTGRES_DSN: postgresql://matterhorn:matterhorn@postgres:5432/matterhorn
+    command:
+      - python
+      - -m
+      - pytest
+      - -q
+      - tests/test_conformance.py
