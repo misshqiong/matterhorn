@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import asyncio
 import os
-import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -297,7 +296,7 @@ else:
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     assert completed.returncode == 0, completed.stderr
 
@@ -310,15 +309,12 @@ def test_mcp_stdio_entrypoints_use_official_protocol(entrypoint, tmp_path) -> No
     async def scenario() -> None:
         db = tmp_path / f"{entrypoint}.db"
         if entrypoint == "mh":
-            executable = shutil.which("mh")
-            if executable is None:
-                script_name = "mh.exe" if os.name == "nt" else "mh"
-                candidate = Path(sys.executable).parent / script_name
-                if not candidate.is_file():
-                    raise AssertionError("installed mh console script was not found")
-                executable = str(candidate)
+            script_name = "mh.exe" if os.name == "nt" else "mh"
+            candidate = Path(sys.executable).parent / script_name
+            if not candidate.is_file():
+                raise AssertionError("installed mh console script was not found")
             parameters = StdioServerParameters(
-                command=executable,
+                command=str(candidate),
                 args=[
                     "mcp",
                     "--db",

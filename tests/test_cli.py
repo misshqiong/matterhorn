@@ -2,8 +2,13 @@ import json
 import subprocess
 import sys
 from importlib import import_module
+from typing import Any
 
 import yaml
+from typer.core import TyperGroup
+from typer.main import get_command
+
+from matterhorn.cli.app import app
 
 
 def _command(*args: str) -> list[str]:
@@ -15,8 +20,20 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         _command(*args),
         check=True,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
+
+
+def _cli_metadata(*path: str) -> Any:
+    command = get_command(app)
+    for name in path:
+        assert isinstance(command, TyperGroup)
+        command = command.commands[name]
+    return command
+
+
+def _parameter(command: Any, name: str) -> Any:
+    return next(parameter for parameter in command.params if parameter.name == name)
 
 
 def test_cli_smoke_end_to_end(tmp_path) -> None:
@@ -42,7 +59,7 @@ def test_cli_smoke_end_to_end(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
-    assert "Usage:" in _run("--help").stdout
+    assert _run("--help").returncode == 0
     ingested = json.loads(_run("ingest", str(card_file), "--db", str(db)).stdout)
     assert ingested["assertions_emitted"] == 1
     current = json.loads(
@@ -204,7 +221,10 @@ def test_correct_cli_accepts_yaml_file(tmp_path) -> None:
 
 
 def test_dream_help_documents_environment_credentials() -> None:
-    help_text = _run("dream", "--help").stdout
+    command = _cli_metadata("dream")
+    help_text = " ".join(
+        parameter.help or "" for parameter in command.params
+    )
     for name in [
         "MATTERHORN_API_KEY",
         "OPENAI_API_KEY",
@@ -221,13 +241,18 @@ def test_conformance_cli_runs_packaged_golden_suite() -> None:
 
 
 def test_conformance_cli_documents_backend_selection() -> None:
-    help_text = _run("conformance", "run", "--help").stdout
-    assert "--backend" in help_text
-    assert "--dsn" in help_text
-    assert "MATTERHORN_TEST_POSTGRES_DSN" in help_text
-    assert "0 when all cases pass" in help_text
-    assert "1 when any valid case fails" in help_text
-    assert "2 when" in help_text
+    command = _cli_metadata("conformance", "run")
+    backend = _parameter(command, "backend")
+    dsn = _parameter(command, "dsn")
+    exit_status_help = " ".join((command.help or "").split())
+
+    assert "--backend" in backend.opts
+    assert backend.default == "sqlite"
+    assert "--dsn" in dsn.opts
+    assert "MATTERHORN_TEST_POSTGRES_DSN" in (dsn.help or "")
+    assert "0 when all cases pass" in exit_status_help
+    assert "1 when any valid case fails" in exit_status_help
+    assert "2 when" in exit_status_help
 
 
 def test_conformance_cli_invalid_suite_exits_two(tmp_path) -> None:
@@ -235,7 +260,7 @@ def test_conformance_cli_invalid_suite_exits_two(tmp_path) -> None:
         _command("conformance", "run", "--suite", str(tmp_path / "missing")),
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     assert completed.returncode == 2
     assert "ERROR conformance suite directory not found" in completed.stderr
@@ -257,7 +282,7 @@ def test_conformance_cli_case_failure_exits_one(tmp_path) -> None:
         _command("conformance", "run", "--suite", str(tmp_path)),
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     assert completed.returncode == 1
     assert "FAIL seeded-failure" in completed.stdout
@@ -273,7 +298,7 @@ def test_conformance_cli_malformed_case_exits_two(tmp_path) -> None:
         _command("conformance", "run", "--suite", str(tmp_path)),
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     assert completed.returncode == 2
     assert "ERROR malformed conformance case" in completed.stderr

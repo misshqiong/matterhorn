@@ -29,6 +29,13 @@ $ .venv/bin/python -m pytest -q
 $ .venv/bin/mh conformance run
 ```
 
+## Testing conventions
+
+Tests must assert documented contracts and observable behavior, not rendered
+terminal layout (colors or wrapping) or machine-specific paths. This prevents a
+recurring defect pattern: first a hardcoded `.venv` path, then terminal-width-
+dependent help-text assertions.
+
 Run both stores with the disposable service:
 
 ```console
