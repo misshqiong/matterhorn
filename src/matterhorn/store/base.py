@@ -8,10 +8,13 @@ from typing import Any, Protocol
 from matterhorn.contracts import (
     Assertion,
     EpisodeCard,
+    EvidenceRef,
     GateStatistics,
     Interval,
     MemoryCard,
     ProjectionStats,
+    SourceRef,
+    SyncPosition,
 )
 from matterhorn.engine.identity import SubjectRecord
 
@@ -37,8 +40,21 @@ class QueryValueRow:
     recorded_at: str
     assertion_id: str
     supporting_assertion_ids: list[str]
-    source_ids: list[str]
+    source_refs: list[SourceRef]
     origin: str
+
+    @property
+    def source_ids(self) -> list[str]:
+        return [item.source_id for item in self.source_refs]
+
+
+@dataclass(frozen=True)
+class RecordObservationRow:
+    scope_id: str
+    record_id: str
+    observation_hash: str
+    container_id: str
+    observed_at: str
 
 
 @dataclass(frozen=True)
@@ -59,6 +75,44 @@ class Store(Protocol):
     def card_payload_hash(self, scope_id: str, card_id: str) -> str | None: ...
 
     def mark_card(self, scope_id: str, card_id: str, payload_hash: str) -> None: ...
+
+    def has_record_observation(
+        self, scope_id: str, record_id: str, observation_hash: str
+    ) -> bool: ...
+
+    def mark_record_observation(
+        self,
+        scope_id: str,
+        record_id: str,
+        observation_hash: str,
+        container_id: str,
+        observed_at: datetime,
+    ) -> None: ...
+
+    def record_observations(self, scope_id: str) -> list[RecordObservationRow]: ...
+
+    def observe_source(
+        self,
+        scope_id: str,
+        source_ref: SourceRef,
+        *,
+        revoked_at: datetime | None = None,
+    ) -> None: ...
+
+    def source_states(
+        self, scope_id: str, source_refs: list[SourceRef]
+    ) -> list[EvidenceRef]: ...
+
+    def update_sync_position(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        watermark: datetime,
+        cursor: str | None,
+    ) -> None: ...
+
+    def sync_positions(self, scope_id: str) -> list[SyncPosition]: ...
 
     def assertions(self, scope_id: str) -> list[Assertion]: ...
 

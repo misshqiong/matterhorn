@@ -40,6 +40,35 @@ def _print(value: Any) -> None:
     typer.echo(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
 
+def _write_gateway(
+    provider: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    model: str | None,
+):
+    from matterhorn.gateway_config import configured_gateway
+
+    try:
+        return configured_gateway(
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+
+
+def _cursor_map(values: list[str] | None) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for value in values or []:
+        container, separator, cursor = value.partition("=")
+        if not separator or not container:
+            raise typer.BadParameter("--cursor must be CONTAINER_ID=OPAQUE_CURSOR")
+        result[container] = cursor
+    return result
+
+
 @app.command()
 def ingest(
     input_file: Path = typer.Argument(..., exists=True, readable=True),
@@ -68,6 +97,156 @@ def ingest(
             "assertion_ids": [item.assertion_id for item in emitted],
         }
     )
+
+
+@app.command()
+def extract(
+    input_file: Path = typer.Argument(..., exists=True, readable=True),
+    scope_id: str | None = typer.Option(
+        None, help="Memory scope; may instead be supplied as top-level scope_id."
+    ),
+    adapter: str = typer.Option(
+        "records",
+        help="Input shape: records, slack-history, reme, or openviking.",
+    ),
+    container_id: str | None = typer.Option(
+        None, help="Slack channel ID for a conversations.history response."
+    ),
+    workspace_domain: str | None = typer.Option(
+        None, help="Slack workspace domain, for example acme.slack.com."
+    ),
+    cursor: list[str] | None = typer.Option(
+        None,
+        "--cursor",
+        help="Persist CONTAINER_ID=OPAQUE_CURSOR; repeat for multiple containers.",
+    ),
+    backfill: bool = typer.Option(
+        False, help="Process unseen older records without advancing sync positions."
+    ),
+    db: str = typer.Option(
+        "matterhorn.db", help="SQLite path or writable-primary PostgreSQL DSN."
+    ),
+    schema: str = typer.Option("org-matters/v1", help="Profile id or YAML path."),
+    schema_dir: Path | None = typer.Option(None),
+    provider: str | None = typer.Option(
+        None,
+        help=(
+            "Write-side LLM provider. Defaults to MATTERHORN_PROVIDER; "
+            "openai-compatible or anthropic are supported."
+        ),
+    ),
+    base_url: str | None = typer.Option(
+        None, help="Override MATTERHORN_BASE_URL."
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        help=(
+            "Override MATTERHORN_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
+        ),
+    ),
+    model: str | None = typer.Option(None, help="Override MATTERHORN_MODEL."),
+) -> None:
+    """Extract communication Records into cards and ingest them atomically."""
+
+    try:
+        payload = yaml.safe_load(input_file.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise typer.BadParameter(f"could not load input: {error}") from error
+    selected_scope = scope_id
+    cursors = _cursor_map(cursor)
+    adapter_dropped: dict[str, int] = {}
+    if adapter == "records":
+        if isinstance(payload, dict):
+            selected_scope = selected_scope or payload.get("scope_id")
+            records = payload.get("records", [])
+            payload_cursors = payload.get("cursors")
+            if isinstance(payload_cursors, dict):
+                cursors = {**payload_cursors, **cursors}
+        else:
+            records = payload
+    elif adapter == "slack-history":
+        if not container_id or not workspace_domain:
+            raise typer.BadParameter(
+                "slack-history requires --container-id and --workspace-domain"
+            )
+        if not isinstance(payload, dict):
+            raise typer.BadParameter("Slack history input MUST be an object")
+        from matterhorn.adapters import map_slack_history
+
+        mapped = map_slack_history(
+            payload,
+            channel_id=container_id,
+            workspace_domain=workspace_domain,
+        )
+        records = mapped.records
+        adapter_dropped = mapped.dropped
+        if container_id not in cursors and mapped.next_cursor is not None:
+            cursors[container_id] = mapped.next_cursor
+    elif adapter in {"reme", "openviking"}:
+        if not isinstance(payload, dict):
+            raise typer.BadParameter(f"{adapter} input MUST be an object")
+        from matterhorn.adapters import map_openviking_digest, map_reme_digest
+
+        mapper = (
+            map_reme_digest if adapter == "reme" else map_openviking_digest
+        )
+        try:
+            card = mapper(payload, scope_id=selected_scope)
+            engine = _engine(db, schema, schema_dir)
+            emitted = engine.ingest([card], scope_id=card.scope_id)
+        except Exception as error:
+            raise typer.BadParameter(str(error)) from error
+        _print(
+            {
+                "adapter": adapter,
+                "scope_id": card.scope_id,
+                "cards_accepted": 1,
+                "cards_dropped": 0,
+                "card_ids": [card.card_id],
+                "assertions_emitted": len(emitted),
+                "assertion_ids": [item.assertion_id for item in emitted],
+            }
+        )
+        return
+    else:
+        raise typer.BadParameter(
+            "adapter MUST be records, slack-history, reme, or openviking"
+        )
+    if not isinstance(selected_scope, str) or not selected_scope:
+        raise typer.BadParameter("--scope-id or top-level scope_id is required")
+    if not isinstance(records, list):
+        raise typer.BadParameter("input records MUST be an array")
+    engine = _engine(
+        db,
+        schema,
+        schema_dir,
+        gateway=_write_gateway(provider, base_url, api_key, model),
+    )
+    try:
+        report = engine.add_records(
+            records,
+            scope_id=selected_scope,
+            cursors=cursors,
+            backfill=backfill,
+        ).model_dump(mode="json")
+    except Exception as error:
+        raise typer.BadParameter(str(error)) from error
+    if adapter_dropped:
+        report["adapter_dropped"] = adapter_dropped
+    _print(report)
+
+
+@app.command("sync-status")
+def sync_status(
+    scope_id: str,
+    db: str = typer.Option("matterhorn.db"),
+    schema: str = typer.Option("org-matters/v1"),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Print per-container watermarks and opaque host cursors."""
+
+    positions = _engine(db, schema, schema_dir).sync_positions(scope_id)
+    _print([item.model_dump(mode="json") for item in positions])
 
 
 @app.command()
@@ -326,55 +505,7 @@ def dream(
     """Drain queued cards through the configured write-side LLM gateway."""
     if limit is not None and limit < 0:
         raise typer.BadParameter("limit MUST be non-negative")
-    from matterhorn.distill import (
-        AnthropicGateway,
-        NullGateway,
-        OpenAICompatibleGateway,
-    )
-
-    resolved_base_url = (
-        base_url
-        if base_url is not None
-        else os.environ.get("MATTERHORN_BASE_URL")
-    )
-    provider_fallback_key = {
-        "openai-compatible": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-    }.get(provider)
-    resolved_api_key = (
-        api_key
-        if api_key is not None
-        else os.environ.get("MATTERHORN_API_KEY")
-    )
-    if resolved_api_key is None and provider_fallback_key is not None:
-        resolved_api_key = os.environ.get(provider_fallback_key)
-
-    if provider == "null":
-        gateway = NullGateway()
-    elif provider == "openai-compatible":
-        if not all((resolved_base_url, resolved_api_key, model)):
-            raise typer.BadParameter(
-                "openai-compatible requires a base URL, API key, and --model; "
-                "use MATTERHORN_BASE_URL and MATTERHORN_API_KEY/OPENAI_API_KEY "
-                "or explicit --base-url/--api-key overrides"
-            )
-        gateway = OpenAICompatibleGateway(
-            base_url=resolved_base_url,
-            api_key=resolved_api_key,
-            model=model,
-        )
-    elif provider == "anthropic":
-        if not all((resolved_api_key, model)):
-            raise typer.BadParameter(
-                "anthropic requires an API key and --model; use "
-                "MATTERHORN_API_KEY/ANTHROPIC_API_KEY or explicit --api-key"
-            )
-        kwargs = {"api_key": resolved_api_key, "model": model}
-        if resolved_base_url is not None:
-            kwargs["base_url"] = resolved_base_url
-        gateway = AnthropicGateway(**kwargs)
-    else:
-        raise typer.BadParameter(f"unknown provider: {provider}")
+    gateway = _write_gateway(provider, base_url, api_key, model)
     report = _engine(db, schema, schema_dir, gateway=gateway).dream(
         scope_id, limit=limit
     )
@@ -385,11 +516,24 @@ def dream(
 def mcp_command(
     db: str = typer.Option("matterhorn.db"),
     schema: str = typer.Option("org-matters/v1"),
+    provider: str | None = typer.Option(
+        None, help="Defaults to MATTERHORN_PROVIDER."
+    ),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None, help="Defaults to MATTERHORN_MODEL."),
 ) -> None:
-    """Run the seven-tool Matterhorn MCP server over stdio."""
+    """Run the eight-tool Matterhorn MCP server over stdio."""
     from matterhorn.mcp.runtime import run_stdio
 
-    run_stdio(db=str(db), schema=schema)
+    run_stdio(
+        db=str(db),
+        schema=schema,
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+    )
 
 
 @app.command()
@@ -398,13 +542,29 @@ def serve(
     schema: str = typer.Option("org-matters/v1"),
     host: str = typer.Option("127.0.0.1"),
     port: int = typer.Option(8000),
+    provider: str | None = typer.Option(
+        None, help="Defaults to MATTERHORN_PROVIDER."
+    ),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None, help="Defaults to MATTERHORN_MODEL."),
 ) -> None:
     """Serve the Matterhorn REST API and OpenAPI document."""
     import uvicorn
 
     from matterhorn.api import create_app
 
-    uvicorn.run(create_app(engine=Engine(db, schema)), host=host, port=port)
+    uvicorn.run(
+        create_app(
+            engine=Engine(
+                db,
+                schema,
+                gateway=_write_gateway(provider, base_url, api_key, model),
+            )
+        ),
+        host=host,
+        port=port,
+    )
 
 
 @schema_app.command("list")

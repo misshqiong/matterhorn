@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "messages": [
+    {
+      "client_msg_id": "846ad225-bade-4ca2-92f8-8ff98c2acb28",
+      "type": "message",
+      "user": "U789",
+      "text": "Office lease is pending.",
+      "ts": "1699887654.123456",
+      "team": "T123"
+    }
+  ],
+  "has_more": false,
+  "response_metadata": {"next_cursor": ""}
+}

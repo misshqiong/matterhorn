@@ -1,0 +1,83 @@
+case_id: deleted-record-revokes-evidence
+title: A deleted communication record revokes evidence without deleting facts
+invariants: [P5, P7, P9, INV-2, INV-3, INV-11]
+schema_profile: org-matters/v1
+scope_id: m4-delete
+clock:
+  - "2026-07-29T09:01:00Z"
+cards: []
+record_batches:
+  - records:
+      - record_id: "CDELETE:1699887654.123456"
+        native_id: "1699887654.123456"
+        container_id: CDELETE
+        thread_id: "CDELETE:1699887654.123456"
+        sent_at: "2026-07-29T09:00:00Z"
+        author: {id: U1, display_name: Ada, kind: human}
+        content: "Release is open."
+        uri: "https://matterhorn.slack.com/archives/CDELETE/p1699887654123456"
+        reactions: []
+        attachments: []
+        edited_at: null
+        revoked_at: null
+        kind: message
+        subtype: null
+  - records:
+      - record_id: "CDELETE:1699887654.123456"
+        native_id: "1699887654.123456"
+        container_id: CDELETE
+        thread_id: "CDELETE:1699887654.123456"
+        sent_at: "2026-07-29T09:00:00Z"
+        author: {id: U1, display_name: Ada, kind: human}
+        content: "Release is open."
+        uri: "https://matterhorn.slack.com/archives/CDELETE/p1699887654123456"
+        reactions: []
+        attachments: []
+        edited_at: null
+        revoked_at: "2026-07-29T09:10:00Z"
+        kind: revocation
+        subtype: message_deleted
+record_model_responses:
+  - cards:
+      - date: "2026-07-29"
+        title: Release
+        status: open
+        occurred_at: "2026-07-29T09:00:00Z"
+        source_ids: ["CDELETE:1699887654.123456"]
+expect:
+  record_reports:
+    - records_processed: 1
+      assertions_emitted: 1
+    - records_processed: 1
+      records_revoked: 1
+      cards_accepted: 0
+      assertions_emitted: 0
+  second_record_reports:
+    - records_processed: 0
+      records_skipped: 1
+      assertions_emitted: 0
+    - records_processed: 0
+      records_skipped: 1
+      assertions_emitted: 0
+  assertions:
+    - predicate: status
+      object_value: open
+      recorded_at: "2026-07-29T09:01:00.000000Z"
+  intervals:
+    - predicate: status
+      object_value: open
+  subject_count: 1
+  queries:
+    - name: current
+      args:
+        subject_key: sub_40ab0de3d45bdb0ed5d1
+        predicate: status
+      result:
+        - value: open
+          source_ids: ["CDELETE:1699887654.123456"]
+          source_refs:
+            - source_id: "CDELETE:1699887654.123456"
+              uri: "https://matterhorn.slack.com/archives/CDELETE/p1699887654123456"
+              status: revoked
+              revoked_at: "2026-07-29T09:10:00Z"
+          evidence_status: revoked

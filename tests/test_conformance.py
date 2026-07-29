@@ -46,8 +46,8 @@ def _case_scope(path: Path) -> str:
     return yaml.safe_load(path.read_text(encoding="utf-8"))["scope_id"]
 
 
-def test_at_least_thirty_five_language_neutral_cases_are_collected() -> None:
-    assert len(CASE_PATHS) >= 35
+def test_at_least_forty_language_neutral_cases_are_collected() -> None:
+    assert len(CASE_PATHS) >= 40
     for path in CASE_PATHS:
         text = path.read_text(encoding="utf-8")
         assert "import " not in text

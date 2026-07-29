@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "messages": [
+    {
+      "type": "message",
+      "subtype": "channel_join",
+      "user": "U999",
+      "text": "<@U999> has joined the channel",
+      "ts": "1699887660.000001"
+    },
+    {
+      "type": "message",
+      "subtype": "thread_broadcast",
+      "text": "I will verify the package",
+      "bot_id": "BVERIFY",
+      "app_id": "AVERIFY",
+      "bot_profile": {
+        "id": "BVERIFY",
+        "name": "release-bot",
+        "app_id": "AVERIFY"
+      },
+      "ts": "1699887655.123457",
+      "thread_ts": "1699887654.123456",
+      "parent_user_id": "U123",
+      "client_msg_id": "f034d7ab-99ef-4e00-a7d1-7e3f7aa1ea32",
+      "team": "T123",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "reply",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {"type": "text", "text": "I will verify "},
+                {
+                  "type": "link",
+                  "url": "https://example.com/build/42",
+                  "text": "build 42"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "client_msg_id": "9c4c0ae3-ea8b-4a22-a05d-67d60a7f5c18",
+      "type": "message",
+      "text": "Release &amp; docs are ready for <@U456> in <#CENG|engineering>. <https://example.com/runbook|Runbook>",
+      "user": "U123",
+      "ts": "1699887654.123456",
+      "thread_ts": "1699887654.123456",
+      "team": "T123",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "root",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {"type": "text", "text": "Release & docs are ready for "},
+                {"type": "user", "user_id": "U456"},
+                {"type": "text", "text": " in "},
+                {"type": "channel", "channel_id": "CENG"},
+                {"type": "text", "text": ". "},
+                {
+                  "type": "link",
+                  "url": "https://example.com/runbook",
+                  "text": "Runbook"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "reactions": [
+        {"name": "white_check_mark", "users": ["U123", "U456"], "count": 5}
+      ],
+      "files": [
+        {
+          "id": "F123",
+          "name": "release-notes.pdf",
+          "title": "Release notes",
+          "mimetype": "application/pdf",
+          "size": 12345,
+          "mode": "hosted",
+          "permalink": "https://matterhorn.slack.com/files/U123/F123/release-notes.pdf"
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "response_metadata": {
+    "next_cursor": "dGVzdC1uZXh0LWN1cnNvcg=="
+  }
+}

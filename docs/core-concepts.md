@@ -20,6 +20,11 @@ independently. APPEND predicates produce point events. A repeated assertion of
 the same live value adds supporting evidence without closing and reopening the
 interval.
 
+Communication Records add an immutable observation dimension. An edit produces
+a new assertion even when extraction yields the same fact. A deletion revokes
+the source, not the assertion or interval; queries return active, partially
+revoked, or revoked evidence status with the original permalink.
+
 ## Answers are derived, not generated
 
 The model may propose structured write candidates, but a validation gate can

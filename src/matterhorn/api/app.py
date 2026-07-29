@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 
 from matterhorn.api.models import (
     AddEpisodeCardsRequest,
+    AddRecordsRequest,
+    AddRecordsResponse,
     AtRequest,
     ByPersonRequest,
     CorrectRequest,
@@ -30,7 +32,7 @@ def create_app(*, engine: Any = None, service: MatterhornService | None = None) 
 
     app = FastAPI(
         title="Matterhorn Memory API",
-        version="0.3.0",
+        version="0.4.0",
         description="Deterministic, evidence-backed temporal memory protocol.",
     )
     app.state.matterhorn_service = service
@@ -70,6 +72,10 @@ def create_app(*, engine: Any = None, service: MatterhornService | None = None) 
         return service.add_episode_cards(
             cards=request.cards, scope_id=request.scope_id
         )
+
+    @app.post("/v1/add_records", response_model=AddRecordsResponse)
+    def add_records(request: AddRecordsRequest):
+        return service.add_records(**request.model_dump())
 
     @app.post("/v1/query_current", response_model=ValueListResponse)
     def query_current(request: PredicateRequest):

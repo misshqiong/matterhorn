@@ -11,8 +11,10 @@ Verify the checked-in wiring:
 $ .venv/bin/python examples/claude-code/verify.py
 mcp_server=matterhorn command=mh mcp
 skill=.claude/skills/matterhorn/SKILL.md
-tools=7
+tools=8
 ```
 
-The seven tools are `add_episode_cards`, `query_current`, `query_timeline`,
-`query_at`, `query_by_person`, `list_matters`, and `correct`.
+The eight tools are `add_episode_cards`, `add_records`, `query_current`,
+`query_timeline`, `query_at`, `query_by_person`, `list_matters`, and `correct`.
+Configure `MATTERHORN_PROVIDER` and its write-side model credentials before
+using `add_records`; reads need no model.

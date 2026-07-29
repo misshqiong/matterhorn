@@ -22,6 +22,122 @@ class SourceRef(StrictModel):
     sent_at: datetime
     sender: str
     excerpt: str | None = None
+    uri: str | None = None
+
+
+class AuthorKind(str, Enum):
+    human = "human"
+    bot = "bot"
+    app = "app"
+
+
+class RecordAuthor(StrictModel):
+    id: str
+    display_name: str | None = None
+    kind: AuthorKind
+
+
+class RecordReaction(StrictModel):
+    name: str
+    count: int = Field(ge=0)
+    author_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("author_ids")
+    @classmethod
+    def author_ids_are_unique(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("reaction author_ids MUST NOT contain duplicates")
+        return value
+
+
+class RecordAttachment(StrictModel):
+    attachment_id: str
+    kind: str
+    title: str | None = None
+    mime_type: str | None = None
+    uri: str | None = None
+    size: int | None = Field(default=None, ge=0)
+
+
+class Record(StrictModel):
+    """A provider-neutral, traceable communication observation."""
+
+    record_id: str
+    container_id: str
+    thread_id: str | None = None
+    sent_at: datetime
+    author: RecordAuthor
+    content: str
+    uri: str | None = None
+    reactions: list[RecordReaction] = Field(default_factory=list)
+    attachments: list[RecordAttachment] = Field(default_factory=list)
+    edited_at: datetime | None = None
+    revoked_at: datetime | None = None
+    kind: str = "message"
+    subtype: str | None = None
+    native_id: str | None = None
+    workspace_id: str | None = None
+    client_id: str | None = None
+    parent_author_id: str | None = None
+    broadcast: bool = False
+
+    @model_validator(mode="after")
+    def identity_is_namespaced_and_times_are_ordered(self) -> Record:
+        prefix = f"{self.container_id}:"
+        if not self.container_id or not self.record_id.startswith(prefix):
+            raise ValueError(
+                "record_id MUST be namespaced as '<container_id>:<native_id>'"
+            )
+        native_part = self.record_id[len(prefix) :]
+        if not native_part:
+            raise ValueError("record_id native component MUST be non-empty")
+        if self.native_id is not None and native_part != self.native_id:
+            raise ValueError("record_id native component MUST equal native_id")
+        if self.thread_id is not None and not self.thread_id.startswith(prefix):
+            raise ValueError("thread_id MUST be namespaced by container_id")
+        if self.edited_at is not None and self.edited_at < self.sent_at:
+            raise ValueError("edited_at MUST NOT precede sent_at")
+        if self.revoked_at is not None and self.revoked_at < self.sent_at:
+            raise ValueError("revoked_at MUST NOT precede sent_at")
+        return self
+
+    @property
+    def matter_boundary(self) -> str:
+        return self.thread_id or self.record_id
+
+    def to_source_ref(self) -> SourceRef:
+        return SourceRef(
+            source_id=self.record_id,
+            sent_at=self.sent_at,
+            sender=self.author.display_name or self.author.id,
+            excerpt=self.content or None,
+            uri=self.uri,
+        )
+
+
+class EvidenceStatus(str, Enum):
+    active = "active"
+    revoked = "revoked"
+
+
+class EvidenceSummary(str, Enum):
+    active = "active"
+    partially_revoked = "partially_revoked"
+    revoked = "revoked"
+
+
+class EvidenceRef(StrictModel):
+    source_id: str
+    uri: str | None = None
+    status: EvidenceStatus = EvidenceStatus.active
+    revoked_at: datetime | None = None
+
+
+class SyncPosition(StrictModel):
+    scope_id: str
+    container_id: str
+    watermark: datetime | None = None
+    cursor: str | None = None
 
 
 class Outcome(StrictModel):
@@ -46,6 +162,7 @@ class EpisodeCard(StrictModel):
     source_refs: list[SourceRef]
     cleared_fields: list[str] = Field(default_factory=list)
     subject_key: str | None = None
+    thread_id: str | None = None
 
     @field_validator("source_refs")
     @classmethod
@@ -208,6 +325,7 @@ class Assertion(StrictModel):
     recorded_at: datetime
     source_refs: list[SourceRef]
     origin: Origin = Origin.model
+    observation_id: str | None = None
 
     @field_validator("source_refs")
     @classmethod
@@ -284,3 +402,18 @@ class DreamReport(StrictModel):
     new_assertions: int
     new_subjects: int
     remaining: int
+
+
+class AddRecordsReport(StrictModel):
+    scope_id: str
+    records_received: int
+    records_processed: int
+    records_skipped: int
+    records_revoked: int
+    cards_accepted: int
+    cards_dropped: int
+    drop_reasons: dict[str, int] = Field(default_factory=dict)
+    card_ids: list[str] = Field(default_factory=list)
+    assertions_emitted: int
+    assertion_ids: list[str] = Field(default_factory=list)
+    sync_positions: list[SyncPosition] = Field(default_factory=list)

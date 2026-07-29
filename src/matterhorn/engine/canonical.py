@@ -52,6 +52,7 @@ def derive_assertion_id(
     value_key: str,
     valid_from: datetime,
     source_refs: list[SourceRef],
+    observation_id: str | None = None,
 ) -> str:
     payload = [
         scope_id,
@@ -62,6 +63,8 @@ def derive_assertion_id(
         instant_text(valid_from),
         sorted(ref.source_id for ref in source_refs),
     ]
+    if observation_id is not None:
+        payload.append(observation_id)
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 

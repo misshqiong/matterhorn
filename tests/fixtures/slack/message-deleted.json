@@ -1,0 +1,17 @@
+{
+  "token": "redacted",
+  "team_id": "T123",
+  "api_app_id": "A123",
+  "event": {
+    "type": "message",
+    "subtype": "message_deleted",
+    "hidden": true,
+    "channel": "C0123",
+    "ts": "1699887854.000001",
+    "deleted_ts": "1699887654.123456",
+    "event_ts": "1699887854.000002"
+  },
+  "type": "event_callback",
+  "event_id": "Ev124",
+  "event_time": 1699887854
+}

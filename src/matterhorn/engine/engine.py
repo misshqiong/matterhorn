@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from matterhorn.contracts import (
+    AddRecordsReport,
     Assertion,
     Correction,
     DreamReport,
     EpisodeCard,
     Operation,
     Origin,
+    Record,
     SchemaProfile,
 )
 from matterhorn.contracts.schema import resolve_schema
@@ -96,6 +98,108 @@ class Engine:
                 self._rebuild(scope)
         return emitted
 
+    def add_records(
+        self,
+        records: list[Record | dict[str, Any]],
+        *,
+        scope_id: str,
+        cursors: dict[str, str] | None = None,
+        backfill: bool = False,
+    ) -> AddRecordsReport:
+        """Extract and ingest previously unseen communication observations."""
+
+        from matterhorn.adapters.messages import MessageCardExtractor
+
+        validated = [
+            record if isinstance(record, Record) else Record.model_validate(record)
+            for record in records
+        ]
+        if not scope_id:
+            raise ValueError("scope_id is required")
+        if len({record.record_id for record in validated}) != len(validated):
+            raise ValueError(
+                "one add_records batch MUST contain at most one observation "
+                "for each record_id"
+            )
+        pending: list[tuple[Record, str]] = []
+        seen_observations: set[tuple[str, str]] = set()
+        skipped = 0
+        for record in validated:
+            observation_hash = stable_hash(record.model_dump(mode="json"))
+            identity = (record.record_id, observation_hash)
+            if identity in seen_observations or self.store.has_record_observation(
+                scope_id,
+                record.record_id,
+                observation_hash,
+            ):
+                skipped += 1
+                continue
+            seen_observations.add(identity)
+            pending.append((record, observation_hash))
+
+        active = [record for record, _ in pending if record.revoked_at is None]
+        extraction = (
+            MessageCardExtractor(self._write_gateway, self.profile).extract(
+                scope_id=scope_id,
+                records=active,
+            )
+            if active
+            else None
+        )
+        cards = extraction.cards if extraction is not None else []
+        emitted: list[Assertion] = []
+        with self.store.transaction():
+            for record, observation_hash in pending:
+                source_ref = record.to_source_ref()
+                self.store.observe_source(
+                    scope_id,
+                    source_ref,
+                    revoked_at=record.revoked_at,
+                )
+                self.store.mark_record_observation(
+                    scope_id,
+                    record.record_id,
+                    observation_hash,
+                    record.container_id,
+                    _record_observed_at(record),
+                )
+            if cards:
+                emitted = self.ingest(cards, scope_id=scope_id)
+            if pending and not backfill:
+                by_container: dict[str, list[Record]] = {}
+                for record, _ in pending:
+                    by_container.setdefault(record.container_id, []).append(record)
+                for container_id, items in by_container.items():
+                    self.store.update_sync_position(
+                        scope_id,
+                        container_id,
+                        watermark=max(_record_observed_at(item) for item in items),
+                        cursor=(cursors or {}).get(container_id),
+                    )
+
+        rejection_counts = (
+            extraction.rejection_counts if extraction is not None else {}
+        )
+        return AddRecordsReport(
+            scope_id=scope_id,
+            records_received=len(validated),
+            records_processed=len(pending),
+            records_skipped=skipped,
+            records_revoked=sum(
+                record.revoked_at is not None for record, _ in pending
+            ),
+            cards_accepted=len(cards),
+            cards_dropped=sum(rejection_counts.values()),
+            drop_reasons=rejection_counts,
+            card_ids=[card.card_id for card in cards],
+            assertions_emitted=len(emitted),
+            assertion_ids=[assertion.assertion_id for assertion in emitted],
+            sync_positions=self.store.sync_positions(scope_id),
+        )
+
+    def sync_positions(self, scope_id: str):
+        return self.store.sync_positions(scope_id)
+
     def correct(self, correction: Correction | dict[str, Any]) -> Assertion:
         item = (
             correction
@@ -142,6 +246,8 @@ class Engine:
                 for subject in self.store.subjects(item.scope_id)
             ):
                 raise ValueError("correction subject does not exist")
+            for source_ref in item.source_refs:
+                self.store.observe_source(item.scope_id, source_ref)
             self.store.add_assertion(assertion)
             self._rebuild(item.scope_id)
         return assertion
@@ -229,6 +335,7 @@ class Engine:
                                         parent_subject_key=(
                                             existing_subject.parent_subject_key
                                         ),
+                                        thread_ids=existing_subject.thread_ids,
                                     )
                                 )
                         value_key = (
@@ -330,3 +437,11 @@ def _clock_callable(
         return lambda: as_utc(clock())
     iterator: Iterator[datetime] = iter(clock)
     return lambda: as_utc(next(iterator))
+
+
+def _record_observed_at(record: Record) -> datetime:
+    return max(
+        instant
+        for instant in (record.sent_at, record.edited_at, record.revoked_at)
+        if instant is not None
+    )

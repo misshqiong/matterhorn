@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 from importlib import import_module
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -89,6 +90,115 @@ def test_cli_smoke_end_to_end(tmp_path) -> None:
     assert historical[0]["value"] == "open"
     replayed = json.loads(_run("replay", "demo", "--db", str(db)).stdout)
     assert replayed["status"] == "rebuilt"
+
+
+def test_extract_cli_wires_records_to_cards_ingest_and_sync_status(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    cli_app = import_module("matterhorn.cli.app")
+
+    class Gateway:
+        def complete(self, **_kwargs):
+            return json.dumps(
+                {
+                    "cards": [
+                        {
+                            "date": "2026-07-29",
+                            "title": "Release",
+                            "status": "open",
+                            "source_ids": ["C1:1.000001"],
+                        }
+                    ]
+                }
+            )
+
+    monkeypatch.setattr(cli_app, "_write_gateway", lambda *_args: Gateway())
+    db = tmp_path / "extract.db"
+    input_file = tmp_path / "records.json"
+    input_file.write_text(
+        json.dumps(
+            {
+                "scope_id": "team",
+                "records": [
+                    {
+                        "record_id": "C1:1.000001",
+                        "native_id": "1.000001",
+                        "container_id": "C1",
+                        "sent_at": "2026-07-29T09:00:00Z",
+                        "author": {"id": "U1", "kind": "human"},
+                        "content": "Release is open.",
+                        "uri": "https://example.slack.com/archives/C1/p1000001",
+                        "kind": "message",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cli_app.extract(
+        input_file=input_file,
+        scope_id=None,
+        adapter="records",
+        container_id=None,
+        workspace_domain=None,
+        cursor=["C1=next-page"],
+        backfill=False,
+        db=str(db),
+        schema="org-matters/v1",
+        schema_dir=None,
+        provider=None,
+        base_url=None,
+        api_key=None,
+        model=None,
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["records_processed"] == 1
+    assert report["cards_accepted"] == 1
+    assert report["assertions_emitted"] == 1
+    assert report["sync_positions"][0]["cursor"] == "next-page"
+
+    cli_app.sync_status(
+        "team",
+        db=str(db),
+        schema="org-matters/v1",
+        schema_dir=None,
+    )
+    positions = json.loads(capsys.readouterr().out)
+    assert positions[0]["container_id"] == "C1"
+
+
+def test_extract_cli_wires_reme_and_openviking_adapters(tmp_path, capsys) -> None:
+    cli_app = import_module("matterhorn.cli.app")
+    fixture_root = Path(__file__).parent / "fixtures"
+    for adapter, fixture in [
+        ("reme", fixture_root / "reme" / "daily-release.json"),
+        (
+            "openviking",
+            fixture_root / "openviking" / "release-overview.json",
+        ),
+    ]:
+        cli_app.extract(
+            input_file=fixture,
+            scope_id=None,
+            adapter=adapter,
+            container_id=None,
+            workspace_domain=None,
+            cursor=None,
+            backfill=False,
+            db=str(tmp_path / f"{adapter}.db"),
+            schema="org-matters/v1",
+            schema_dir=None,
+            provider=None,
+            base_url=None,
+            api_key=None,
+            model=None,
+        )
+        report = json.loads(capsys.readouterr().out)
+        assert report["adapter"] == adapter
+        assert report["scope_id"] == "team-a"
+        assert report["cards_accepted"] == 1
+        assert report["cards_dropped"] == 0
+        assert report["assertions_emitted"] >= 1
 
 
 def test_correct_cli_direct_flags_change_query_answer(tmp_path) -> None:
@@ -237,7 +347,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=37 failed=0 total=37" in completed.stdout
+    assert "SUMMARY passed=40 failed=0 total=40" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

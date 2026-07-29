@@ -1,0 +1,40 @@
+{
+  "token": "redacted",
+  "team_id": "T123",
+  "api_app_id": "A123",
+  "event": {
+    "type": "message",
+    "subtype": "message_changed",
+    "hidden": true,
+    "channel": "C0123",
+    "ts": "1699887754.000001",
+    "message": {
+      "client_msg_id": "9c4c0ae3-ea8b-4a22-a05d-67d60a7f5c18",
+      "type": "message",
+      "user": "U123",
+      "text": "Release is open.",
+      "ts": "1699887654.123456",
+      "thread_ts": "1699887654.123456",
+      "team": "T123",
+      "edited": {
+        "user": "U123",
+        "ts": "1699887754.000001"
+      },
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "edited",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [{"type": "text", "text": "Release is open."}]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "type": "event_callback",
+  "event_id": "Ev123",
+  "event_time": 1699887754
+}

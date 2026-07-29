@@ -85,6 +85,7 @@ def extract_card(
     assertions: list[Assertion] = []
     valid_from = card_valid_from(card)
     recorded_at = as_utc(recorded_at)
+    observation_id = card.card_id if card.thread_id is not None else None
     for predicate in profile.predicates:
         if (
             predicate.subject != subject_type
@@ -106,6 +107,7 @@ def extract_card(
                         value_key,
                         valid_from,
                         card.source_refs,
+                        observation_id,
                     ),
                     scope_id=card.scope_id,
                     subject_key=subject_key,
@@ -118,6 +120,7 @@ def extract_card(
                     recorded_at=recorded_at,
                     source_refs=card.source_refs,
                     origin=Origin.model,
+                    observation_id=observation_id,
                 )
             )
         if observation.retract:
@@ -131,6 +134,7 @@ def extract_card(
                         FIELD_WIDE_RETRACT,
                         valid_from,
                         card.source_refs,
+                        observation_id,
                     ),
                     scope_id=card.scope_id,
                     subject_key=subject_key,
@@ -143,6 +147,7 @@ def extract_card(
                     recorded_at=recorded_at,
                     source_refs=card.source_refs,
                     origin=Origin.model,
+                    observation_id=observation_id,
                 )
             )
     return assertions

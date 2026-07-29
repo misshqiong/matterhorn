@@ -5,7 +5,7 @@ import re
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -177,6 +177,16 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid model_responses"
         )
+    if "record_batches" in case and not isinstance(case["record_batches"], list):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid record_batches"
+        )
+    if "record_model_responses" in case and not isinstance(
+        case["record_model_responses"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid record_model_responses"
+        )
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -194,12 +204,19 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         if isinstance(profile_value, str)
         else SchemaProfile.model_validate(profile_value)
     )
+    record_model_responses = case.get("record_model_responses", [])
+    dream_model_responses = case.get("model_responses", [])
+    has_gateway_fixtures = (
+        "record_model_responses" in case or "model_responses" in case
+    )
     engine = Engine(
         store,
         profile,
         clock=FixedClock(case.get("clock", [])),
-        gateway=FixtureGateway(case.get("model_responses", []))
-        if case.get("model_responses") is not None
+        gateway=FixtureGateway(
+            [*record_model_responses, *dream_model_responses]
+        )
+        if has_gateway_fixtures
         else None,
     )
     expected_error = case.get("expect_error")
@@ -222,6 +239,15 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         return
 
     engine.ingest(case.get("cards", []), scope_id=case["scope_id"])
+    record_reports = [
+        engine.add_records(
+            batch.get("records", []),
+            scope_id=case["scope_id"],
+            cursors=batch.get("cursors"),
+            backfill=batch.get("backfill", False),
+        )
+        for batch in case.get("record_batches", [])
+    ]
     first_dream = None
     if case.get("model_responses") is not None:
         first_dream = engine.dream(case["scope_id"])
@@ -229,6 +255,22 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         engine.correct(correction)
 
     expect = case["expect"]
+    if "record_reports" in expect:
+        _equal(
+            [
+                {
+                    key: _plain(report)[key]
+                    for key in wanted
+                }
+                for report, wanted in zip(
+                    record_reports,
+                    expect["record_reports"],
+                    strict=True,
+                )
+            ],
+            expect["record_reports"],
+            "record_reports",
+        )
     if "dream_report" in expect:
         actual_report = _plain(first_dream)
         _equal(
@@ -281,6 +323,15 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
 
     initial = _snapshot(engine, case["scope_id"])
     engine.ingest(case.get("cards", []), scope_id=case["scope_id"])
+    second_record_reports = [
+        engine.add_records(
+            batch.get("records", []),
+            scope_id=case["scope_id"],
+            cursors=batch.get("cursors"),
+            backfill=batch.get("backfill", False),
+        )
+        for batch in case.get("record_batches", [])
+    ]
     second_dream = None
     if case.get("model_responses") is not None:
         second_dream = engine.dream(case["scope_id"])
@@ -290,6 +341,22 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             {key: actual_report[key] for key in expect["second_dream"]},
             expect["second_dream"],
             "second_dream",
+        )
+    if "second_record_reports" in expect:
+        _equal(
+            [
+                {
+                    key: _plain(report)[key]
+                    for key in wanted
+                }
+                for report, wanted in zip(
+                    second_record_reports,
+                    expect["second_record_reports"],
+                    strict=True,
+                )
+            ],
+            expect["second_record_reports"],
+            "second_record_reports",
         )
     for correction in case.get("corrections", []):
         engine.correct(correction)
@@ -306,6 +373,8 @@ def _plain(value: Any) -> Any:
         return value.value
     if isinstance(value, BaseModel):
         return _plain(value.model_dump(mode="python"))
+    if is_dataclass(value):
+        return _plain(asdict(value))
     if isinstance(value, dict):
         return {key: _plain(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -337,9 +406,17 @@ def _assert_partial_exact(
 
 
 def _snapshot(engine: Engine, scope_id: str) -> str:
+    assertions = engine.store.assertions(scope_id)
+    source_refs = []
+    seen_sources: set[str] = set()
+    for assertion in assertions:
+        for source_ref in assertion.source_refs:
+            if source_ref.source_id not in seen_sources:
+                source_refs.append(source_ref)
+                seen_sources.add(source_ref.source_id)
     return canonical_json(
         {
-            "assertions": [_plain(item) for item in engine.store.assertions(scope_id)],
+            "assertions": [_plain(item) for item in assertions],
             "intervals": [_plain(item) for item in engine.store.intervals(scope_id)],
             "memory_cards": [
                 _plain(item) for item in engine.store.memory_cards(scope_id)
@@ -349,6 +426,17 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             ],
             "subjects": [
                 _plain(item.__dict__) for item in engine.store.subjects(scope_id)
+            ],
+            "record_observations": [
+                _plain(item)
+                for item in engine.store.record_observations(scope_id)
+            ],
+            "source_states": [
+                _plain(item)
+                for item in engine.store.source_states(scope_id, source_refs)
+            ],
+            "sync_positions": [
+                _plain(item) for item in engine.store.sync_positions(scope_id)
             ],
         }
     )

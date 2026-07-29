@@ -1,0 +1,86 @@
+case_id: cross-channel-same-ts
+title: Same Slack ts in different channels is not shared evidence
+invariants: [P5, P9, INV-2, INV-5, INV-11]
+schema_profile: org-matters/v1
+scope_id: m4-cross-channel
+clock:
+  - "2026-07-29T09:10:00Z"
+  - "2026-07-29T09:11:00Z"
+cards: []
+record_batches:
+  - records:
+      - record_id: "CRED:1699887654.123456"
+        native_id: "1699887654.123456"
+        container_id: CRED
+        thread_id: null
+        sent_at: "2026-07-29T09:00:00Z"
+        author: {id: U1, display_name: Ada, kind: human}
+        content: "Website launch is open."
+        uri: "https://matterhorn.slack.com/archives/CRED/p1699887654123456"
+        reactions: []
+        attachments: []
+        edited_at: null
+        revoked_at: null
+        kind: message
+        subtype: null
+      - record_id: "CBLUE:1699887654.123456"
+        native_id: "1699887654.123456"
+        container_id: CBLUE
+        thread_id: null
+        sent_at: "2026-07-29T09:00:00Z"
+        author: {id: U2, display_name: Bob, kind: human}
+        content: "Office lease is pending."
+        uri: "https://matterhorn.slack.com/archives/CBLUE/p1699887654123456"
+        reactions: []
+        attachments: []
+        edited_at: null
+        revoked_at: null
+        kind: message
+        subtype: null
+record_model_responses:
+  - cards:
+      - date: "2026-07-29"
+        title: Website launch
+        status: open
+        occurred_at: "2026-07-29T09:00:00Z"
+        source_ids: ["CRED:1699887654.123456"]
+      - date: "2026-07-29"
+        title: Office lease
+        status: pending
+        occurred_at: "2026-07-29T09:00:00Z"
+        source_ids: ["CBLUE:1699887654.123456"]
+expect:
+  record_reports:
+    - records_processed: 2
+      cards_accepted: 2
+      cards_dropped: 0
+      assertions_emitted: 2
+  second_record_reports:
+    - records_processed: 0
+      records_skipped: 2
+      cards_accepted: 0
+      assertions_emitted: 0
+  assertions:
+    - predicate: status
+      object_value: open
+      source_refs:
+        - source_id: "CRED:1699887654.123456"
+          sent_at: "2026-07-29T09:00:00.000000Z"
+          sender: Ada
+          excerpt: "Website launch is open."
+          uri: "https://matterhorn.slack.com/archives/CRED/p1699887654123456"
+    - predicate: status
+      object_value: pending
+      source_refs:
+        - source_id: "CBLUE:1699887654.123456"
+          sent_at: "2026-07-29T09:00:00.000000Z"
+          sender: Bob
+          excerpt: "Office lease is pending."
+          uri: "https://matterhorn.slack.com/archives/CBLUE/p1699887654123456"
+  intervals:
+    - predicate: status
+      object_value: open
+    - predicate: status
+      object_value: pending
+  subject_count: 2
+  queries: []

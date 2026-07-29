@@ -10,11 +10,13 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-10`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-11`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one only for each newly processed card, accepted semantic assertion, or correction. A duplicate/no-op consumes none. |
-| `cards` | yes | Ordered EpisodeCard mappings, validated exactly as SPEC section 3. |
+| `cards` | yes | Ordered EpisodeCard mappings, validated exactly as SPEC section 3.2. |
+| `record_batches` | no | Ordered `{records, cursors?, backfill?}` mappings passed to `add_records`. |
+| `record_model_responses` | no | Ordered Record-to-card response fixtures; one is consumed for every batch containing unseen, non-revoked Records. |
 | `corrections` | no | Ordered Correction mappings; default empty list. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
@@ -57,6 +59,11 @@ Java runner can implement a queue fixture gateway whose `complete` method
 JSON-serializes and returns the next element. It must fail clearly if the
 fixture list is exhausted.
 
+`record_model_responses` uses the closed `{cards: [...]}` response from SPEC
+section 16. Its `source_ids` must cite `record_id` values in the corresponding
+batch. Record fixtures use the closed section 3.1 contract. A revocation-only
+batch consumes no model response.
+
 ## `expect:` fields
 
 | Field | Meaning |
@@ -69,6 +76,8 @@ fixture list is exhausted.
 | `gate_statistics` | Exact `{scope_id, accepted, rejections}` mapping. |
 | `dream_report` | Partial first-dream report mapping. |
 | `second_dream` | Partial report after duplicate ingest and a second dream. |
+| `record_reports` | Ordered partial reports from the first Record batches. |
+| `second_record_reports` | Ordered partial reports after exact Record re-ingest. |
 
 For assertions and intervals, project each actual item onto exactly the keys in
 one expected mapping, then compare an order-insensitive exact multiset. The
@@ -90,9 +99,10 @@ Datetime comparison uses canonical UTC RFC 3339 with six fractional digits and
 
 Every successful case must additionally:
 
-1. snapshot assertions, intervals, memory cards, projection statistics, and
-   subjects in canonical JSON;
-2. ingest the identical card batch again;
+1. snapshot assertions, intervals, memory cards, projection statistics,
+   subjects, Record observations, source lifecycle, and sync positions in
+   canonical JSON;
+2. ingest the identical card and Record batches again;
 3. if `model_responses` was present, call `dream()` again;
 4. apply the same corrections again;
 5. require the canonical snapshot to be byte-identical;

@@ -63,12 +63,12 @@ older assertion. Run the complete transcript in
   idempotent.
 - P8: human corrections are ordinary higher-priority assertions.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 37 language-neutral
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 40 language-neutral
 golden cases are a shared anti-drift asset:
 
 ```console
 $ mh conformance run
-SUMMARY passed=37 failed=0 total=37
+SUMMARY passed=40 failed=0 total=40
 ```
 
 ## Use it
@@ -99,9 +99,33 @@ mh serve --db postgresql://matterhorn:secret@primary:5432/matterhorn \
   --host 0.0.0.0 --port 8000
 ```
 
-Message streams can use the gated `MessageCardExtractor`. ReMe and OpenViking
-digests can use deterministic adapters; both require real source metadata and
-fail instead of fabricating evidence.
+### Slack-first communication ingestion
+
+Slack history and Events API payloads map to the provider-neutral `Record`
+contract. Extraction is an LLM-backed write step; thread identity, ingest,
+projection, and every query remain deterministic. Run the complete fixture
+path without a Slack token, LLM token, or network:
+
+```console
+.venv/bin/python examples/slack/demo.py
+```
+
+For a downloaded `conversations.history` page:
+
+```console
+mh extract history.json --adapter slack-history --scope-id team \
+  --container-id C0123 --workspace-domain acme.slack.com \
+  --db memory.db --provider openai-compatible
+mh sync-status team --db memory.db
+```
+
+The same generic Record path is exposed as the `add_records` MCP tool and
+`POST /v1/add_records`. Exact overlapping windows are no-ops; edits append new
+observations; deletions preserve assertions and visibly mark their evidence
+`revoked`. See [the Slack ingestion guide](docs/slack.md).
+
+ReMe and OpenViking digests use deterministic adapters. All adapters require
+real source metadata and fail instead of fabricating evidence.
 
 ## Examples and guides
 
@@ -109,12 +133,14 @@ fail instead of fabricating evidence.
 - [Embedded SQLite](examples/embedded/README.md)
 - [REST + PostgreSQL](examples/service/README.md)
 - [Human correction](examples/correction/README.md)
+- [Offline Slack ingestion](examples/slack/README.md)
 - [Getting started](docs/getting-started.md)
 - [Core concepts](docs/core-concepts.md)
 - [Schema authoring](docs/schema-authoring.md)
 - [MCP and Claude Code](docs/mcp-claude-code.md)
 - [Correction guide](docs/corrections.md)
-- [ReMe/OpenViking adapters](docs/adapters.md)
+- [Slack ingestion](docs/slack.md)
+- [Ecosystem adapters](docs/adapters.md)
 - [Positioning alongside L1 tools](docs/positioning.md)
 
 ## Development

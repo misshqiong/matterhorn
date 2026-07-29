@@ -12,7 +12,7 @@ except ModuleNotFoundError as error:  # pragma: no cover - dependency failure pa
         "install it with `pip install 'matterhorn[mcp]'`."
     ) from error
 
-from matterhorn.contracts import Correction, EpisodeCard
+from matterhorn.contracts import Correction, EpisodeCard, Record
 from matterhorn.contracts.models import StrictModel
 from matterhorn.service import MatterhornService
 
@@ -56,6 +56,23 @@ def create_server(service: MatterhornService) -> FastMCP:
         """Use after a conversation to store evidence-backed episode observations."""
         return _safe(
             lambda: service.add_episode_cards(cards=cards, scope_id=scope_id)
+        )
+
+    @server.tool(name="add_records")
+    def add_records(
+        records: list[Record],
+        scope_id: str,
+        cursors: dict[str, str] | None = None,
+        backfill: bool = False,
+    ) -> ToolResponse:
+        """Use to extract and ingest traceable communication Records."""
+        return _safe(
+            lambda: service.add_records(
+                records=records,
+                scope_id=scope_id,
+                cursors=cursors,
+                backfill=backfill,
+            )
         )
 
     @server.tool(name="query_current")

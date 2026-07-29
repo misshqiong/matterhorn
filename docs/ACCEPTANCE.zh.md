@@ -3,7 +3,9 @@
 这份手册让你**亲手验证**引擎是否兑现了立项承诺，而不是读代码或相信测试名字。
 
 每个步骤都给出：**命令** → **期望输出** → **看到别的说明什么坏了**。
-本文所有命令都在 macOS / Python 3.12 上实跑验证过。
+本文所有命令都在 macOS / Python 3.12 上实跑验证过。M4 的 SQLite 命令于
+2026-07-29 再次实跑；当前沙箱无法连接 PostgreSQL，所以 §6 保留为宿主机验收
+步骤，不把它记作本轮观察结果。
 
 预计耗时：核心验收 10 分钟，全量（含 PostgreSQL）30 分钟。
 
@@ -40,14 +42,15 @@ python3.12 -m venv .venv
 ./.venv/bin/python -m pytest -q
 ```
 
-**期望**：`104 passed, 37 skipped`。
-37 个 skip 是 PostgreSQL 用例——没设 DSN 时跳过，§6 会把它们跑起来。
+**本次实跑**：`119 passed, 40 skipped, 7 warnings`。40 个 skip 是 PostgreSQL
+conformance 用例——没设 DSN 时跳过，§6 会把它们跑起来。7 个 warning 全部来自
+旧 `ChatMessage` 兼容测试触发的预期弃用提示。
 
 ```bash
 ./.venv/bin/mh conformance run
 ```
 
-**期望**：最后一行 `SUMMARY passed=37 failed=0 total=37`。
+**期望**：最后一行 `SUMMARY passed=40 failed=0 total=40`。
 
 ---
 
@@ -263,9 +266,9 @@ YAML
 
 **期望**：第一次 `"assertions_emitted": 1`，**第二次 `0`**（幂等），`replay` 报 `"status": "rebuilt"`。
 
-> 这两条不用你单独验也行——**conformance runner 对 37 个用例中的每一个都会自动
+> 这两条不用你单独验也行——**conformance runner 对 40 个用例中的每一个都会自动
 > 额外跑两遍**：重复 ingest 断言状态不变、replay 重建后区间集完全相等。
-> 也就是说 INV-2/INV-3 是被 37 次而不是 1 次守住的。
+> 也就是说 INV-2/INV-3 是被 40 次而不是 1 次守住的。
 
 ### 3.6 INV-1 / INV-7：封闭谓词与溯源必备
 
@@ -428,8 +431,8 @@ PY
 **期望**：
 
 ```
-tools: ['add_episode_cards', 'correct', 'list_matters', 'query_at',
-        'query_by_person', 'query_current', 'query_timeline']
+tools: ['add_episode_cards', 'add_records', 'correct', 'list_matters',
+        'query_at', 'query_by_person', 'query_current', 'query_timeline']
 ```
 
 **验收点**：这是**真的 MCP 协议往返**（官方 SDK 客户端 + stdio），不是内存里调函数。
@@ -445,6 +448,39 @@ tools: ['add_episode_cards', 'correct', 'list_matters', 'query_at',
 ```
 
 **期望**：后者输出 `before=blocked origin=model` → `after=open origin=human`。
+
+### 5.4 M4：Slack fixture → Record → card → ingest → query
+
+完整离线实录不需要 Slack token、LLM token 或网络：
+
+```bash
+./.venv/bin/python examples/slack/demo.py
+```
+
+逐段检查输出：
+
+1. `Slack payload -> Records` 中两个 Record ID 都是 `C0123:<ts>`，并带
+   `https://.../archives/.../p...` permalink；
+2. `Records -> extracted EpisodeCards` 中卡片只引用输入窗口内的 Record ID；
+3. `normal deterministic ingest -> query_current` 返回 `open`，证据 URI 可点击且
+   `evidence_status` 为 `active`；
+4. 编辑段有两个不同的 `observation_id`、`assertion_id` 和 `recorded_at`，旧断言
+   仍在；
+5. 删除段的断言数前后均为 2，但 `evidence_status` 与单条来源状态均为
+   `revoked`；
+6. 最后一段两个频道的 native `ts` 相同，namespaced Record ID 不同，
+   `shared_source_ids: []` 且 `matter_count: 2`。
+
+再验证三种协议面都真的接到了同一个 `add_records` 服务：
+
+```bash
+./.venv/bin/python -m pytest -q \
+  tests/test_cli.py::test_extract_cli_wires_records_to_cards_ingest_and_sync_status \
+  tests/test_protocols.py::test_rest_round_trip_all_endpoints_and_correction \
+  tests/test_protocols.py::test_mcp_official_sdk_round_trip_all_eight_tools
+```
+
+**实跑输出**：`3 passed in 0.52s`。
 
 ---
 
@@ -476,9 +512,11 @@ MATTERHORN_TEST_POSTGRES_DSN="postgresql://matterhorn@127.0.0.1:55432/matterhorn
   --dsn "postgresql://matterhorn@127.0.0.1:55432/matterhorn"
 ```
 
-**期望**：`141 passed`（无 skip），`SUMMARY passed=37 failed=0 total=37`。
+**期望**：`159 passed`、零失败、零 skip，
+`SUMMARY passed=40 failed=0 total=40`。这是 §1 的 119 个非 PG/SQLite 测试
+加上 40 个 PostgreSQL conformance 用例；本轮沙箱没有把它观察成实跑结果。
 
-若只跑到 `104 passed, 37 skipped`，说明 DSN 没生效，PG 根本没被验证。
+若仍看到 `40 skipped`，说明 DSN 没生效，PG 根本没被验证。
 
 **进阶：验证排序不依赖数据库 locale**（一个答案取决于部署 locale 的规范不算规范）：
 
@@ -490,7 +528,7 @@ MATTERHORN_TEST_POSTGRES_DSN="postgresql://matterhorn@127.0.0.1:55432/mh_collate
   ./.venv/bin/python -m pytest -q
 ```
 
-**期望**：同样 `141 passed`。换了 collation 结果一模一样。
+**期望**：同样零失败、零 skip。换了 collation 结果一模一样。
 
 用完清理：
 
@@ -525,9 +563,9 @@ pg_ctl -D $PGDIR stop && rm -rf $PGDIR
   但对外发布是不可逆动作，等你发话。
 - **未接第一个外部宿主**：需求书 M3 要求「一个外部宿主跑通」，
   适配器（ReMe / OpenViking / 通用消息流）已实现并有 fixture 测试，但没有真实宿主接入过。
-- **CI 未在 GitHub 上实跑**：`.github/workflows/ci.yml` 包含 lint、
-  Python 3.11/3.12/3.13 矩阵、以及 postgres:17-alpine 的跨后端 conformance 门禁，
-  但仓库还没有远端，工作流从未被 GitHub 执行过。**PG 部分我在本地实跑验证了**（§6）。
+- **本轮沙箱没有 PostgreSQL 观察值**：SQLite、Ruff 与 GitHub Actions 门禁均已
+  验证；PostgreSQL 17 仍由 CI 的 `postgres-conformance` 任务守护，但不要把该
+  远端结果写成本沙箱本地实跑结果。
 
 **验收过程中发现并已修复的问题**（共 14 项，这里只列会影响你判断的）：
 
@@ -563,4 +601,4 @@ PGDIR=$(mktemp -d)/pgdata && mkdir -p $PGDIR \
   ; pg_ctl -D $PGDIR stop >/dev/null && rm -rf $PGDIR
 ```
 
-**通过标准**：`141 passed`，零失败，零 skip。
+**通过标准**：零失败，零 skip；40 个 PostgreSQL conformance 用例全部执行。

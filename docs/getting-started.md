@@ -22,6 +22,9 @@ Useful commands:
 
 ```console
 mh ingest card.yaml --db memory.db
+mh extract records.json --scope-id team --db memory.db \
+  --provider openai-compatible
+mh sync-status team --db memory.db
 mh query current team release status --db memory.db
 mh query timeline team release status --db memory.db
 mh replay team --db memory.db
@@ -30,5 +33,6 @@ mh serve --db memory.db
 mh mcp --db memory.db
 ```
 
-Continue with [core concepts](core-concepts.md), then run the
+Continue with [core concepts](core-concepts.md), the
+[Slack ingestion guide](slack.md), then run the
 [correction example](../examples/correction/README.md).

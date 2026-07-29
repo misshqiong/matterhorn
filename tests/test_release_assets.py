@@ -44,10 +44,13 @@ def test_required_release_documents_and_examples_exist() -> None:
         "docs/schema-authoring.md",
         "docs/mcp-claude-code.md",
         "docs/corrections.md",
+        "docs/slack.md",
         "docs/positioning.md",
         "examples/claude-code/README.md",
         "examples/embedded/README.md",
         "examples/service/README.md",
         "examples/correction/README.md",
+        "examples/slack/README.md",
+        "examples/slack/demo.py",
     ]
     assert all((ROOT / item).is_file() for item in required)

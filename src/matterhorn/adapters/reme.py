@@ -56,6 +56,7 @@ def map_reme_digest(
             "sent_at": _required(source, "sent_at", "frontmatter.sources"),
             "sender": _required(source, "sender", "frontmatter.sources"),
             "excerpt": source.get("excerpt"),
+            "uri": source.get("uri"),
         }
         for source in (_mapping(item, "frontmatter.sources[]") for item in source_values)
     ]

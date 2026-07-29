@@ -1,10 +1,15 @@
 # Ecosystem adapters
 
-`MessageCardExtractor` is an LLM-backed write component. Its response is closed
-JSON derived from the active SchemaProfile. Each candidate is validated as an
-EpisodeCard; empty evidence or any source ID outside the supplied message
-window is counted and dropped. Card IDs are deterministic for the input window
-and candidate slot.
+`MessageCardExtractor` (also exported as `RecordCardExtractor`) is an LLM-backed
+write component over provider-neutral Records. Its response is closed JSON
+derived from the active SchemaProfile. Each candidate is validated as an
+EpisodeCard; empty evidence or any source ID outside the supplied Record window
+is counted and dropped. Card IDs are deterministic across retry and change
+when a cited Record becomes a new edited observation.
+
+The deprecated `ChatMessage{message_id,sent_at,sender,content}` input remains a
+thin compatibility wrapper. New integrations should use `Record`. Slack has a
+first-party pure adapter and dedicated guide in [slack.md](slack.md).
 
 `map_reme_digest` and `map_openviking_digest` are pure deterministic functions.
 They never call an LLM. Their exact normalized input shapes are documented in
@@ -24,3 +29,10 @@ These shapes are explicitly best-effort against public formats:
 Both mappings are lossy: free-form Markdown becomes `progress`; ReMe wikilinks
 and OpenViking relations/chunks are not retained. Missing traceable sources are
 an error, never an invitation to synthesize a `source_ref`.
+
+Both adapters are wired to the CLI without an LLM:
+
+```console
+mh extract reme.json --adapter reme --db memory.db
+mh extract openviking.json --adapter openviking --db memory.db
+```

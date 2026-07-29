@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -16,9 +17,22 @@ from matterhorn.contracts import SchemaProfile
 from matterhorn.engine import Engine
 
 
-class ExplodingGateway:
-    def complete(self, **_kwargs) -> str:
-        raise AssertionError("read path touched the LLM gateway")
+class ExtractingGateway:
+    def complete(self, **kwargs) -> str:
+        payload = json.loads(kwargs["user"])
+        source_id = payload["records"][0]["record_id"]
+        return json.dumps(
+            {
+                "cards": [
+                    {
+                        "date": "2026-01-01",
+                        "title": "Record thing",
+                        "status": "open",
+                        "source_ids": [source_id],
+                    }
+                ]
+            }
+        )
 
 
 def _profile() -> SchemaProfile:
@@ -71,12 +85,26 @@ def _engine(tmp_path) -> Engine:
     return Engine(
         tmp_path / "protocol.db",
         _profile(),
-        gateway=ExplodingGateway(),
+        gateway=ExtractingGateway(),
         clock=[
             datetime(2026, 1, 1, 11, tzinfo=UTC),
             datetime(2026, 1, 1, 12, tzinfo=UTC),
+            datetime(2026, 1, 1, 13, tzinfo=UTC),
         ],
     )
+
+
+def _record():
+    return {
+        "record_id": "C1:1.000001",
+        "native_id": "1.000001",
+        "container_id": "C1",
+        "sent_at": "2026-01-01T10:30:00Z",
+        "author": {"id": "u", "kind": "human"},
+        "content": "Record thing is open.",
+        "uri": "https://example.slack.com/archives/C1/p1000001",
+        "kind": "message",
+    }
 
 
 def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
@@ -90,6 +118,13 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
                 "/v1/add_episode_cards", json={"scope_id": "s", "cards": [_card()]}
             )
             assert add.status_code == 200
+            add_records = await client.post(
+                "/v1/add_records",
+                json={"scope_id": "s", "records": [_record()]},
+            )
+            assert add_records.status_code == 200
+            assert add_records.json()["records_processed"] == 1
+            assert add_records.json()["cards_accepted"] == 1
             predicate = {
                 "scope_id": "s",
                 "subject_key": "thing-1",
@@ -174,7 +209,7 @@ def test_read_packages_have_no_import_path_to_distill() -> None:
         walk(module, path)
 
 
-def test_mcp_official_sdk_round_trip_all_seven_tools(tmp_path) -> None:
+def test_mcp_official_sdk_round_trip_all_eight_tools(tmp_path) -> None:
     from mcp.shared.memory import create_connected_server_and_client_session
 
     from matterhorn.mcp.server import create_server
@@ -186,6 +221,7 @@ def test_mcp_official_sdk_round_trip_all_seven_tools(tmp_path) -> None:
             tools = await client.list_tools()
             assert [item.name for item in tools.tools] == [
                 "add_episode_cards",
+                "add_records",
                 "query_current",
                 "query_timeline",
                 "query_at",
@@ -199,6 +235,14 @@ def test_mcp_official_sdk_round_trip_all_seven_tools(tmp_path) -> None:
                 )
             )
             assert added["ok"] is True
+            added_records = _structured(
+                await client.call_tool(
+                    "add_records",
+                    {"scope_id": "s", "records": [_record()]},
+                )
+            )
+            assert added_records["ok"] is True
+            assert added_records["data"]["records_processed"] == 1
             common = {
                 "scope_id": "s",
                 "subject_key": "thing-1",
@@ -338,6 +382,6 @@ def test_mcp_stdio_entrypoints_use_official_protocol(entrypoint, tmp_path) -> No
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert len(tools.tools) == 7
+            assert len(tools.tools) == 8
 
     asyncio.run(scenario())

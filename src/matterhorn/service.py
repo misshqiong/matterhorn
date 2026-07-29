@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from matterhorn.contracts import Correction, EpisodeCard
+from matterhorn.contracts import Correction, EpisodeCard, Record
 
 
 class MatterhornService:
@@ -21,6 +21,21 @@ class MatterhornService:
             "assertions_emitted": len(assertions),
             "assertion_ids": [item.assertion_id for item in assertions],
         }
+
+    def add_records(
+        self,
+        *,
+        records: list[Record | dict[str, Any]],
+        scope_id: str,
+        cursors: dict[str, str] | None = None,
+        backfill: bool = False,
+    ) -> dict[str, Any]:
+        return self.engine.add_records(
+            records,
+            scope_id=scope_id,
+            cursors=cursors,
+            backfill=backfill,
+        ).model_dump(mode="json")
 
     def query_current(
         self, *, scope_id: str, subject_key: str, predicate: str

@@ -4,7 +4,13 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
-from matterhorn.contracts import Cardinality, SchemaProfile
+from matterhorn.contracts import (
+    Cardinality,
+    EvidenceRef,
+    EvidenceStatus,
+    EvidenceSummary,
+    SchemaProfile,
+)
 from matterhorn.engine.canonical import object_key
 from matterhorn.store import QuerySubjectRow, QueryValueRow, Store
 
@@ -20,10 +26,16 @@ class ValueResult:
     assertion_id: str
     supporting_assertion_ids: list[str]
     source_ids: list[str]
+    source_refs: list[EvidenceRef]
+    evidence_status: str
     origin: str
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        result["source_refs"] = [
+            item.model_dump(mode="json") for item in self.source_refs
+        ]
+        return result
 
 
 @dataclass(frozen=True)
@@ -52,7 +64,7 @@ class QueryService:
             predicate,
             append=definition.cardinality == Cardinality.APPEND,
         )
-        return [self._value(row) for row in rows]
+        return [self._value(scope_id, row) for row in rows]
 
     def timeline(
         self, scope_id: str, subject_key: str, predicate: str
@@ -61,7 +73,7 @@ class QueryService:
         rows = self._store.query_timeline_values(
             scope_id, subject_key, predicate
         )
-        return [self._value(row) for row in rows]
+        return [self._value(scope_id, row) for row in rows]
 
     def at(
         self, scope_id: str, subject_key: str, predicate: str, instant: datetime
@@ -74,7 +86,7 @@ class QueryService:
             instant,
             append=definition.cardinality == Cardinality.APPEND,
         )
-        return [self._value(row) for row in rows]
+        return [self._value(scope_id, row) for row in rows]
 
     def by_person(self, scope_id: str, person_id: str) -> list[SubjectResult]:
         predicates = [
@@ -108,8 +120,17 @@ class QueryService:
             "ratio": completed / total if total else 0.0,
         }
 
-    @staticmethod
-    def _value(row: QueryValueRow) -> ValueResult:
+    def _value(self, scope_id: str, row: QueryValueRow) -> ValueResult:
+        source_refs = self._store.source_states(scope_id, row.source_refs)
+        revoked = sum(
+            item.status == EvidenceStatus.revoked for item in source_refs
+        )
+        if source_refs and revoked == len(source_refs):
+            evidence_status = EvidenceSummary.revoked
+        elif revoked:
+            evidence_status = EvidenceSummary.partially_revoked
+        else:
+            evidence_status = EvidenceSummary.active
         return ValueResult(
             subject_key=row.subject_key,
             predicate=row.predicate,
@@ -120,6 +141,8 @@ class QueryService:
             assertion_id=row.assertion_id,
             supporting_assertion_ids=row.supporting_assertion_ids,
             source_ids=row.source_ids,
+            source_refs=source_refs,
+            evidence_status=evidence_status.value,
             origin=row.origin,
         )
 

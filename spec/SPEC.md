@@ -1,6 +1,6 @@
 # Matterhorn Normative Specification
 
-Version: 0.3.0
+Version: 0.4.0
 
 This document is the language-neutral source of truth for Matterhorn
 implementations. The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY**
@@ -22,7 +22,8 @@ are normative.
 - **P5 — Provenance in the contract.** Every input card and every persisted
   assertion MUST contain at least one `source_ref`; a candidate without
   provenance MUST be rejected, and every query result MUST remain traceable to
-  its assertion evidence.
+  its assertion evidence, including a source URI when the input Record provides
+  one.
 - **P6 — Bi-temporal time.** Every assertion MUST keep business effective time
   (`valid_from`, projected `valid_to`) separate from system observation time
   (`recorded_at`); an implementation MUST NOT substitute one axis for the
@@ -87,8 +88,57 @@ are normative.
   `list_matters`, and `completion` MUST NOT import, instantiate, or call the
   distillation/LLM package. Installing a gateway that raises on every access
   MUST NOT affect any read.
+- **INV-11 — Immutable source lifecycle.** An edited Record is a new
+  observation. It MUST produce a new deterministic card observation and new
+  assertions with a distinct non-null `observation_id` and `recorded_at`;
+  prior assertions MUST remain untouched. A revoked Record MUST persist the
+  revocation for its `record_id`, MUST NOT invoke card extraction, and MUST NOT
+  mutate or delete any assertion, interval, or materialization. Every value
+  query MUST expose each source's `uri`, `status` (`active` or `revoked`), and
+  nullable `revoked_at`, plus aggregate `evidence_status`: `active` when none
+  are revoked, `partially_revoked` when some are revoked, and `revoked` when
+  all are revoked. A conclusion supported only by revoked evidence therefore
+  remains queryable but is visibly flagged.
 
-## 3. EpisodeCard contract
+## 3. Record and EpisodeCard contracts
+
+### 3.1 Record
+
+`Record` is the provider-neutral communication input. Unknown fields MUST be
+rejected. Date-times follow the canonical rules in this specification.
+
+| Field | Type | Presence | Rule |
+| --- | --- | --- | --- |
+| `record_id` | string | required | Globally unique source identity, exactly namespaced as `<container_id>:<native_id>`. The suffix MUST be non-empty and MUST equal `native_id` when that field is present. |
+| `container_id` | string | required | Channel, room, or conversation identity. |
+| `thread_id` | string or null | optional, default null | Provider thread identity, namespaced by the same `container_id`; null means the record itself is the matter boundary. |
+| `sent_at` | datetime | required | Original source-message time. |
+| `author` | RecordAuthor | required | Required `id`, nullable `display_name`, and `kind` in `human`, `bot`, `app`. |
+| `content` | string | required | Normalized human-readable content. |
+| `uri` | string or null | optional, default null | Human-followable permalink when the provider exposes one. |
+| `reactions` | array | optional, default `[]` | Each item has `name`, non-negative `count`, and unique `author_ids`. |
+| `attachments` | array | optional, default `[]` | Normalized `attachment_id`, `kind`, nullable `title`, `mime_type`, `uri`, and non-negative nullable `size`. |
+| `edited_at` | datetime or null | optional, default null | Stable source edit time; MUST NOT precede `sent_at`. |
+| `revoked_at` | datetime or null | optional, default null | Stable source deletion/revocation time; MUST NOT precede `sent_at`. |
+| `kind` | string | optional, default `message` | Normalized record kind, normally `message` or `revocation`. |
+| `subtype` | string or null | optional, default null | Provider subtype after filtering. |
+| `native_id` | string or null | optional | Provider identity used to validate the `record_id` suffix. |
+| `workspace_id` | string or null | optional | Provider workspace/team identity. |
+| `client_id` | string or null | optional | Provider client-generated id, when present. |
+| `parent_author_id` | string or null | optional | Thread parent author identity, when present. |
+| `broadcast` | boolean | optional, default `false` | Whether a thread reply was broadcast to the container. |
+
+`record_id` namespacing is load-bearing. In particular, Slack `ts` is unique
+only within a conversation. `C1:1699887654.123456` and
+`C2:1699887654.123456` MUST remain distinct evidence; an implementation MUST
+reject bare `1699887654.123456` rather than allowing INV-5 to count unrelated
+messages as shared evidence.
+
+`ChatMessage{message_id,sent_at,sender,content}` remains a deprecated
+compatibility alias for the M3 Python API. New protocol and conformance inputs
+MUST use `Record`.
+
+### 3.2 EpisodeCard
 
 Unknown fields MUST be rejected. Date-times MUST be RFC 3339 values. A date-time
 without an offset is interpreted as UTC; canonical output is UTC.
@@ -108,9 +158,10 @@ without an offset is interpreted as UTC; canonical output is UTC.
 | `outcome` | Outcome or null | optional, default null | Outcome has required string `type` and required string `content`. |
 | `occurred_at` | datetime or null | optional, default null | Exact business effective time. |
 | `last_active_at` | datetime or null | optional, default null | Input metadata; it does not replace `valid_from`. |
-| `source_refs` | non-empty array of SourceRef | required | SourceRef has required string `source_id`, required datetime `sent_at`, required string `sender`, and optional nullable string `excerpt`. |
+| `source_refs` | non-empty array of SourceRef | required | SourceRef has required string `source_id`, required datetime `sent_at`, required string `sender`, optional nullable string `excerpt`, and optional nullable string `uri`. A Record-derived card MUST copy `record_id`, content, and URI rather than synthesize evidence. |
 | `cleared_fields` | array of unique strings | optional, default `[]` | A listed input field is explicitly cleared. |
 | `subject_key` | string or null | optional, default null | Explicit subject identity override. |
+| `thread_id` | string or null | optional, default null | Deterministic communication boundary assigned by Record extraction; it is not model-supplied. |
 
 For `explicit` and `never`, a null or absent observation means “no observation
 on this card” and MUST NOT retract prior knowledge. `cleared_fields` is the
@@ -179,7 +230,10 @@ equals the child type's declared `parent`.
 An Assertion contains required `assertion_id`, `scope_id`, `subject_key`,
 `subject_type`, registered `predicate`, `operation` (`ASSERT` or `RETRACT`),
 JSON `object_value`, string `object_key`, `valid_from`, `recorded_at`, non-empty
-`source_refs`, and `origin` (`model` or `human`).
+`source_refs`, `origin` (`model` or `human`), and nullable `observation_id`.
+Assertions extracted from Records MUST use the deterministic Record-derived
+card ID as `observation_id`; card-native, semantic, and correction assertions
+use null.
 
 `object_key` for an asserted value is canonical JSON:
 `json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)`
@@ -211,23 +265,30 @@ registered `predicate`, `operation`, JSON `object_value`, optional
 1. Convert `valid_from` to UTC RFC 3339 with six fractional digits and suffix
    `Z` (example `2026-01-02T00:00:00.000000Z`).
 2. Sort source IDs lexicographically, retaining duplicates if supplied.
-3. Construct this JSON array exactly:
+3. Construct this base JSON array exactly:
 
 ```text
 [scope_id, subject_key, predicate, operation, object_key,
  valid_from_iso, sorted(source_ids)]
 ```
 
-4. Serialize exactly with:
+4. If and only if `observation_id` is non-null, append it as the eighth array
+   member. This makes every source edit a distinct assertion observation while
+   keeping retries of the same deterministic card idempotent.
+
+5. Serialize exactly with:
 
 ```python
 json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 ```
 
-5. UTF-8 encode and compute lowercase hexadecimal SHA-256.
+6. UTF-8 encode and compute lowercase hexadecimal SHA-256.
 
-No other field, including `recorded_at`, card ID, or origin, participates.
-Equal input therefore produces the same ID and re-ingest is a no-op.
+No other field, including `recorded_at` or origin, participates. For
+Record-derived assertions, the card ID participates only through the explicit
+`observation_id` rule above. Equal observations therefore produce the same ID
+and re-ingest is a no-op, while a changed/edited Record produces a different
+deterministic card and assertion.
 
 ## 7. Exact subject identity algorithm
 
@@ -237,9 +298,20 @@ character with a space, collapsing whitespace, and trimming it.
 For each card, resolve in this strict order:
 
 1. If `subject_key` is non-null, use it. Create that subject if it is absent.
-2. Otherwise, exact-match normalized title among subjects of the profile's
-   primary type. On multiple matches choose lexicographically smallest key.
-3. Otherwise compute source-ID overlap with each existing primary-type subject.
+2. If `thread_id` is non-null, exact-match that thread boundary among subjects
+   of the profile's primary type. On multiple matches choose lexicographically
+   smallest key.
+3. For a non-null `thread_id`, compute source-ID overlap with every existing
+   primary subject using the rule below. This is the only cross-thread merge
+   path; normalized-title equality MUST NOT merge two thread-bound cards.
+4. If the thread-bound card did not merge, create or reuse the exact key
+   `sub_` plus the first 20 lowercase hex characters of SHA-256 over canonical
+   JSON `[scope_id, primary_subject_type, "thread", thread_id]`. Persist the
+   thread boundary on that subject.
+5. For a card with null `thread_id`, exact-match normalized title among
+   subjects of the profile's primary type. On multiple matches choose
+   lexicographically smallest key.
+6. Otherwise compute source-ID overlap with each existing primary-type subject.
    Define `shared = count(card source IDs intersect subject source IDs)` and
    `ratio = shared / len(card.source_refs)`. Merge if and only if:
 
@@ -253,10 +325,11 @@ For each card, resolve in this strict order:
    new card's only message. The ratio branch remains a valid relaxation when
    `min_shared_sources > 2`. Among eligible matches choose maximum shared
    count, then lexicographically greatest key.
-4. Otherwise create a new deterministic subject key.
+7. Otherwise create a new deterministic subject key.
 
-The Python key format is not a cross-language conformance field unless a case
-provides `subject_key`; identity cases compare subject count/equality instead.
+The thread key in step 4 is a cross-language conformance field. Other generated
+key formats are not cross-language fields unless a case provides `subject_key`;
+legacy identity cases compare subject count/equality instead.
 
 ### 7.1 Semantic child subject identity
 
@@ -368,7 +441,11 @@ the store MUST replace the persisted statistics with that result.
 All result orderings below are normative and every value result includes the
 opening assertion ID, `supporting_assertion_ids`, origin, effective interval,
 opening assertion `recorded_at`, value, and the ordered unique source IDs
-accumulated from all supporting assertions.
+accumulated from all supporting assertions. It also includes ordered
+`source_refs` with `source_id`, nullable `uri`, `status`, and nullable
+`revoked_at`, plus INV-11 aggregate `evidence_status`. Revocation state is
+resolved at query time from persisted source lifecycle data; it MUST NOT alter
+the interval projection.
 
 Every comparison of a text ordering key MUST be locale-independent and ordered
 by its UTF-8 byte sequence. This applies to every text component of a normative
@@ -408,6 +485,14 @@ writes, distillation queue writes, projection replacement, statistics
 replacement, and memory-card replacement MUST occur in one transaction. Any
 failure MUST roll back the whole batch.
 
+For `add_records`, observation-ledger writes, source lifecycle writes,
+Record-derived card ingest, projection replacement, and non-backfill sync
+position updates MUST share that transaction. Gateway I/O MAY occur before it.
+An exact `(scope_id, record_id, canonical Record payload hash)` observation
+already in the ledger MUST be filtered before gateway access and MUST be a
+complete no-op. The same `record_id` with a changed canonical payload is a new
+observation, as required by INV-11.
+
 `replay(scope_id)` MUST retain assertions and subjects, delete/replace all
 intervals, projection statistics, and memory cards for the scope, and rebuild
 them using sections 9 and 10. Canonical JSON snapshots before and after MUST be
@@ -421,11 +506,13 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-10`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-11`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for new cards, accepted semantic assertions, and corrections. |
 | `cards` | Ordered EpisodeCard mappings. |
+| `record_batches` | Optional ordered `{records,cursors?,backfill?}` batches passed to `add_records`. |
+| `record_model_responses` | Optional ordered closed Record-to-card responses, one for each batch containing unseen non-revoked Records. |
 | `corrections` | Ordered Correction mappings, default `[]`. |
 | `model_responses` | Optional ordered list of closed response objects returned once per queued card during `dream()`. Absence means the semantic path is not run. |
 | `expect_error` | Optional validation/error substring. If present, the case succeeds only on that rejection. |
@@ -437,16 +524,19 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.gate_statistics` | Optional exact `{scope_id, accepted, rejections}` counter object. |
 | `expect.dream_report` | Optional partial field mapping checked against the first `dream()` report. |
 | `expect.second_dream` | Optional partial field mapping checked after identical card re-ingest and a second `dream()`. |
+| `expect.record_reports` | Optional ordered partial mappings checked against first-pass `add_records` reports. |
+| `expect.second_record_reports` | Optional ordered partial mappings checked after exact Record re-ingest. |
 
 For assertions and intervals, each expected mapping declares its compared
 fields. The runner projects each actual item onto exactly those fields, then
 compares **order-insensitive exact multisets**: neither an extra nor a missing
 projected mapping is allowed. Nested `supporting_assertion_ids` and query
 `source_ids` lists remain order-sensitive. Datetimes use canonical UTC form.
-Query results are order-sensitive according to section 10. Every case runner MUST also
-re-ingest the same batch and compare a canonical whole-store snapshot, then
-invoke replay and compare it again. Error cases MUST verify the transaction left
-the scope empty.
+Query results are order-sensitive according to section 10. Every case runner
+MUST also re-ingest the same card and Record batches and compare a canonical
+whole-store snapshot including observation ledger, source lifecycle, and sync
+positions, then invoke replay and compare it again. Error cases MUST verify the
+transaction left the scope empty.
 
 ## 13. Distillation, prompt, and gateway contract
 
@@ -570,11 +660,12 @@ they MUST NOT duplicate identity, extraction, correction, projection, or query
 logic. Transport errors MUST be returned as structured `{code,message}` errors
 and MUST NOT expose Python tracebacks as protocol results.
 
-The MCP server MUST expose exactly these seven tools:
+The MCP server MUST expose exactly these eight tools:
 
 | Tool | When an agent uses it |
 | --- | --- |
 | `add_episode_cards` | After a conversation, persist evidence-backed episode observations. |
+| `add_records` | Ingest raw communication Records through gated card extraction. |
 | `query_current` | Read value(s) currently true for one subject and predicate. |
 | `query_timeline` | Explain changes and supporting evidence over time. |
 | `query_at` | Reconstruct what was true at an effective-time instant. |
@@ -596,12 +687,20 @@ Without an API-key override it MUST read `MATTERHORN_API_KEY` first, then
 `anthropic`. Without a base-URL override it MUST read
 `MATTERHORN_BASE_URL`. Credentials MUST NOT be required as command-line
 arguments, and `mh dream --help` MUST document these environment variables.
+`mh extract` MUST expose the same provider settings and MUST run Record
+extraction followed by normal deterministic ingest. It MUST also expose opaque
+per-container cursor updates and a `backfill` mode. `mh sync-status` MUST print
+the stored per-container watermark/cursor positions without invoking a model.
+The same command MUST expose the pure ReMe and OpenViking digest adapters as
+`--adapter reme` and `--adapter openviking`; those paths map directly to a
+validated EpisodeCard and MUST NOT configure or call a gateway.
 
 The REST app factory MUST expose OpenAPI and these endpoints:
 
 ```text
 GET  /healthz
 POST /v1/add_episode_cards
+POST /v1/add_records
 POST /v1/query_current
 POST /v1/query_timeline
 POST /v1/query_at
@@ -616,20 +715,21 @@ launch the app. MCP and REST read handlers, their shared service, and
 Installing a gateway that raises on every call and invoking every read tool and
 read endpoint MUST succeed.
 
-## 16. Message-to-card extraction
+## 16. Record-to-card extraction
 
-The built-in message extractor is a P1 write-path component and MUST use the
+The built-in Record extractor is a P1 write-path component and MUST use the
 same `LlmGateway.complete(system, user, response_schema)` SPI as semantic
-distillation. Its input message contract is closed JSON with required
-`message_id`, `sent_at`, `sender`, and `content`.
+distillation. Its input is the closed section 3.1 Record contract.
+`ChatMessage{message_id,sent_at,sender,content}` is a deprecated Python alias
+only and is not a protocol input.
 
 The response schema and prompt MUST be derived from the active
 `SchemaProfile`. In addition to required card `date`, `title`, and
 `source_ids`, the extractor MUST expose only EpisodeCard fields named by the
 profile's deterministic `source_field` values plus temporal metadata,
-`subject_key`, and `cleared_fields`. When a profile predicate declares a
-non-null `value_domain`, an extracted field value for that predicate MUST equal
-one domain member.
+and `cleared_fields`. A model MUST NOT supply `subject_key` or `thread_id` for
+Record input. When a profile predicate declares a non-null `value_domain`, an
+extracted field value for that predicate MUST equal one domain member.
 
 Every proposed card MUST pass the ordinary closed EpisodeCard validation.
 Rejection of one card MUST NOT abort other valid cards from the response. A
@@ -638,22 +738,92 @@ reasons are `NO_SOURCES`, `SOURCE_NOT_TRACEABLE`, `FIELD_NOT_IN_PROFILE`,
 `VALUE_OUT_OF_DOMAIN`, and `CARD_VALIDATION_FAILED`.
 
 Source validation MUST call the same implementation used by section 14:
-`source_ids` MUST be non-empty and MUST be a subset of the `message_id` values
+`source_ids` MUST be non-empty and MUST be a subset of the `record_id` values
 in the exact input window. Accepted IDs are replaced by SourceRefs copied from
-the corresponding messages; the extractor MUST NOT synthesize evidence.
+the corresponding Records, including the readable content excerpt and URI;
+the extractor MUST NOT synthesize evidence.
 
-For input fingerprint `F = hash({schema, scope_id, messages})`, the card at
-zero-based response slot `i` MUST receive a deterministic ID derived only from
-`[F, i]`. Re-running an identical window therefore produces identical IDs;
-changed content in an already-ingested slot is detected by the ordinary card
-payload collision rule.
+For each accepted candidate, construct `card_payload` from the validated
+candidate, scope, copied SourceRefs, and deterministic thread boundary.
+Construct `observations` as the lexicographically sorted array of
+`[record_id, sha256(canonical Record JSON)]` for cited Records. The exact card
+ID is `rec_` plus SHA-256 of canonical JSON:
 
-## 17. Deterministic digest adapters
+```text
+{"schema": profile.schema,
+ "scope_id": scope_id,
+ "card": card_payload,
+ "observations": observations}
+```
+
+This derivation is independent of response slot and unrelated window members.
+An exact overlapping window is idempotent; any edit changes the canonical
+Record hash and therefore produces a new observation card even when the
+extracted fact is unchanged.
+
+For cited Records, define each boundary as `thread_id` when non-null, otherwise
+`record_id`. One unique boundary becomes the card's `thread_id`. Multiple
+boundaries become `threads:` plus SHA-256 of their sorted canonical JSON array.
+Section 7 then makes the thread the default matter boundary without model
+involvement.
+
+## 17. Slack adapter and incremental sync
+
+### 17.1 Slack normalization
+
+`matterhorn.adapters.slack` MUST be pure and deterministic. It MUST accept
+`conversations.history` message objects and Events API message payloads and
+MUST NOT call Slack or an LLM.
+
+- Identity MUST be `record_id = channel + ":" + ts`; for a delete event use
+  `channel + ":" + deleted_ts`. Bare `ts` MUST NOT be used.
+- `user` maps to a human author. Presence of `bot_id`/`bot_profile` maps to a
+  bot; `app_id` without a bot maps to an app. A conversational message with no
+  traceable author identity MUST fail.
+- `blocks[].type=rich_text` is the preferred content source. Its nested
+  sections, lists, quotes, preformatted text, users, channels, links, emoji,
+  and broadcasts MUST be rendered deterministically. Top-level `text` is the
+  fallback; it MUST unescape `&amp;`, `&lt;`, and `&gt;` and make Slack user,
+  channel, and link tokens readable.
+- `thread_ts`, `parent_user_id`, `thread_broadcast`, `edited.ts`, reactions,
+  and files MUST map to the corresponding Record fields. Reaction `count` is
+  authoritative even when Slack supplies only a partial user list.
+- Given workspace domain `W`, the message URI MUST be
+  `https://W/archives/<channel>/p<ts-without-dot>`.
+- System/non-conversational subtypes, including channel/group join, leave,
+  archive, rename, topic, purpose, permission, pin, reminder, and hidden
+  bookkeeping events, MUST NOT become evidence. Unknown subtypes MUST be
+  filtered closed.
+- `message_changed.message` is the updated observation. `message_deleted`
+  identifies the original only by `channel + deleted_ts` and omits its author
+  and content; a pure adapter MUST require the caller's cached prior Record and
+  MUST fail rather than fabricate those fields.
+
+### 17.2 Watermarks, cursors, and backfill
+
+The Store MUST persist one `SyncPosition{scope_id,container_id,watermark,cursor}`
+per container. `watermark` is the maximum of `sent_at`, `edited_at`, and
+`revoked_at` among newly processed non-backfill observations. `cursor` is
+opaque host/provider state and MUST NOT be parsed by the engine.
+
+Normal `add_records` advances each affected position monotonically and stores
+the supplied cursor; when no cursor is supplied it MUST retain the existing
+opaque cursor. Backfill processes unseen observations but MUST NOT move the
+position. Re-ingesting an exact overlapping window MUST be filtered by the
+observation ledger before gateway access and MUST change no card, assertion,
+interval, materialization, source lifecycle row, or sync position. Thus the
+deterministic chain `record_id + observation -> card_id -> assertion_id`
+preserves P9 and INV-2 end to end.
+
+## 18. Deterministic digest adapters
 
 ReMe and OpenViking adapters MUST be pure deterministic mappings and MUST NOT
 import or call an LLM gateway. Each adapter module MUST state its exact
 supported normalized input shape. Repeating an identical payload MUST produce
 an equal EpisodeCard with an equal ID.
+
+Both mappings MUST be reachable without Python glue through `mh extract` as
+specified in section 15.
 
 Because the upstream public formats are extensible file/overview formats, the
 supported mappings are best-effort and lossy. ReMe Markdown content and
@@ -663,7 +833,7 @@ non-empty `frontmatter.sources`, or an OpenViking input without non-empty
 `metadata.source_refs`, MUST raise an error. An adapter MUST NOT fabricate a
 source from a file path, digest ID, or overview URI.
 
-## 18. PostgreSQL Store and consistency boundary
+## 19. PostgreSQL Store and consistency boundary
 
 PostgreSQL support MUST use psycopg v3 and be distributed in the `postgres`
 installation extra. It is a second implementation of the same Store SPI, not a
@@ -691,7 +861,7 @@ materialization read may use another connection or replica inside that
 sequence. PostgreSQL and SQLite MUST pass every case in section 12; a behavioral
 difference is a defect, never an allowed backend variance.
 
-## 19. Reference conformance harness
+## 20. Reference conformance harness
 
 The command `mh conformance run [--suite DIR]` MUST execute every `*.yaml`
 file in lexicographic filename order through the same runner used by Python
@@ -707,11 +877,12 @@ artifact as a language-neutral contract.
 
 ## 中文摘要
 
-Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把带证据的 EpisodeCard
-确定性地转成不可变断言并入队；异步 `dream()` 只按 SchemaProfile 生成封闭
+Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Record 经受控
+提取转成带证据的 EpisodeCard，再确定性地转成不可变断言并入队；异步
+`dream()` 只按 SchemaProfile 生成封闭
 语义候选，再经十三项验证闸门过滤。读取、REST 读端点和 MCP 读工具只用 SQL，
 绝不调用模型。规范固定了幂等哈希、双时间轴、人工纠错优先级、拒绝原因统计、
 事务一致性与可重放性。`spec/conformance` 的语言无关 YAML 是 Python 与内部
-Java 实现共同的验收资产。M3 进一步规范消息提取、ReMe/OpenViking 纯适配、
-PostgreSQL 主库事务边界，以及可发布的 `mh conformance run` 参考执行器；这些
-能力不改变九原则和十不变量。
+Java 实现共同的验收资产。M4 增加通用 Record 合同、Slack 纯适配、线程优先
+身份、增量游标，以及编辑追加/删除撤销证据的 INV-11；查询保留结论但明确标出
+证据是否已撤销。

@@ -59,6 +59,7 @@ def map_openviking_digest(
             "sent_at": _required(source, "sent_at", "metadata.source_refs"),
             "sender": _required(source, "sender", "metadata.source_refs"),
             "excerpt": source.get("excerpt"),
+            "uri": source.get("uri"),
         }
         for source in (_mapping(item, "metadata.source_refs[]") for item in source_values)
     ]

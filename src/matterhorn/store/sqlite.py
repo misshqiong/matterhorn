@@ -11,14 +11,23 @@ from threading import RLock
 from matterhorn.contracts import (
     Assertion,
     EpisodeCard,
+    EvidenceRef,
+    EvidenceStatus,
     GateStatistics,
     Interval,
     MemoryCard,
     ProjectionStats,
+    SourceRef,
+    SyncPosition,
 )
 from matterhorn.engine.canonical import canonical_json, instant_text
 from matterhorn.engine.identity import SubjectRecord
-from matterhorn.store.base import DistillQueueItem, QuerySubjectRow, QueryValueRow
+from matterhorn.store.base import (
+    DistillQueueItem,
+    QuerySubjectRow,
+    QueryValueRow,
+    RecordObservationRow,
+)
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -28,6 +37,30 @@ CREATE TABLE IF NOT EXISTS ingested_cards (
     payload_hash TEXT NOT NULL,
     PRIMARY KEY (scope_id, card_id)
 );
+CREATE TABLE IF NOT EXISTS record_observations (
+    scope_id TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    observation_hash TEXT NOT NULL,
+    container_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (scope_id, record_id, observation_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_record_observations_container
+    ON record_observations(scope_id, container_id, observed_at);
+CREATE TABLE IF NOT EXISTS evidence_sources (
+    scope_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    uri TEXT,
+    revoked_at TEXT,
+    PRIMARY KEY (scope_id, source_id)
+);
+CREATE TABLE IF NOT EXISTS sync_positions (
+    scope_id TEXT NOT NULL,
+    container_id TEXT NOT NULL,
+    watermark TEXT NOT NULL,
+    cursor TEXT,
+    PRIMARY KEY (scope_id, container_id)
+);
 CREATE TABLE IF NOT EXISTS subjects (
     scope_id TEXT NOT NULL,
     subject_key TEXT NOT NULL,
@@ -36,6 +69,7 @@ CREATE TABLE IF NOT EXISTS subjects (
     title TEXT NOT NULL,
     normalized_title TEXT NOT NULL,
     source_ids_json TEXT NOT NULL,
+    thread_ids_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (scope_id, subject_key)
 );
 CREATE INDEX IF NOT EXISTS idx_subjects_title
@@ -52,7 +86,8 @@ CREATE TABLE IF NOT EXISTS assertions (
     valid_from TEXT NOT NULL,
     recorded_at TEXT NOT NULL,
     source_refs_json TEXT NOT NULL,
-    origin TEXT NOT NULL
+    origin TEXT NOT NULL,
+    observation_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assertions_projection
     ON assertions(scope_id, subject_key, predicate, valid_from);
@@ -139,6 +174,21 @@ class SQLiteStore:
             self.connection.execute(
                 "ALTER TABLE subjects ADD COLUMN parent_subject_key TEXT"
             )
+        if "thread_ids_json" not in subject_columns:
+            self.connection.execute(
+                """
+                ALTER TABLE subjects
+                ADD COLUMN thread_ids_json TEXT NOT NULL DEFAULT '[]'
+                """
+            )
+        assertion_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(assertions)")
+        }
+        if "observation_id" not in assertion_columns:
+            self.connection.execute(
+                "ALTER TABLE assertions ADD COLUMN observation_id TEXT"
+            )
         columns = {
             row["name"]
             for row in self.connection.execute("PRAGMA table_info(intervals)")
@@ -207,6 +257,9 @@ class SQLiteStore:
                 "intervals",
                 "assertions",
                 "subjects",
+                "sync_positions",
+                "evidence_sources",
+                "record_observations",
                 "ingested_cards",
             ):
                 self.connection.execute(
@@ -226,6 +279,143 @@ class SQLiteStore:
             (scope_id, card_id, payload_hash),
         )
 
+    def has_record_observation(
+        self, scope_id: str, record_id: str, observation_hash: str
+    ) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT 1 FROM record_observations
+            WHERE scope_id=? AND record_id=? AND observation_hash=?
+            """,
+            (scope_id, record_id, observation_hash),
+        ).fetchone()
+        return row is not None
+
+    def mark_record_observation(
+        self,
+        scope_id: str,
+        record_id: str,
+        observation_hash: str,
+        container_id: str,
+        observed_at: datetime,
+    ) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO record_observations(
+              scope_id,record_id,observation_hash,container_id,observed_at
+            ) VALUES(?,?,?,?,?)
+            """,
+            (
+                scope_id,
+                record_id,
+                observation_hash,
+                container_id,
+                instant_text(observed_at),
+            ),
+        )
+
+    def record_observations(self, scope_id: str) -> list[RecordObservationRow]:
+        rows = self.connection.execute(
+            """
+            SELECT * FROM record_observations WHERE scope_id=?
+            ORDER BY record_id COLLATE BINARY,observation_hash COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return [RecordObservationRow(**dict(row)) for row in rows]
+
+    def observe_source(
+        self,
+        scope_id: str,
+        source_ref: SourceRef,
+        *,
+        revoked_at: datetime | None = None,
+    ) -> None:
+        revoked_text = instant_text(revoked_at) if revoked_at is not None else None
+        self.connection.execute(
+            """
+            INSERT INTO evidence_sources(scope_id,source_id,uri,revoked_at)
+            VALUES(?,?,?,?)
+            ON CONFLICT(scope_id,source_id) DO UPDATE SET
+              uri=COALESCE(evidence_sources.uri,excluded.uri),
+              revoked_at=CASE
+                WHEN evidence_sources.revoked_at IS NULL THEN excluded.revoked_at
+                WHEN excluded.revoked_at IS NULL THEN evidence_sources.revoked_at
+                WHEN evidence_sources.revoked_at <= excluded.revoked_at
+                  THEN evidence_sources.revoked_at
+                ELSE excluded.revoked_at
+              END
+            """,
+            (scope_id, source_ref.source_id, source_ref.uri, revoked_text),
+        )
+
+    def source_states(
+        self, scope_id: str, source_refs: list[SourceRef]
+    ) -> list[EvidenceRef]:
+        if not source_refs:
+            return []
+        source_ids = list(dict.fromkeys(ref.source_id for ref in source_refs))
+        placeholders = ",".join("?" for _ in source_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT source_id,uri,revoked_at FROM evidence_sources
+            WHERE scope_id=? AND source_id IN ({placeholders})
+            """,
+            (scope_id, *source_ids),
+        )
+        state = {row["source_id"]: row for row in rows}
+        result = []
+        for ref in source_refs:
+            row = state.get(ref.source_id)
+            revoked_at = row["revoked_at"] if row is not None else None
+            result.append(
+                EvidenceRef(
+                    source_id=ref.source_id,
+                    uri=(row["uri"] if row is not None else None) or ref.uri,
+                    status=(
+                        EvidenceStatus.revoked
+                        if revoked_at is not None
+                        else EvidenceStatus.active
+                    ),
+                    revoked_at=revoked_at,
+                )
+            )
+        return result
+
+    def update_sync_position(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        watermark: datetime,
+        cursor: str | None,
+    ) -> None:
+        watermark_text = instant_text(watermark)
+        self.connection.execute(
+            """
+            INSERT INTO sync_positions(scope_id,container_id,watermark,cursor)
+            VALUES(?,?,?,?)
+            ON CONFLICT(scope_id,container_id) DO UPDATE SET
+              watermark=CASE
+                WHEN sync_positions.watermark >= excluded.watermark
+                  THEN sync_positions.watermark
+                ELSE excluded.watermark
+              END,
+              cursor=COALESCE(excluded.cursor,sync_positions.cursor)
+            """,
+            (scope_id, container_id, watermark_text, cursor),
+        )
+
+    def sync_positions(self, scope_id: str) -> list[SyncPosition]:
+        rows = self.connection.execute(
+            """
+            SELECT * FROM sync_positions WHERE scope_id=?
+            ORDER BY container_id COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return [SyncPosition.model_validate(dict(row)) for row in rows]
+
     def subjects(self, scope_id: str) -> list[SubjectRecord]:
         rows = self.connection.execute(
             "SELECT * FROM subjects WHERE scope_id=? ORDER BY subject_key", (scope_id,)
@@ -239,6 +429,7 @@ class SQLiteStore:
                 normalized_title=row["normalized_title"],
                 source_ids=frozenset(json.loads(row["source_ids_json"])),
                 parent_subject_key=row["parent_subject_key"],
+                thread_ids=frozenset(json.loads(row["thread_ids_json"])),
             )
             for row in rows
         ]
@@ -248,10 +439,11 @@ class SQLiteStore:
             """
             INSERT INTO subjects(
               scope_id,subject_key,subject_type,parent_subject_key,title,
-              normalized_title,source_ids_json
-            ) VALUES(?,?,?,?,?,?,?)
+              normalized_title,source_ids_json,thread_ids_json
+            ) VALUES(?,?,?,?,?,?,?,?)
             ON CONFLICT(scope_id,subject_key) DO UPDATE SET
-              source_ids_json=excluded.source_ids_json
+              source_ids_json=excluded.source_ids_json,
+              thread_ids_json=excluded.thread_ids_json
             """,
             (
                 subject.scope_id,
@@ -261,6 +453,7 @@ class SQLiteStore:
                 subject.title,
                 subject.normalized_title,
                 canonical_json(sorted(subject.source_ids)),
+                canonical_json(sorted(subject.thread_ids)),
             ),
         )
 
@@ -271,33 +464,18 @@ class SQLiteStore:
         ).fetchone()
         if existing:
             prior = self._row_to_assertion(existing)
-            identity_fields = (
-                prior.scope_id,
-                prior.subject_key,
-                prior.predicate,
-                prior.operation,
-                prior.object_key,
-                prior.valid_from,
-                sorted(ref.source_id for ref in prior.source_refs),
-            )
-            incoming_identity_fields = (
-                assertion.scope_id,
-                assertion.subject_key,
-                assertion.predicate,
-                assertion.operation,
-                assertion.object_key,
-                assertion.valid_from,
-                sorted(ref.source_id for ref in assertion.source_refs),
-            )
-            if identity_fields != incoming_identity_fields:
+            if self._immutable_assertion_payload(
+                prior
+            ) != self._immutable_assertion_payload(assertion):
                 raise ValueError("assertion_id collision with different immutable payload")
             return False
         self.connection.execute(
             """
             INSERT INTO assertions(
               assertion_id,scope_id,subject_key,subject_type,predicate,operation,
-              object_value_json,object_key,valid_from,recorded_at,source_refs_json,origin
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+              object_value_json,object_key,valid_from,recorded_at,source_refs_json,
+              origin,observation_id
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             payload,
         )
@@ -672,6 +850,7 @@ class SQLiteStore:
                 [ref.model_dump(mode="json") for ref in assertion.source_refs]
             ),
             assertion.origin.value,
+            assertion.observation_id,
         )
 
     @staticmethod
@@ -708,6 +887,7 @@ class SQLiteStore:
                 "recorded_at": row["recorded_at"],
                 "source_refs": json.loads(row["source_refs_json"]),
                 "origin": row["origin"],
+                "observation_id": row["observation_id"],
             }
         )
 
@@ -746,8 +926,9 @@ class SQLiteStore:
             supporting_assertion_ids=json.loads(
                 row["supporting_assertion_ids_json"]
             ),
-            source_ids=[
-                item["source_id"] for item in json.loads(row["source_refs_json"])
+            source_refs=[
+                SourceRef.model_validate(item)
+                for item in json.loads(row["source_refs_json"])
             ],
             origin=row["origin"],
         )
@@ -759,4 +940,24 @@ class SQLiteStore:
             subject_type=row["subject_type"],
             title=row["title"],
             current=json.loads(row["current_json"]),
+        )
+
+    @staticmethod
+    def _immutable_assertion_payload(assertion: Assertion) -> str:
+        return canonical_json(
+            {
+                "scope_id": assertion.scope_id,
+                "subject_key": assertion.subject_key,
+                "subject_type": assertion.subject_type,
+                "predicate": assertion.predicate,
+                "operation": assertion.operation.value,
+                "object_value": assertion.object_value,
+                "object_key": assertion.object_key,
+                "valid_from": instant_text(assertion.valid_from),
+                "source_refs": [
+                    ref.model_dump(mode="json") for ref in assertion.source_refs
+                ],
+                "origin": assertion.origin.value,
+                "observation_id": assertion.observation_id,
+            }
         )
