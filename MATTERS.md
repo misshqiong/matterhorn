@@ -262,6 +262,26 @@ Scope: <code>dev</code>
 
 </details>
 
+## ledger: nightly update
+
+- Status: <code>done</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"ledger: nightly update","type":"commit"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:eb7fdbe53a9a49ec36eebb19c8415643d49c2421](<https://github.com/misshqiong/matterhorn/commit/eb7fdbe53a9a49ec36eebb19c8415643d49c2421>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git-author:b9d1c05ed8f8c35149a6319a3fa13f4c28d686630ebf385d8dc0c9f184db1d9a"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:eb7fdbe53a9a49ec36eebb19c8415643d49c2421](<https://github.com/misshqiong/matterhorn/commit/eb7fdbe53a9a49ec36eebb19c8415643d49c2421>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:eb7fdbe53a9a49ec36eebb19c8415643d49c2421](<https://github.com/misshqiong/matterhorn/commit/eb7fdbe53a9a49ec36eebb19c8415643d49c2421>)
+
+</details>
+
 ## M5: Two-Verb Facade (add and matters)
 
 - Status: <code>completed</code>
