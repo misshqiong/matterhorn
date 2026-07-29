@@ -331,6 +331,12 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         expect.get("intervals", []),
         "intervals",
     )
+    if "events" in expect:
+        _assert_partial_exact(
+            engine.events(case["scope_id"]),
+            expect["events"],
+            "events",
+        )
     if "subject_count" in expect:
         _equal(
             len(engine.store.subjects(case["scope_id"])),
@@ -427,7 +433,13 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         engine.correct(correction)
     _equal(_snapshot(engine, case["scope_id"]), initial, "idempotent re-ingest")
 
-    engine.replay(case["scope_id"])
+    replay_report = engine.replay(case["scope_id"])
+    if "replay_events_emitted" in expect:
+        _equal(
+            replay_report.events_emitted,
+            expect["replay_events_emitted"],
+            "replay events emitted",
+        )
     _equal(_snapshot(engine, case["scope_id"]), initial, "replay snapshot")
 
 
@@ -516,6 +528,9 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             ],
             "sync_positions": [
                 _plain(item) for item in engine.store.sync_positions(scope_id)
+            ],
+            "events": [
+                _plain(item) for item in engine.store.events(scope_id)
             ],
         }
     )

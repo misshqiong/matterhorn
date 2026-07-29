@@ -119,6 +119,26 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
             assert add.status_code == 200
             assert add.json()["accepted"] == 1
             engine.flush("s")
+            waited_card = {
+                **_card(),
+                "card_id": "c-wait",
+                "subject_key": "thing-wait",
+                "title": "Waited card",
+                "source_refs": [
+                    {
+                        "source_id": "m-wait",
+                        "sent_at": "2026-01-01T10:00:00Z",
+                        "sender": "u",
+                    }
+                ],
+            }
+            waited_cards = await client.post(
+                "/v1/scopes/s/cards",
+                json={"cards": [waited_card], "wait": True},
+            )
+            assert waited_cards.status_code == 200
+            assert waited_cards.json()["status"] == "completed"
+            assert waited_cards.json()["task_id"].startswith("task_")
 
             message = await client.post(
                 "/v1/scopes/s/messages",
@@ -143,6 +163,24 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
             task = await client.get(f"/v1/tasks/{task_id}")
             assert task.status_code == 200
             assert task.json()["gate"] == {"accepted": 1, "rejected": {}}
+            waited_messages = await client.post(
+                "/v1/scopes/s/messages",
+                json={
+                    "wait": True,
+                    "messages": [
+                        {
+                            "id": "m-wait",
+                            "sender": {"id": "u3"},
+                            "text": "Waited message is open.",
+                            "sent_at": "2026-01-01T11:30:00Z",
+                            "conversation_id": "C-wait",
+                        }
+                    ],
+                },
+            )
+            assert waited_messages.status_code == 200
+            assert waited_messages.json()["status"] == "completed"
+            assert waited_messages.json()["task_id"].startswith("task_")
 
             params = {"subject_key": "thing-1", "predicate": "phase"}
             current = await client.get(
@@ -187,6 +225,29 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
             invalid = await client.get("/v1/scopes/s/query/current")
             assert invalid.status_code == 422
             assert invalid.json()["error"]["code"] == "REQUEST_VALIDATION_ERROR"
+            unknown_task = await client.get("/v1/tasks/unknown")
+            assert unknown_task.status_code == 404
+            assert unknown_task.json() == {
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "unknown task_id: unknown",
+                }
+            }
+            unknown_scope = await client.get("/v1/scopes/unknown/matters")
+            assert unknown_scope.status_code == 404
+            assert unknown_scope.json()["error"]["code"] == "NOT_FOUND"
+            unknown_subject = await client.get(
+                "/v1/scopes/s/query/current",
+                params={"subject_key": "unknown", "predicate": "phase"},
+            )
+            assert unknown_subject.status_code == 404
+            assert unknown_subject.json()["error"]["code"] == "NOT_FOUND"
+            exported = await client.get("/v1/scopes/s/export")
+            assert exported.status_code == 200
+            assert exported.json()["format"] == "matterhorn-scope-export"
+            events = await client.get("/v1/scopes/s/events")
+            assert events.status_code == 200
+            assert events.json()[0]["event_id"]
             assert (await client.post("/v1/add_episode_cards", json={})).status_code == 404
 
     asyncio.run(scenario())

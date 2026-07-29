@@ -10,14 +10,23 @@ from typing import Any
 from matterhorn.contracts import (
     AddRecordsReport,
     Assertion,
+    ChangeEvent,
     Correction,
     DreamReport,
     EpisodeCard,
+    EvidenceRef,
+    EvidenceStatus,
+    ExportEnvelope,
+    ExportSchemaProfile,
+    ExportSourceState,
+    ExportSubject,
     FlushReport,
+    ImportReport,
     Message,
     Operation,
     Origin,
     Record,
+    ReplayReport,
     SchemaProfile,
     TaskReceipt,
     TaskResult,
@@ -32,10 +41,12 @@ from matterhorn.engine.canonical import (
     object_key,
     stable_hash,
 )
+from matterhorn.engine.events import derive_change_events
 from matterhorn.engine.extractor import FIELD_WIDE_RETRACT, extract_card
 from matterhorn.engine.identity import SubjectRecord, normalize_title, resolve_subject
 from matterhorn.engine.materializer import materialize
 from matterhorn.engine.projector import project_assertions
+from matterhorn.errors import ImportRefusedError, ResourceNotFoundError
 from matterhorn.query import QueryService
 from matterhorn.store import SQLiteStore, Store
 
@@ -346,7 +357,7 @@ class Engine:
     def task(self, task_id: str) -> TaskResult:
         row = self.store.task(task_id)
         if row is None:
-            raise KeyError(f"unknown task_id: {task_id}")
+            raise ResourceNotFoundError(f"unknown task_id: {task_id}")
         return row.result
 
     def flush(self, scope_id: str) -> FlushReport:
@@ -433,6 +444,20 @@ class Engine:
             raise ValueError("quiet_period_minutes MUST be non-negative")
         cutoff = self._clock() - timedelta(minutes=quiet_period_minutes)
         return [self.flush(scope_id) for scope_id in self.store.quiet_scopes(cutoff)]
+
+    def flush_quiet_at(
+        self, quiet_period_minutes: float, instant: datetime
+    ) -> list[FlushReport]:
+        if quiet_period_minutes < 0:
+            raise ValueError("quiet_period_minutes MUST be non-negative")
+        cutoff = as_utc(instant) - timedelta(minutes=quiet_period_minutes)
+        return [self.flush(scope_id) for scope_id in self.store.quiet_scopes(cutoff)]
+
+    def flush_pending(self) -> list[FlushReport]:
+        return [self.flush(scope_id) for scope_id in self.store.pending_scopes()]
+
+    def now(self) -> datetime:
+        return self._clock()
 
     def _enqueue_task(
         self,
@@ -524,9 +549,146 @@ class Engine:
             self._rebuild(item.scope_id)
         return assertion
 
-    def replay(self, scope_id: str) -> None:
+    def replay(self, scope_id: str) -> ReplayReport:
         with self.store.transaction():
-            self._rebuild(scope_id)
+            emitted = self._rebuild(scope_id)
+        return ReplayReport(
+            scope_id=scope_id,
+            intervals=len(self.store.intervals(scope_id)),
+            memory_cards=len(self.store.memory_cards(scope_id)),
+            events_emitted=len(emitted),
+        )
+
+    def scope_exists(self, scope_id: str) -> bool:
+        return self.store.scope_exists(scope_id)
+
+    def subject_exists(self, scope_id: str, subject_key: str) -> bool:
+        return any(
+            subject.subject_key == subject_key
+            for subject in self.store.subjects(scope_id)
+        )
+
+    def events(
+        self, scope_id: str, *, since: datetime | str | None = None
+    ) -> list[ChangeEvent]:
+        parsed_since = (
+            datetime.fromisoformat(since)
+            if isinstance(since, str)
+            else since
+        )
+        return self.store.events(scope_id, since=parsed_since)
+
+    def export(self, scope_id: str) -> ExportEnvelope:
+        if not self.scope_exists(scope_id):
+            raise ResourceNotFoundError(f"unknown scope_id: {scope_id}")
+        return ExportEnvelope(
+            scope_id=scope_id,
+            schema_profile=ExportSchemaProfile(
+                id=self.profile.schema_id,
+                version=_profile_version(self.profile),
+            ),
+            subjects=[
+                ExportSubject(
+                    scope_id=item.scope_id,
+                    subject_key=item.subject_key,
+                    subject_type=item.subject_type,
+                    title=item.title,
+                    normalized_title=item.normalized_title,
+                    source_ids=sorted(item.source_ids),
+                    parent_subject_key=item.parent_subject_key,
+                    thread_ids=sorted(item.thread_ids),
+                )
+                for item in self.store.subjects(scope_id)
+            ],
+            assertions=self.store.assertions(scope_id),
+            source_states=[
+                ExportSourceState(
+                    source_id=item.source_id,
+                    uri=item.uri,
+                    revoked_at=item.revoked_at,
+                )
+                for item in self.store.source_metadata(scope_id)
+            ],
+            events=self.store.events(scope_id),
+        )
+
+    def import_snapshot(
+        self, envelope: ExportEnvelope | dict[str, Any]
+    ) -> ImportReport:
+        snapshot = (
+            envelope
+            if isinstance(envelope, ExportEnvelope)
+            else ExportEnvelope.model_validate(envelope)
+        )
+        if snapshot.schema_profile.id != self.profile.schema_id:
+            raise ImportRefusedError(
+                "export requires unavailable local schema profile "
+                f"{snapshot.schema_profile.id!r}; active profile is "
+                f"{self.profile.schema_id!r}"
+            )
+        local_version = _profile_version(self.profile)
+        if snapshot.schema_profile.version != local_version:
+            raise ImportRefusedError(
+                "export schema profile version is not available locally: "
+                f"{snapshot.schema_profile.id}@{snapshot.schema_profile.version}"
+            )
+        if self.scope_exists(snapshot.scope_id):
+            raise ImportRefusedError(
+                f"import target scope {snapshot.scope_id!r} MUST be empty"
+            )
+        with self.store.transaction():
+            for item in snapshot.subjects:
+                if item.scope_id != snapshot.scope_id:
+                    raise ImportRefusedError(
+                        "export subject scope_id does not match envelope scope_id"
+                    )
+                self.store.upsert_subject(
+                    SubjectRecord(
+                        scope_id=item.scope_id,
+                        subject_key=item.subject_key,
+                        subject_type=item.subject_type,
+                        title=item.title,
+                        normalized_title=item.normalized_title,
+                        source_ids=frozenset(item.source_ids),
+                        parent_subject_key=item.parent_subject_key,
+                        thread_ids=frozenset(item.thread_ids),
+                    )
+                )
+            for assertion in snapshot.assertions:
+                if assertion.scope_id != snapshot.scope_id:
+                    raise ImportRefusedError(
+                        "export assertion scope_id does not match envelope scope_id"
+                    )
+                self.store.add_assertion(assertion)
+            for source in snapshot.source_states:
+                self.store.put_source_state(
+                    snapshot.scope_id,
+                    EvidenceRef(
+                        source_id=source.source_id,
+                        uri=source.uri,
+                        status=(
+                            EvidenceStatus.revoked
+                            if source.revoked_at is not None
+                            else EvidenceStatus.active
+                        ),
+                        revoked_at=source.revoked_at,
+                    ),
+                )
+            self._rebuild(snapshot.scope_id, emit_events=False)
+            for event in snapshot.events:
+                if event.scope_id != snapshot.scope_id:
+                    raise ImportRefusedError(
+                        "export event scope_id does not match envelope scope_id"
+                    )
+                self.store.add_event(event)
+        return ImportReport(
+            scope_id=snapshot.scope_id,
+            subjects=len(snapshot.subjects),
+            assertions=len(snapshot.assertions),
+            events=len(snapshot.events),
+            intervals=len(self.store.intervals(snapshot.scope_id)),
+            memory_cards=len(self.store.memory_cards(snapshot.scope_id)),
+        )
 
     def projection_statistics(self, scope_id: str):
         return self.store.projection_stats(scope_id)
@@ -673,12 +835,23 @@ class Engine:
             remaining=self.store.distill_queue_count(scope_id),
         )
 
-    def _rebuild(self, scope_id: str) -> None:
-        intervals, stats = project_assertions(
-            self.store.assertions(scope_id), self.profile
-        )
+    def _rebuild(
+        self, scope_id: str, *, emit_events: bool = True
+    ) -> list[ChangeEvent]:
+        previous = self.store.intervals(scope_id)
+        assertions = self.store.assertions(scope_id)
+        intervals, stats = project_assertions(assertions, self.profile)
         cards = materialize(self.store.subjects(scope_id), intervals, self.profile)
         self.store.replace_projection(scope_id, intervals, cards, stats)
+        if not emit_events:
+            return []
+        candidates = derive_change_events(
+            previous,
+            intervals,
+            assertions,
+            self.profile,
+        )
+        return [event for event in candidates if self.store.add_event(event)]
 
 
 def _db_path(store: str | Path) -> str | Path:
@@ -760,3 +933,7 @@ def _merge_counts(
     for key, value in right.items():
         result[key] = result.get(key, 0) + value
     return result
+
+
+def _profile_version(profile: SchemaProfile) -> str:
+    return stable_hash(profile.model_dump(mode="json", by_alias=True))

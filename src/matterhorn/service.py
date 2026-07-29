@@ -52,6 +52,7 @@ class MatterhornService:
     def query_current(
         self, *, scope_id: str, subject_key: str, predicate: str
     ) -> list[dict[str, Any]]:
+        self._require_subject(scope_id, subject_key)
         return [
             item.to_dict()
             for item in self.engine.query.current(scope_id, subject_key, predicate)
@@ -60,6 +61,7 @@ class MatterhornService:
     def query_timeline(
         self, *, scope_id: str, subject_key: str, predicate: str
     ) -> list[dict[str, Any]]:
+        self._require_subject(scope_id, subject_key)
         return [
             item.to_dict()
             for item in self.engine.query.timeline(scope_id, subject_key, predicate)
@@ -73,6 +75,7 @@ class MatterhornService:
         predicate: str,
         instant: datetime,
     ) -> list[dict[str, Any]]:
+        self._require_subject(scope_id, subject_key)
         return [
             item.to_dict()
             for item in self.engine.query.at(
@@ -83,12 +86,14 @@ class MatterhornService:
     def query_by_person(
         self, *, scope_id: str, person_id: str
     ) -> list[dict[str, Any]]:
+        self._require_scope(scope_id)
         return [
             item.to_dict()
             for item in self.engine.query.by_person(scope_id, person_id)
         ]
 
     def list_matters(self, *, scope_id: str) -> list[dict[str, Any]]:
+        self._require_scope(scope_id)
         return [item.to_dict() for item in self.engine.matters(scope_id)]
 
     def task(self, *, task_id: str) -> dict[str, Any]:
@@ -104,4 +109,43 @@ class MatterhornService:
             correction = {**correction, "scope_id": scope_id}
         elif scope_id is not None and correction.scope_id != scope_id:
             raise ValueError("correction scope_id MUST match the resource scope")
+        selected_scope = (
+            correction.scope_id
+            if isinstance(correction, Correction)
+            else correction["scope_id"]
+        )
+        selected_subject = (
+            correction.subject_key
+            if isinstance(correction, Correction)
+            else correction["subject_key"]
+        )
+        self._require_subject(selected_scope, selected_subject)
         return self.engine.correct(correction).model_dump(mode="json")
+
+    def events(
+        self, *, scope_id: str, since: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        self._require_scope(scope_id)
+        return [
+            item.model_dump(mode="json")
+            for item in self.engine.events(scope_id, since=since)
+        ]
+
+    def export(self, *, scope_id: str) -> dict[str, Any]:
+        self._require_scope(scope_id)
+        return self.engine.export(scope_id).model_dump(mode="json")
+
+    def _require_scope(self, scope_id: str) -> None:
+        from matterhorn.errors import ResourceNotFoundError
+
+        if not self.engine.scope_exists(scope_id):
+            raise ResourceNotFoundError(f"unknown scope_id: {scope_id}")
+
+    def _require_subject(self, scope_id: str, subject_key: str) -> None:
+        from matterhorn.errors import ResourceNotFoundError
+
+        self._require_scope(scope_id)
+        if not self.engine.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )

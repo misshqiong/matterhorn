@@ -1,6 +1,6 @@
 # Matterhorn Normative Specification
 
-Version: 0.5.0
+Version: 0.6.0
 
 This document is the language-neutral source of truth for Matterhorn
 implementations. The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY**
@@ -37,6 +37,11 @@ are normative.
 - **P9 — Idempotent replay.** Retrying the same input MUST NOT create duplicate
   cards, assertions, intervals, or materializations; every pipeline stage MUST
   be safe to replay.
+
+Change events do not create a second source of truth. They MUST be derived from
+the previous and replacement interval projections during rebuild; assertions
+remain the only authoritative asset under P7. The event log is an append-only,
+deterministically keyed delivery artifact.
 
 **Input admission rule.** A new input form is admissible if and only if it maps
 losslessly to an `EpisodeCard` with traceable sources. An implementation MUST
@@ -295,6 +300,14 @@ registered `predicate`, `operation`, JSON `object_value`, optional
 `object_key`, `valid_from`, and non-empty `source_refs`. It always emits origin
 `human`. APPEND retraction MUST be rejected.
 
+A ChangeEvent contains required deterministic `event_id`, `event_type`,
+`scope_id`, `subject_key`, registered `predicate`, nullable JSON `old_value`
+and `new_value`, `valid_from`, `recorded_at`, `origin`, and ordered unique
+`source_ids`. Its traceability fields MUST come from the assertion that caused
+the projected change. Event types are `matter_created`, `status_changed`,
+`matter_completed`, `blocked`, `unblocked`, `decision_adopted`, and
+`value_corrected`.
+
 ## 6. Exact assertion_id derivation
 
 1. Convert `valid_from` to UTC RFC 3339 with six fractional digits and suffix
@@ -531,7 +544,9 @@ observation, as required by INV-11.
 `replay(scope_id)` MUST retain assertions and subjects, delete/replace all
 intervals, projection statistics, and memory cards for the scope, and rebuild
 them using sections 9 and 10. Canonical JSON snapshots before and after MUST be
-byte-identical.
+byte-identical. It MUST compare the retained prior interval set with the
+replacement before committing the replacement, so an identical rebuild emits
+zero new events.
 
 ### 11.1 Public receipts, persistent tasks, and flush
 
@@ -557,6 +572,7 @@ response have exactly:
 
 ```text
 {
+  "task_id": string,
   "status": "pending" | "running" | "completed" | "failed",
   "cards_produced": integer,
   "new_assertions": integer,
@@ -576,6 +592,97 @@ assertion IDs MUST make the later completed task report zero new assertions.
 receipt semantics. The synchronous card-application mechanism remains an
 internal engine promise boundary, not the user's front door. `add_records`
 remains importable as an advanced/internal integration entry.
+
+Every completed `TaskResult`, including `wait=true` responses and
+`GET /v1/tasks/{task_id}`, MUST include its `task_id`. An unknown task ID MUST
+be a structured `404 NOT_FOUND`, never a transport traceback.
+
+### 11.2 Projection-diff change events
+
+After every projection rebuild, the implementation MUST compare the previous
+interval set with the newly computed interval set. Only that comparison MAY
+produce ChangeEvents; callers and transports MUST NOT append arbitrary events.
+The minimum derivation rules are:
+
+- the first projected interval for a subject emits `matter_created`;
+- a changed current SINGLE predicate whose deterministic `source_field` is
+  `status` emits `status_changed`, including the initial `null -> value`;
+- entering a `SchemaProfile.completion.completed_values` member emits
+  `matter_completed` in addition to `status_changed`;
+- a current predicate whose deterministic `source_field` is `blocker`
+  changing empty-to-non-empty or non-empty-to-empty emits `blocked` or
+  `unblocked`;
+- a newly projected interval for a semantic predicate emits
+  `decision_adopted`; and
+- a non-null current value changed by a winning origin-human assertion emits
+  `value_corrected`, in addition to any more specific event above.
+
+For a projected change, `old_value` and `new_value` MUST be the canonical
+before/after current values. `valid_from`, `recorded_at`, `origin`, and
+`source_ids` MUST come from the winning ASSERT or RETRACT. Source IDs preserve
+the trigger assertion's SourceRef order with duplicates removed.
+
+`event_id` is lowercase hexadecimal SHA-256 over canonical JSON for this exact
+array:
+
+```text
+[event_type, scope_id, subject_key, predicate, old_value, new_value,
+ valid_from_iso, recorded_at_iso, origin, source_ids]
+```
+
+The canonical JSON and instant rules are sections 6 and 10. Events MUST be
+inserted into an append-only table keyed by `event_id`. The same ID and same
+payload is a no-op; the same ID with another payload MUST fail. Consequently,
+re-ingest and replay of equal projections emit zero new rows, and replay never
+duplicates historical delivery artifacts.
+
+`Engine.events(scope_id, since)` and
+`GET /v1/scopes/{scope_id}/events?since=...` return events in
+`(recorded_at,event_id)` byte order. `since` is an inclusive recorded-time
+lower bound, deliberately permitting harmless overlap that consumers dedupe
+by `event_id`.
+
+Service mode MAY POST `{"events":[ChangeEvent,...]}` batches to one configured
+webhook URL. Delivery MUST mark a batch delivered only after a successful HTTP
+response, so a crash between response and acknowledgement can repeat a batch
+(at-least-once). Each dispatch cycle MUST use a bounded three-attempt
+exponential backoff. Consumers MUST deduplicate by deterministic `event_id`.
+Embedded mode does not run a webhook loop.
+
+### 11.3 Scope export and import
+
+The ownership envelope is one JSON document with this closed top-level shape:
+
+```text
+{
+  "format": "matterhorn-scope-export",
+  "version": 1,
+  "scope_id": string,
+  "schema_profile": {"id": string, "version": sha256},
+  "subjects": [ExportSubject, ...],
+  "assertions": [Assertion, ...],
+  "source_states": [ExportSourceState, ...],
+  "events": [ChangeEvent, ...]
+}
+```
+
+`schema_profile.id` is the profile's `schema` identifier.
+`schema_profile.version` is SHA-256 of canonical JSON for the complete locally
+validated profile. Subjects include identity, parent, source-ID, and thread-ID
+state. Source states retain URI and revocation time. Assertions retain their
+original `origin`, so human corrections survive without reinterpretation.
+Events are included as append-only derived delivery history. Intervals,
+projection statistics, and MemoryCards MUST NOT be exported because they are
+disposable projections.
+
+Import MUST accept only an empty target scope. It MUST resolve the named schema
+profile locally and require the same version hash; it MUST refuse an
+unavailable or mismatched profile with a clear error rather than using the
+envelope as an untrusted schema definition. Import MUST atomically restore
+subjects, assertions, source state, rebuild projection without event emission,
+and restore the deterministic event log. A following replay MUST produce
+byte-identical intervals, MemoryCards, and query answers and emit zero new
+events.
 
 ## 12. Golden conformance YAML format
 
@@ -609,8 +716,10 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.second_record_reports` | Optional ordered partial mappings checked after exact Record re-ingest. |
 | `expect.task_results` | Optional ordered partial task-result mappings for first-pass message batches. |
 | `expect.second_task_results` | Optional ordered partial task-result mappings after exact message re-add. |
+| `expect.events` | Optional expected ChangeEvent mappings, compared as a partial-field exact multiset. |
+| `expect.replay_events_emitted` | Optional exact replay new-event count; event cases use zero. |
 
-For assertions and intervals, each expected mapping declares its compared
+For assertions, intervals, and events, each expected mapping declares its compared
 fields. The runner projects each actual item onto exactly those fields, then
 compares **order-insensitive exact multisets**: neither an extra nor a missing
 projected mapping is allowed. Nested `supporting_assertion_ids` and query
@@ -787,7 +896,10 @@ The same command MUST expose the pure ReMe and OpenViking digest adapters as
 validated EpisodeCard and MUST NOT configure or call a gateway.
 
 The CLI MUST additionally expose `mh init`, `mh add`, `mh matters`, `mh flush`,
-and `mh task`. `mh add` MUST accept YAML/JSON from a file or stdin. `mh init
+`mh task`, `mh events`, `mh export`, and `mh import`. `mh add` MUST accept
+YAML/JSON from a file or stdin. `mh export SCOPE [--out FILE]` MUST write the
+section 11.3 envelope; `mh import FILE` MUST import it into an empty store.
+`mh init
 [--schema ID] [--db PATH]` MUST idempotently create the SQLite database and a
 small `matterhorn.toml` containing default database, schema, scope, and
 quiet-period settings, then print the next three runnable commands. CLI
@@ -805,6 +917,8 @@ GET  /v1/scopes/{scope_id}/query/current
 GET  /v1/scopes/{scope_id}/query/timeline
 GET  /v1/scopes/{scope_id}/query/at
 GET  /v1/scopes/{scope_id}/query/by-person
+GET  /v1/scopes/{scope_id}/events
+GET  /v1/scopes/{scope_id}/export
 POST /v1/scopes/{scope_id}/corrections
 GET  /v1/tasks/{task_id}
 ```
@@ -820,8 +934,11 @@ read endpoint MUST succeed.
 Only service mode has quiet-period scheduling. `mh serve` MUST run a background
 loop that flushes a scope when the newest pending Message in that scope is at
 least N minutes old, where N defaults to 10 and is configurable. Embedded mode
-MUST remain host-driven through `flush()` or `wait=true`; v0.5 MUST NOT expose a
-general cron system.
+MUST remain host-driven through `flush()` or `wait=true`. Service mode MUST
+also accept optional `daily_flush_at = "HH:MM"` in UTC, from
+`matterhorn.toml` or `mh serve --daily-flush-at`, and flush all pending scopes
+once when that daily boundary is reached. Scheduler time MUST be injectable for
+deterministic tests. v0.6 does not expose a general cron system.
 
 ## 16. Record-to-card extraction
 
@@ -993,4 +1110,6 @@ Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Rec
 事务一致性与可重放性。`spec/conformance` 的语言无关 YAML 是 Python 与内部
 Java 实现共同的验收资产。M4 增加通用 Record 合同、Slack 纯适配、线程优先
 身份、增量游标，以及编辑追加/删除撤销证据的 INV-11；查询保留结论但明确标出
-证据是否已撤销。
+证据是否已撤销。M6 增加完全由投影差异派生、确定 ID 且重放不重复的变更事件，
+以及包含 schema 指纹、subjects、全量断言、证据状态和派生事件的 scope 所有权
+导出；导入只接受空 scope 与本地可用的同版本 profile。

@@ -90,6 +90,93 @@ def test_cli_smoke_end_to_end(tmp_path) -> None:
     assert historical[0]["value"] == "open"
     replayed = json.loads(_run("replay", "demo", "--db", str(db)).stdout)
     assert replayed["status"] == "rebuilt"
+    assert replayed["events_emitted"] == 0
+
+
+def test_events_export_import_cli_round_trip(tmp_path) -> None:
+    source_db = tmp_path / "source.db"
+    target_db = tmp_path / "target.db"
+    export_file = tmp_path / "scope.json"
+    card_file = tmp_path / "card.yaml"
+    card_file.write_text(
+        yaml.safe_dump(
+            {
+                "card_id": "cli-output-1",
+                "scope_id": "team",
+                "subject_key": "release",
+                "date": "2026-07-29",
+                "title": "Release",
+                "status": "done",
+                "source_refs": [
+                    {
+                        "source_id": "m1",
+                        "sent_at": "2026-07-29T08:00:00Z",
+                        "sender": "u1",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _run("ingest", str(card_file), "--db", str(source_db))
+    events = json.loads(
+        _run("events", "team", "--db", str(source_db)).stdout
+    )
+    assert {item["event_type"] for item in events} == {
+        "matter_created",
+        "status_changed",
+        "matter_completed",
+    }
+    exported = _run(
+        "export",
+        "team",
+        "--out",
+        str(export_file),
+        "--db",
+        str(source_db),
+    )
+    assert "Exported team" in exported.stdout
+    imported = json.loads(
+        _run("import", str(export_file), "--db", str(target_db)).stdout
+    )
+    assert imported["assertions"] == 1
+    source_matters = json.loads(
+        _run("matters", "team", "--db", str(source_db)).stdout
+    )
+    target_matters = json.loads(
+        _run("matters", "team", "--db", str(target_db)).stdout
+    )
+    assert target_matters == source_matters
+    replayed = json.loads(
+        _run("replay", "team", "--db", str(target_db)).stdout
+    )
+    assert replayed["events_emitted"] == 0
+
+    unavailable_file = tmp_path / "unavailable-profile.json"
+    unavailable = json.loads(export_file.read_text(encoding="utf-8"))
+    unavailable["schema_profile"]["id"] = "missing-profile/v999"
+    unavailable_file.write_text(json.dumps(unavailable), encoding="utf-8")
+    refused = subprocess.run(
+        _command(
+            "import",
+            str(unavailable_file),
+            "--db",
+            str(tmp_path / "refused.db"),
+        ),
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert refused.returncode == 2
+    for fragment in [
+        "schema",
+        "profile",
+        "available",
+        "locally",
+        "missing-profile/v999",
+    ]:
+        assert fragment in refused.stderr
+    assert "Traceback" not in refused.stderr
 
 
 def test_extract_cli_wires_records_to_cards_ingest_and_sync_status(
@@ -347,7 +434,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=43 failed=0 total=43" in completed.stdout
+    assert "SUMMARY passed=47 failed=0 total=47" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

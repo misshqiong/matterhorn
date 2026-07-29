@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -222,6 +222,16 @@ class Origin(str, Enum):
     human = "human"
 
 
+class EventType(str, Enum):
+    matter_created = "matter_created"
+    status_changed = "status_changed"
+    matter_completed = "matter_completed"
+    blocked = "blocked"
+    unblocked = "unblocked"
+    decision_adopted = "decision_adopted"
+    value_corrected = "value_corrected"
+
+
 class SubjectDefinition(StrictModel):
     type: str
     parent: str | None = None
@@ -426,6 +436,7 @@ class TaskGate(StrictModel):
 
 
 class TaskResult(StrictModel):
+    task_id: str
     status: TaskStatus
     cards_produced: int = 0
     new_assertions: int = 0
@@ -464,3 +475,66 @@ class AddRecordsReport(StrictModel):
     assertions_emitted: int
     assertion_ids: list[str] = Field(default_factory=list)
     sync_positions: list[SyncPosition] = Field(default_factory=list)
+
+
+class ChangeEvent(StrictModel):
+    event_id: str
+    event_type: EventType
+    scope_id: str
+    subject_key: str
+    predicate: str
+    old_value: Any = None
+    new_value: Any = None
+    valid_from: datetime
+    recorded_at: datetime
+    origin: Origin
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class ExportSchemaProfile(StrictModel):
+    id: str
+    version: str
+
+
+class ExportSubject(StrictModel):
+    scope_id: str
+    subject_key: str
+    subject_type: str
+    title: str
+    normalized_title: str
+    source_ids: list[str] = Field(default_factory=list)
+    parent_subject_key: str | None = None
+    thread_ids: list[str] = Field(default_factory=list)
+
+
+class ExportSourceState(StrictModel):
+    source_id: str
+    uri: str | None = None
+    revoked_at: datetime | None = None
+
+
+class ExportEnvelope(StrictModel):
+    format: Literal["matterhorn-scope-export"] = "matterhorn-scope-export"
+    version: Literal[1] = 1
+    scope_id: str
+    schema_profile: ExportSchemaProfile
+    subjects: list[ExportSubject]
+    assertions: list[Assertion]
+    source_states: list[ExportSourceState]
+    events: list[ChangeEvent]
+
+
+class ImportReport(StrictModel):
+    scope_id: str
+    subjects: int
+    assertions: int
+    events: int
+    intervals: int
+    memory_cards: int
+
+
+class ReplayReport(StrictModel):
+    scope_id: str
+    intervals: int
+    memory_cards: int
+    events_emitted: int

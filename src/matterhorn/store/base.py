@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from matterhorn.contracts import (
     Assertion,
+    ChangeEvent,
     EpisodeCard,
     EvidenceRef,
     GateStatistics,
@@ -86,6 +87,8 @@ class Store(Protocol):
 
     def clear_scope(self, scope_id: str) -> None: ...
 
+    def scope_exists(self, scope_id: str) -> bool: ...
+
     def card_payload_hash(self, scope_id: str, card_id: str) -> str | None: ...
 
     def mark_card(self, scope_id: str, card_id: str, payload_hash: str) -> None: ...
@@ -116,6 +119,10 @@ class Store(Protocol):
     def source_states(
         self, scope_id: str, source_refs: list[SourceRef]
     ) -> list[EvidenceRef]: ...
+
+    def source_metadata(self, scope_id: str) -> list[EvidenceRef]: ...
+
+    def put_source_state(self, scope_id: str, source: EvidenceRef) -> None: ...
 
     def update_sync_position(
         self,
@@ -192,6 +199,26 @@ class Store(Protocol):
     ) -> None: ...
 
     def quiet_scopes(self, cutoff: datetime) -> list[str]: ...
+
+    def pending_scopes(self) -> list[str]: ...
+
+    def add_event(self, event: ChangeEvent) -> bool: ...
+
+    def events(
+        self, scope_id: str, *, since: datetime | None = None
+    ) -> list[ChangeEvent]: ...
+
+    def pending_webhook_events(
+        self, webhook_url: str, *, limit: int = 100
+    ) -> list[ChangeEvent]: ...
+
+    def mark_webhook_delivered(
+        self,
+        webhook_url: str,
+        event_ids: list[str],
+        *,
+        delivered_at: datetime,
+    ) -> None: ...
 
     def query_current_values(
         self,

@@ -85,6 +85,8 @@ sources must be section 3.1 namespaced Message-derived Record IDs.
 | `second_record_reports` | Ordered partial reports after exact Record re-ingest. |
 | `task_results` | Ordered partial task results for first-pass Message batches. |
 | `second_task_results` | Ordered partial results after exact Message re-add. |
+| `events` | Partial ChangeEvent mappings compared as an exact multiset. |
+| `replay_events_emitted` | Exact number of new events returned by replay. |
 
 For assertions and intervals, project each actual item onto exactly the keys in
 one expected mapping, then compare an order-insensitive exact multiset. The
@@ -106,7 +108,7 @@ Datetime comparison uses canonical UTC RFC 3339 with six fractional digits and
 
 Every successful case must additionally:
 
-1. snapshot assertions, intervals, memory cards, projection statistics,
+1. snapshot assertions, intervals, memory cards, projection statistics, events,
    subjects, Record observations, source lifecycle, and sync positions in
    canonical JSON;
 2. add the identical Message, card, and Record batches again;

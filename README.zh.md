@@ -12,10 +12,12 @@ mh init
 mh add demo-messages.yaml
 mh flush demo
 mh matters demo
+mh events demo
+mh export demo --out demo-snapshot.json
 ```
 
-`mh init` 会幂等地创建本地 SQLite 配置和一个离线 fixture 小样例。最后一条命令会
-打印类似下面的投影事项：
+`mh init` 会幂等地创建本地 SQLite 配置和一个离线 fixture 小样例。`mh matters`
+会打印类似下面的投影事项：
 
 ```json
 {
@@ -74,6 +76,21 @@ print(engine.task(receipt.task_id).gate)
 任务跨进程保留，并公开 gate 的接受数与分原因拒绝数。包括 `matters()` 在内的所有
 读取都不会调用 LLM。
 
+## 输出面与数据所有权
+
+- 查询答案与 MemoryCard 仍是带证据的确定性读取；
+- 投影变化会生成 `status_changed`、`matter_completed`、
+  `value_corrected` 等可溯源事件，可从 `engine.events()`、
+  `GET /v1/scopes/{scope}/events` 或 `mh events` 读取；
+- `mh serve --webhook-url URL` 以至少一次语义推送事件批次，并做有界重试；
+  消费方按确定性的 `event_id` 去重；
+- `mh export SCOPE` 是数据所有权的交付形式：一个版本化 JSON 文档，包含断言、
+  subjects、证据生命周期与派生事件历史；`mh import` 只导入空 store，并复现相同
+  投影和查询答案，人工纠错的 `origin=human` 原样保留。
+
+断言始终是唯一事实资产；事件来自投影差异，区间与 MemoryCard 都可重建。这个可携带
+的所有权边界，是开源记忆引擎承载团队长期知识时最重要的信任基础之一。
+
 ## 承诺边界
 
 ```text
@@ -104,14 +121,15 @@ P5。
 
 服务模式提供 `/v1/scopes/{scope_id}` 资源式 REST 和
 `/v1/tasks/{task_id}` 持久任务。只有 `mh serve` 运行静默期自动 flush（默认
-10 分钟）；嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
+10 分钟）；它也可按 UTC `daily_flush_at = "HH:MM"` 每日 flush，并推送事件
+webhook。嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
 
-唯一规范是 [spec/SPEC.md](spec/SPEC.md)。43 个语言无关 golden 用例已经覆盖
+唯一规范是 [spec/SPEC.md](spec/SPEC.md)。47 个语言无关 golden 用例已经覆盖
 消息入口、跨会话同 ID 隔离，以及 receipt/flush 幂等重放：
 
 ```console
 $ mh conformance run
-SUMMARY passed=43 failed=0 total=43
+SUMMARY passed=47 failed=0 total=47
 ```
 
 ## 文档
@@ -120,6 +138,7 @@ SUMMARY passed=43 failed=0 total=43
 - [核心概念与承诺边界](docs/core-concepts.md)
 - [MCP 与 Claude Code](docs/mcp-claude-code.md)
 - [人工纠错](docs/corrections.md)
+- [事件与 webhook 投递](docs/webhooks.md)
 - [Slack / Record 集成](docs/slack.md)
 - [Schema 编写](docs/schema-authoring.md)
 - [PostgreSQL 部署](docs/postgresql.md)

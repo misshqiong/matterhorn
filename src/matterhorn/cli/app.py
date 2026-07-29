@@ -11,9 +11,11 @@ from typing import Any
 import typer
 import yaml
 
-from matterhorn.contracts import Correction
+from matterhorn.contracts import Correction, ExportEnvelope
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
+from matterhorn.engine.canonical import canonical_json
 from matterhorn.engine.engine import Engine
+from matterhorn.errors import ResourceNotFoundError
 
 app = typer.Typer(help="Matterhorn deterministic temporal memory engine.")
 query_app = typer.Typer(help="Read projected memory without an LLM.")
@@ -278,9 +280,85 @@ def task(
 
     try:
         result = _engine(db, schema, schema_dir).task(task_id)
-    except KeyError as error:
+    except ResourceNotFoundError as error:
         raise typer.BadParameter(str(error)) from error
     _print(result.model_dump(mode="json"))
+
+
+@app.command("events")
+def events(
+    scope_id: str | None = typer.Argument(None),
+    since: str | None = typer.Option(
+        None, help="Inclusive RFC 3339 recorded_at lower bound."
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """List deterministic projection-derived change events."""
+
+    engine = _engine(db, schema, schema_dir)
+    selected_scope = _scope(scope_id)
+    if not engine.scope_exists(selected_scope):
+        raise typer.BadParameter(f"unknown scope_id: {selected_scope}")
+    try:
+        result = engine.events(selected_scope, since=since)
+    except ValueError as error:
+        raise typer.BadParameter("since MUST be an RFC 3339 timestamp") from error
+    _print([item.model_dump(mode="json") for item in result])
+
+
+@app.command("export")
+def export_scope(
+    scope_id: str | None = typer.Argument(None),
+    out: Path | None = typer.Option(
+        None, help="Write the versioned JSON envelope to this file."
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Export one scope's owned assertion asset as a JSON document."""
+
+    try:
+        snapshot = _engine(db, schema, schema_dir).export(_scope(scope_id))
+    except Exception as error:
+        raise typer.BadParameter(str(error)) from error
+    payload = canonical_json(snapshot.model_dump(mode="json")) + "\n"
+    if out is None:
+        typer.echo(payload, nl=False)
+    else:
+        out.write_text(payload, encoding="utf-8")
+        typer.echo(f"Exported {snapshot.scope_id} to {out}")
+
+
+@app.command("import")
+def import_scope(
+    input_file: Path = typer.Argument(..., exists=True, readable=True),
+    db: str = typer.Option(DEFAULT_DB),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Import a versioned scope export into an empty store."""
+
+    try:
+        snapshot = ExportEnvelope.model_validate_json(
+            input_file.read_text(encoding="utf-8")
+        )
+    except Exception as error:
+        raise typer.BadParameter(f"invalid Matterhorn export: {error}") from error
+    try:
+        profile = resolve_schema(snapshot.schema_profile.id, schema_dir=schema_dir)
+    except FileNotFoundError as error:
+        raise typer.BadParameter(
+            "export schema profile is not available locally: "
+            f"{snapshot.schema_profile.id}"
+        ) from error
+    selected_db = str(_setting(db, DEFAULT_DB, "db"))
+    try:
+        report = Engine(selected_db, profile).import_snapshot(snapshot)
+    except Exception as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(report.model_dump(mode="json"))
 
 
 @app.command()
@@ -682,12 +760,13 @@ def replay(
 ) -> None:
     """Delete and deterministically rebuild intervals and memory cards."""
     engine = _engine(db, schema, schema_dir)
-    engine.replay(scope_id)
+    report = engine.replay(scope_id)
     _print(
         {
             "scope_id": scope_id,
-            "intervals": len(engine.store.intervals(scope_id)),
-            "memory_cards": len(engine.store.memory_cards(scope_id)),
+            "intervals": report.intervals,
+            "memory_cards": report.memory_cards,
+            "events_emitted": report.events_emitted,
             "status": "rebuilt",
         }
     )
@@ -770,8 +849,16 @@ def serve(
         None,
         help="Auto-flush quiet message scopes; config default is 10 minutes.",
     ),
+    daily_flush_at: str | None = typer.Option(
+        None,
+        help="Daily UTC auto-flush time as HH:MM; may come from config.",
+    ),
+    webhook_url: str | None = typer.Option(
+        None,
+        help="POST new event batches; may come from config webhook_url.",
+    ),
 ) -> None:
-    """Serve REST with service-mode-only quiet-period auto-flush."""
+    """Serve REST with service-only scheduling and optional event webhooks."""
     import uvicorn
 
     from matterhorn.api import create_app
@@ -782,6 +869,8 @@ def serve(
         if quiet_period_minutes is not None
         else float(config.get("quiet_period_minutes", 10))
     )
+    daily = daily_flush_at or config.get("daily_flush_at")
+    webhook = webhook_url or config.get("webhook_url")
     uvicorn.run(
         create_app(
             engine=_engine(
@@ -791,6 +880,8 @@ def serve(
                 gateway=_write_gateway(provider, base_url, api_key, model),
             ),
             quiet_period_minutes=quiet,
+            daily_flush_at=daily,
+            webhook_url=webhook,
         ),
         host=host,
         port=port,

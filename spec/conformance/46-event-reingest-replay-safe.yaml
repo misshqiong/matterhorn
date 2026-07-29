@@ -1,0 +1,25 @@
+case_id: event-reingest-replay-safe
+title: Re-ingest and replay emit zero duplicate events
+invariants: [P7, P9, INV-2, INV-3]
+schema_profile: org-matters/v1
+scope_id: event-replay
+clock: ["2026-07-29T08:00:00Z"]
+cards:
+  - card_id: replay-event-card
+    scope_id: event-replay
+    subject_key: release
+    date: 2026-07-29
+    title: Release
+    status: open
+    source_refs:
+      - {source_id: m1, sent_at: "2026-07-29T07:55:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, object_value: open}
+  intervals:
+    - {predicate: status, object_value: open}
+  events:
+    - {event_type: matter_created, predicate: status, new_value: open}
+    - {event_type: status_changed, predicate: status, old_value: null, new_value: open}
+  replay_events_emitted: 0

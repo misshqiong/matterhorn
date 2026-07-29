@@ -1,0 +1,38 @@
+case_id: status-change-event
+title: A projected status change emits one from-to event
+invariants: [P7, P9, INV-3]
+schema_profile: org-matters/v1
+scope_id: event-status
+clock:
+  - "2026-07-29T08:00:00Z"
+  - "2026-07-29T08:05:00Z"
+cards:
+  - card_id: status-event-card
+    scope_id: event-status
+    subject_key: release
+    date: 2026-07-29
+    title: Release
+    progress: Work started
+    source_refs:
+      - {source_id: m1, sent_at: "2026-07-29T07:55:00Z", sender: u1}
+corrections:
+  - scope_id: event-status
+    subject_key: release
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    valid_from: "2026-07-29T08:00:00Z"
+    source_refs:
+      - {source_id: h1, sent_at: "2026-07-29T08:04:00Z", sender: human}
+expect:
+  assertions:
+    - {predicate: progress, object_value: Work started}
+    - {predicate: status, object_value: open, origin: human}
+  intervals:
+    - {predicate: progress, object_value: Work started}
+    - {predicate: status, object_value: open, origin: human}
+  events:
+    - {event_type: matter_created, predicate: progress, old_value: null, new_value: Work started}
+    - {event_type: status_changed, predicate: status, old_value: null, new_value: open, origin: human}
+  replay_events_emitted: 0

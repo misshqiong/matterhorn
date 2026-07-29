@@ -13,10 +13,12 @@ mh init
 mh add demo-messages.yaml
 mh flush demo
 mh matters demo
+mh events demo
+mh export demo --out demo-snapshot.json
 ```
 
 `mh init` creates an idempotent local SQLite setup and a tiny offline fixture
-demo. The last command prints a projected matter such as:
+demo. `mh matters` prints a projected matter such as:
 
 ```json
 {
@@ -87,6 +89,24 @@ print(engine.task(receipt.task_id).gate)
 restart and expose accepted/rejected gate counts. Reads, including
 `matters()`, never call an LLM.
 
+## Output surfaces and ownership
+
+- Query answers and MemoryCards remain deterministic, evidence-backed reads.
+- Projection changes become traceable events such as `status_changed`,
+  `matter_completed`, and `value_corrected`; read them with
+  `engine.events()`, `GET /v1/scopes/{scope}/events`, or `mh events`.
+- `mh serve --webhook-url URL` delivers event batches at least once with
+  bounded retry. Consumers deduplicate by deterministic `event_id`.
+- `mh export SCOPE` is the data-ownership handoff: one versioned JSON document
+  containing the assertions, subjects, evidence lifecycle, and derived event
+  history. `mh import` accepts it into an empty store and reproduces the same
+  projections and query answers without changing human correction origin.
+
+Assertions remain the asset and the only source of truth. Events are generated
+from projection diffs, while intervals and MemoryCards are rebuildable views.
+This portable ownership boundary is central to trusting an open-source memory
+engine with durable team knowledge.
+
 ## The promise boundary
 
 ```text
@@ -121,15 +141,16 @@ provenance.
 Service mode exposes resource-style REST endpoints under
 `/v1/scopes/{scope_id}` and persistent tasks under `/v1/tasks/{task_id}`.
 `mh serve` alone runs quiet-period auto-flush (10 minutes by default);
-embedded mode remains host-driven through `flush()` or `wait=True`.
+it can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
+Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 43
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 47
 language-neutral golden cases include the Message door, conversation-scoped ID
 collision protection, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=43 failed=0 total=43
+SUMMARY passed=47 failed=0 total=47
 ```
 
 ## Guides
@@ -138,6 +159,7 @@ SUMMARY passed=43 failed=0 total=43
 - [Core concepts and the promise boundary](docs/core-concepts.md)
 - [MCP and Claude Code](docs/mcp-claude-code.md)
 - [Human correction](docs/corrections.md)
+- [Events and webhook delivery](docs/webhooks.md)
 - [Slack and Record integrations](docs/slack.md)
 - [Schema authoring](docs/schema-authoring.md)
 - [PostgreSQL deployment](docs/postgresql.md)

@@ -79,6 +79,7 @@ def test_add_is_llm_free_and_task_survives_restart(tmp_path) -> None:
     second.flush("team")
     assert second.task(receipt.task_id) == TaskResult.model_validate(
         {
+            "task_id": receipt.task_id,
             "status": "completed",
             "cards_produced": 1,
             "new_assertions": 3,
@@ -100,6 +101,36 @@ def test_wait_returns_completed_result_inline(tmp_path) -> None:
     assert isinstance(result, TaskResult)
     assert result.status == TaskStatus.completed
     assert result.cards_produced == 1
+    assert result.task_id.startswith("task_")
+
+
+def test_wait_cards_returns_completed_result_with_task_id(tmp_path) -> None:
+    result = Engine(
+        tmp_path / "wait-cards.db",
+        llm=FacadeGateway(),
+        clock=lambda: datetime(2026, 7, 29, 8, tzinfo=UTC),
+    ).add_cards(
+        [
+            {
+                "card_id": "c1",
+                "scope_id": "team",
+                "date": "2026-07-28",
+                "title": "Launch",
+                "status": "open",
+                "source_refs": [
+                    {
+                        "source_id": "team:m1",
+                        "sent_at": "2026-07-28T14:00:00Z",
+                        "sender": "u1",
+                    }
+                ],
+            }
+        ],
+        wait=True,
+    )
+    assert isinstance(result, TaskResult)
+    assert result.status == TaskStatus.completed
+    assert result.task_id.startswith("task_")
 
 
 def test_ingest_is_a_deprecated_alias_for_add_cards(tmp_path) -> None:

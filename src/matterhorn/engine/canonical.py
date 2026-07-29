@@ -70,3 +70,31 @@ def derive_assertion_id(
 
 def stable_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def derive_event_id(
+    event_type: Any,
+    scope_id: str,
+    subject_key: str,
+    predicate: str,
+    old_value: Any,
+    new_value: Any,
+    valid_from: datetime,
+    recorded_at: datetime,
+    origin: Any,
+    source_ids: list[str],
+) -> str:
+    return stable_hash(
+        [
+            getattr(event_type, "value", event_type),
+            scope_id,
+            subject_key,
+            predicate,
+            old_value,
+            new_value,
+            instant_text(valid_from),
+            instant_text(recorded_at),
+            getattr(origin, "value", origin),
+            source_ids,
+        ]
+    )

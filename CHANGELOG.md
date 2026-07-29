@@ -3,6 +3,27 @@
 All notable changes follow Keep a Changelog conventions. Matterhorn uses
 semantic versioning.
 
+## [0.6.0] - 2026-07-29
+
+### Added
+
+- Projection-diff change events with deterministic IDs, SQLite/PostgreSQL
+  persistence, SDK/REST/CLI reads, completion/blocking/correction semantics,
+  and replay-safe golden conformance.
+- Optional at-least-once webhook delivery with bounded exponential retry;
+  consumers deduplicate by `event_id`.
+- Versioned scope export/import carrying the assertion asset, subject identity,
+  evidence lifecycle, human correction origin, and derived event history.
+- Service-only UTC `daily_flush_at` scheduling with an injectable clock.
+- Four language-neutral output-surface cases, bringing the suite to 47.
+
+### Fixed
+
+- Unknown task, scope, and subject resources now return structured 404 errors
+  instead of leaking lookup exceptions.
+- Synchronous message and card REST writes now include `task_id` in the
+  completed result.
+
 ## [0.5.0] - 2026-07-29
 
 ### Added

@@ -3,7 +3,7 @@
 这份手册让你**亲手验证**引擎是否兑现了立项承诺，而不是读代码或相信测试名字。
 
 每个步骤都给出：**命令** → **期望输出** → **看到别的说明什么坏了**。
-本文所有命令都在 macOS / Python 3.12 上实跑验证过。M5 的 SQLite 命令于
+本文所有命令都在 macOS / Python 3.12 上实跑验证过。M6 的 SQLite 命令于
 2026-07-29 再次实跑；当前沙箱无法连接 PostgreSQL，所以 §6 保留为宿主机验收
 步骤，不把它记作本轮观察结果。
 
@@ -100,15 +100,25 @@ Next:
 ./.venv/bin/python -m pytest -q
 ```
 
-**本次实跑**：`131 passed, 43 skipped, 7 warnings`。43 个 skip 是 PostgreSQL
+**本次实跑**：`143 passed, 47 skipped, 7 warnings`。47 个 skip 是 PostgreSQL
 conformance 用例——没设 DSN 时跳过，§6 会把它们跑起来。7 个 warning 全部来自
 旧 `ChatMessage` 兼容测试触发的预期弃用提示。
+
+窄终端也实际跑了整套，而不只是看 help：
+
+```bash
+env COLUMNS=32 LINES=20 NO_COLOR=1 .venv/bin/python -m pytest -q
+```
+
+真实汇总同样是 `143 passed, 47 skipped, 7 warnings`；此外 `mh --help`、
+`mh serve --help`、`mh export --help`、`mh import --help` 在 32 列下退出码均为
+0。
 
 ```bash
 ./.venv/bin/mh conformance run
 ```
 
-**期望**：最后一行 `SUMMARY passed=43 failed=0 total=43`。
+**期望**：最后一行 `SUMMARY passed=47 failed=0 total=47`。
 
 ---
 
@@ -330,9 +340,9 @@ YAML
 
 **期望**：第一次 `"assertions_emitted": 1`，**第二次 `0`**（幂等），`replay` 报 `"status": "rebuilt"`。
 
-> 这两条不用你单独验也行——**conformance runner 对 43 个用例中的每一个都会自动
+> 这两条不用你单独验也行——**conformance runner 对 47 个用例中的每一个都会自动
 > 额外跑两遍**：重复 ingest 断言状态不变、replay 重建后区间集完全相等。
-> 也就是说 INV-2/INV-3 是被 43 次而不是 1 次守住的。
+> 也就是说 INV-2/INV-3 是被 47 次而不是 1 次守住的。
 
 ### 3.6 INV-1 / INV-7：封闭谓词与溯源必备
 
@@ -556,6 +566,130 @@ tools: ['add_cards', 'add_messages', 'add_records', 'correct', 'list_matters',
 
 **实跑输出**：`3 passed in 0.52s`。
 
+### 5.5 M6：事件 → 人工纠错 → export/import → 零事件重放
+
+下面是 2026-07-29 在一个全新临时目录里的实际命令链；仍使用 `mh init` 的离线
+fixture，不访问网络：
+
+```bash
+D=$(mktemp -d /tmp/matterhorn-m6-journey.XXXXXX)
+cd "$D"
+/absolute/path/to/.venv/bin/mh init
+/absolute/path/to/.venv/bin/mh add demo-messages.yaml
+/absolute/path/to/.venv/bin/mh flush demo
+/absolute/path/to/.venv/bin/mh matters demo
+/absolute/path/to/.venv/bin/mh events demo
+```
+
+首批事件的真实核心输出（ID 与时间来自本次实跑）：
+
+```text
+status_changed id=06820184... old=null new=in_progress
+matter_created id=84615d7f... predicate=next_step
+subject_key=sub_4ad6c81d95364b1dc371
+```
+
+接着用同一有效时间做人工纠错，再查看事件：
+
+```bash
+/absolute/path/to/.venv/bin/mh correct \
+  --scope-id demo \
+  --subject-key sub_4ad6c81d95364b1dc371 \
+  --subject-type MATTER \
+  --predicate status \
+  --object-value done \
+  --valid-from 2026-07-28T00:00:00Z \
+  --source-ref \
+  '{"source_id":"human-acceptance","sent_at":"2026-07-29T08:00:00Z","sender":"human"}'
+/absolute/path/to/.venv/bin/mh events demo
+```
+
+真实新增事件：
+
+```text
+value_corrected id=19f182a2... old=in_progress new=done
+  origin=human source_ids=["human-acceptance"]
+matter_completed id=a5b7aa3d... old=in_progress new=done
+status_changed id=ed6bd3d4... old=in_progress new=done
+```
+
+最后交付资产并在全新数据库恢复：
+
+```bash
+/absolute/path/to/.venv/bin/mh export demo --out demo-export.json
+/absolute/path/to/.venv/bin/mh import demo-export.json --db restored.db
+/absolute/path/to/.venv/bin/mh matters demo
+/absolute/path/to/.venv/bin/mh matters demo --db restored.db
+/absolute/path/to/.venv/bin/mh query current \
+  demo sub_4ad6c81d95364b1dc371 status
+/absolute/path/to/.venv/bin/mh query current \
+  demo sub_4ad6c81d95364b1dc371 status --db restored.db
+/absolute/path/to/.venv/bin/mh replay demo --db restored.db
+```
+
+本次实跑结果：
+
+```text
+import: subjects=1 assertions=6 events=5 intervals=5 memory_cards=1
+matters_identical = True
+query_answers_identical = True
+restored_origin = human
+replay: intervals=5 memory_cards=1 events_emitted=0 status=rebuilt
+```
+
+这组结果同时守住四件事：事件来自投影变化；人工纠错的 `origin` 和证据不丢；
+导出是完整的数据所有权交付；重放不会重复历史事件。
+
+### 5.6 M6：本地 ASGI webhook 与结构化 404
+
+仓库测试没有访问网络。下面的实际 receiver 是同进程 FastAPI app，
+`httpx.ASGITransport` 直接把 webhook POST 送进去：
+
+```bash
+./.venv/bin/python -m pytest -q \
+  tests/test_outputs.py::test_webhook_retries_to_in_process_asgi_receiver_and_dedupes
+```
+
+完整手工实跑还打印了 receiver 收到的批次：
+
+```text
+RECEIVED {"events":[
+  {"event_type":"matter_created","event_id":"0a65de16..."},
+  {"event_type":"status_changed","event_id":"34d47a04..."},
+  {"event_type":"matter_completed","event_id":"ba808d94..."}
+]}
+delivered = 3
+attempts = 1
+second_delivery = 0
+```
+
+`second_delivery = 0` 证明成功批次已经本地确认；测试版本会让 receiver 第一次返回
+503，再在第二次成功，且把 sleep 注入为空实现，因此覆盖有界退避但不做 wall-clock
+等待。生产语义仍是 at-least-once，consumer 必须按 `event_id` 去重。
+
+用同一个 ASGI 客户端实际请求未知资源，响应如下：
+
+```text
+unknown task 404
+{"error":{"code":"NOT_FOUND","message":"unknown task_id: missing"}}
+unknown scope 404
+{"error":{"code":"NOT_FOUND","message":"unknown scope_id: missing"}}
+unknown subject 404
+{"error":{"code":"NOT_FOUND",
+ "message":"unknown subject_key 'missing' in scope 'known'"}}
+```
+
+同一轮还实际调用了两个同步写端点：
+
+```text
+wait cards 200
+{"status":"completed","task_id":"task_8eae2114...","cards_produced":1,...}
+wait messages 200
+{"status":"completed","task_id":"task_a1742ab1...","cards_produced":1,...}
+```
+
+因此 cards/messages 的 `wait: true` 都保留了可重新查询的 `task_id`。
+
 ---
 
 ## 6. 双后端验收（PostgreSQL）
@@ -586,11 +720,11 @@ MATTERHORN_TEST_POSTGRES_DSN="postgresql://matterhorn@127.0.0.1:55432/matterhorn
   --dsn "postgresql://matterhorn@127.0.0.1:55432/matterhorn"
 ```
 
-**期望**：`174 passed`、零失败、零 skip，
-`SUMMARY passed=43 failed=0 total=43`。这是 §1 的 131 个本地通过项
-加上 43 个 PostgreSQL conformance 用例；本轮沙箱没有把它观察成实跑结果。
+**期望**：`190 passed`、零失败、零 skip，
+`SUMMARY passed=47 failed=0 total=47`。这是 §1 的 143 个本地通过项
+加上 47 个 PostgreSQL conformance 用例；本轮沙箱没有把它观察成实跑结果。
 
-若仍看到 `43 skipped`，说明 DSN 没生效，PG 根本没被验证。
+若仍看到 `47 skipped`，说明 DSN 没生效，PG 根本没被验证。
 
 **进阶：验证排序不依赖数据库 locale**（一个答案取决于部署 locale 的规范不算规范）：
 
@@ -675,4 +809,4 @@ PGDIR=$(mktemp -d)/pgdata && mkdir -p $PGDIR \
   ; pg_ctl -D $PGDIR stop >/dev/null && rm -rf $PGDIR
 ```
 
-**通过标准**：零失败，零 skip；43 个 PostgreSQL conformance 用例全部执行。
+**通过标准**：零失败，零 skip；47 个 PostgreSQL conformance 用例全部执行。

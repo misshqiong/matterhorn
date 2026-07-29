@@ -1,0 +1,39 @@
+case_id: value-corrected-event
+title: A human correction emits a traceable value-corrected event
+invariants: [P7, P8, P9, INV-9]
+schema_profile: org-matters/v1
+scope_id: event-correction
+clock:
+  - "2026-07-29T08:00:00Z"
+  - "2026-07-29T08:05:00Z"
+cards:
+  - card_id: correction-event-card
+    scope_id: event-correction
+    subject_key: release
+    date: 2026-07-29
+    title: Release
+    status: blocked
+    source_refs:
+      - {source_id: m1, sent_at: "2026-07-29T07:55:00Z", sender: u1}
+corrections:
+  - scope_id: event-correction
+    subject_key: release
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    valid_from: "2026-07-29T00:00:00Z"
+    source_refs:
+      - {source_id: h1, sent_at: "2026-07-29T08:04:00Z", sender: human}
+expect:
+  assertions:
+    - {predicate: status, object_value: blocked, origin: model}
+    - {predicate: status, object_value: open, origin: human}
+  intervals:
+    - {predicate: status, object_value: open, origin: human}
+  events:
+    - {event_type: matter_created, predicate: status, new_value: blocked}
+    - {event_type: status_changed, predicate: status, old_value: null, new_value: blocked}
+    - {event_type: status_changed, predicate: status, old_value: blocked, new_value: open, origin: human}
+    - {event_type: value_corrected, predicate: status, old_value: blocked, new_value: open, origin: human, source_ids: [h1]}
+  replay_events_emitted: 0

@@ -10,6 +10,7 @@ from threading import RLock
 
 from matterhorn.contracts import (
     Assertion,
+    ChangeEvent,
     EpisodeCard,
     EvidenceRef,
     EvidenceStatus,
@@ -23,7 +24,7 @@ from matterhorn.contracts import (
     TaskResult,
     TaskStatus,
 )
-from matterhorn.engine.canonical import canonical_json, instant_text
+from matterhorn.engine.canonical import canonical_json, derive_event_id, instant_text
 from matterhorn.engine.identity import SubjectRecord
 from matterhorn.store.base import (
     DistillQueueItem,
@@ -170,6 +171,28 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_scope_status
     ON tasks(scope_id, status, created_at, task_id);
+CREATE TABLE IF NOT EXISTS events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    old_value_json TEXT NOT NULL,
+    new_value_json TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    source_ids_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_scope_recorded
+    ON events(scope_id, recorded_at, event_id);
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    scope_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    webhook_url TEXT NOT NULL,
+    delivered_at TEXT NOT NULL,
+    PRIMARY KEY (event_id, webhook_url)
+);
 """
 
 
@@ -270,6 +293,8 @@ class SQLiteStore:
     def clear_scope(self, scope_id: str) -> None:
         with self.transaction():
             for table in (
+                "webhook_deliveries",
+                "events",
                 "tasks",
                 "distill_queue",
                 "gate_stats",
@@ -286,6 +311,23 @@ class SQLiteStore:
                 self.connection.execute(
                     f"DELETE FROM {table} WHERE scope_id=?", (scope_id,)
                 )
+
+    def scope_exists(self, scope_id: str) -> bool:
+        tables = (
+            "subjects",
+            "assertions",
+            "tasks",
+            "events",
+            "ingested_cards",
+            "record_observations",
+        )
+        return any(
+            self.connection.execute(
+                f"SELECT 1 FROM {table} WHERE scope_id=? LIMIT 1", (scope_id,)
+            ).fetchone()
+            is not None
+            for table in tables
+        )
 
     def card_payload_hash(self, scope_id: str, card_id: str) -> str | None:
         row = self.connection.execute(
@@ -402,6 +444,49 @@ class SQLiteStore:
                 )
             )
         return result
+
+    def source_metadata(self, scope_id: str) -> list[EvidenceRef]:
+        rows = self.connection.execute(
+            """
+            SELECT source_id,uri,revoked_at FROM evidence_sources
+            WHERE scope_id=? ORDER BY source_id COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return [
+            EvidenceRef(
+                source_id=row["source_id"],
+                uri=row["uri"],
+                status=(
+                    EvidenceStatus.revoked
+                    if row["revoked_at"] is not None
+                    else EvidenceStatus.active
+                ),
+                revoked_at=row["revoked_at"],
+            )
+            for row in rows
+        ]
+
+    def put_source_state(self, scope_id: str, source: EvidenceRef) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO evidence_sources(scope_id,source_id,uri,revoked_at)
+            VALUES(?,?,?,?)
+            ON CONFLICT(scope_id,source_id) DO UPDATE SET
+              uri=excluded.uri,
+              revoked_at=excluded.revoked_at
+            """,
+            (
+                scope_id,
+                source.source_id,
+                source.uri,
+                (
+                    instant_text(source.revoked_at)
+                    if source.revoked_at is not None
+                    else None
+                ),
+            ),
+        )
 
     def update_sync_position(
         self,
@@ -752,6 +837,117 @@ class SQLiteStore:
         )
         return [row["scope_id"] for row in rows]
 
+    def pending_scopes(self) -> list[str]:
+        rows = self.connection.execute(
+            """
+            SELECT DISTINCT scope_id FROM tasks
+            WHERE status=?
+            ORDER BY scope_id COLLATE BINARY
+            """,
+            (TaskStatus.pending.value,),
+        )
+        return [row["scope_id"] for row in rows]
+
+    def add_event(self, event: ChangeEvent) -> bool:
+        expected_id = derive_event_id(
+            event.event_type,
+            event.scope_id,
+            event.subject_key,
+            event.predicate,
+            event.old_value,
+            event.new_value,
+            event.valid_from,
+            event.recorded_at,
+            event.origin,
+            event.source_ids,
+        )
+        if event.event_id != expected_id:
+            raise ValueError("event_id does not match the deterministic payload hash")
+        existing = self.connection.execute(
+            "SELECT * FROM events WHERE event_id=?", (event.event_id,)
+        ).fetchone()
+        if existing is not None:
+            prior = self._row_to_event(existing)
+            if canonical_json(prior.model_dump(mode="json")) != canonical_json(
+                event.model_dump(mode="json")
+            ):
+                raise ValueError("event_id collision with different event payload")
+            return False
+        self.connection.execute(
+            """
+            INSERT INTO events(
+              event_id,event_type,scope_id,subject_key,predicate,
+              old_value_json,new_value_json,valid_from,recorded_at,origin,
+              source_ids_json
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            self._event_tuple(event),
+        )
+        return True
+
+    def events(
+        self, scope_id: str, *, since: datetime | None = None
+    ) -> list[ChangeEvent]:
+        sql = "SELECT * FROM events WHERE scope_id=?"
+        parameters: tuple = (scope_id,)
+        if since is not None:
+            sql += " AND recorded_at>=?"
+            parameters = (scope_id, instant_text(since))
+        sql += " ORDER BY recorded_at,event_id COLLATE BINARY"
+        return [
+            self._row_to_event(row)
+            for row in self.connection.execute(sql, parameters)
+        ]
+
+    def pending_webhook_events(
+        self, webhook_url: str, *, limit: int = 100
+    ) -> list[ChangeEvent]:
+        rows = self.connection.execute(
+            """
+            SELECT e.* FROM events e
+            WHERE NOT EXISTS (
+              SELECT 1 FROM webhook_deliveries d
+              WHERE d.event_id=e.event_id AND d.webhook_url=?
+            )
+            ORDER BY e.recorded_at,e.event_id COLLATE BINARY
+            LIMIT ?
+            """,
+            (webhook_url, limit),
+        )
+        return [self._row_to_event(row) for row in rows]
+
+    def mark_webhook_delivered(
+        self,
+        webhook_url: str,
+        event_ids: list[str],
+        *,
+        delivered_at: datetime,
+    ) -> None:
+        if not event_ids:
+            return
+        placeholders = ",".join("?" for _ in event_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT event_id,scope_id FROM events
+            WHERE event_id IN ({placeholders})
+            """,
+            tuple(event_ids),
+        )
+        scope_by_event = {row["event_id"]: row["scope_id"] for row in rows}
+        delivered_text = instant_text(delivered_at)
+        self.connection.executemany(
+            """
+            INSERT OR IGNORE INTO webhook_deliveries(
+              scope_id,event_id,webhook_url,delivered_at
+            ) VALUES(?,?,?,?)
+            """,
+            [
+                (scope_by_event[event_id], event_id, webhook_url, delivered_text)
+                for event_id in event_ids
+                if event_id in scope_by_event
+            ],
+        )
+
     def query_current_values(
         self,
         scope_id: str,
@@ -992,6 +1188,22 @@ class SQLiteStore:
         )
 
     @staticmethod
+    def _event_tuple(event: ChangeEvent) -> tuple:
+        return (
+            event.event_id,
+            event.event_type.value,
+            event.scope_id,
+            event.subject_key,
+            event.predicate,
+            canonical_json(event.old_value),
+            canonical_json(event.new_value),
+            instant_text(event.valid_from),
+            instant_text(event.recorded_at),
+            event.origin.value,
+            canonical_json(event.source_ids),
+        )
+
+    @staticmethod
     def _row_to_assertion(row: sqlite3.Row) -> Assertion:
         return Assertion.model_validate(
             {
@@ -1030,6 +1242,24 @@ class SQLiteStore:
                 ),
                 "source_refs": json.loads(row["source_refs_json"]),
                 "origin": row["origin"],
+            }
+        )
+
+    @staticmethod
+    def _row_to_event(row: sqlite3.Row) -> ChangeEvent:
+        return ChangeEvent.model_validate(
+            {
+                "event_id": row["event_id"],
+                "event_type": row["event_type"],
+                "scope_id": row["scope_id"],
+                "subject_key": row["subject_key"],
+                "predicate": row["predicate"],
+                "old_value": json.loads(row["old_value_json"]),
+                "new_value": json.loads(row["new_value_json"]),
+                "valid_from": row["valid_from"],
+                "recorded_at": row["recorded_at"],
+                "origin": row["origin"],
+                "source_ids": json.loads(row["source_ids_json"]),
             }
         )
 
@@ -1074,6 +1304,7 @@ class SQLiteStore:
             created_at=row["created_at"],
             newest_message_at=row["newest_message_at"],
             result=TaskResult(
+                task_id=row["task_id"],
                 status=status,
                 cards_produced=row["cards_produced"],
                 new_assertions=row["new_assertions"],

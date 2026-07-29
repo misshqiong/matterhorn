@@ -1,0 +1,26 @@
+case_id: completion-event
+title: Entering a profile completion value emits matter-completed
+invariants: [P7, P9, INV-3]
+schema_profile: org-matters/v1
+scope_id: event-completion
+clock: ["2026-07-29T08:00:00Z"]
+cards:
+  - card_id: completion-event-card
+    scope_id: event-completion
+    subject_key: release
+    date: 2026-07-29
+    title: Release
+    status: done
+    source_refs:
+      - {source_id: m1, sent_at: "2026-07-29T07:55:00Z", sender: u1}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, object_value: done}
+  intervals:
+    - {predicate: status, object_value: done}
+  events:
+    - {event_type: matter_created, predicate: status, new_value: done}
+    - {event_type: status_changed, predicate: status, old_value: null, new_value: done}
+    - {event_type: matter_completed, predicate: status, old_value: null, new_value: done}
+  replay_events_emitted: 0

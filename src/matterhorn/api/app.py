@@ -18,7 +18,15 @@ from matterhorn.api.models import (
     SubjectListResponse,
     ValueListResponse,
 )
-from matterhorn.contracts import Assertion, TaskReceipt, TaskResult
+from matterhorn.contracts import (
+    Assertion,
+    ChangeEvent,
+    ExportEnvelope,
+    TaskReceipt,
+    TaskResult,
+)
+from matterhorn.errors import MatterhornError
+from matterhorn.scheduler import ServiceScheduler
 from matterhorn.service import MatterhornService
 
 
@@ -27,7 +35,13 @@ def create_app(
     engine: Any = None,
     service: MatterhornService | None = None,
     quiet_period_minutes: float | None = None,
+    daily_flush_at: str | None = None,
+    scheduler_clock: Any = None,
     scheduler_poll_seconds: float = 30,
+    webhook_url: str | None = None,
+    webhook_transport: Any = None,
+    webhook_max_attempts: int = 3,
+    webhook_backoff_seconds: float = 1,
 ) -> FastAPI:
     if service is None:
         if engine is None:
@@ -37,14 +51,36 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         task = None
-        if quiet_period_minutes is not None:
+        scheduler = (
+            ServiceScheduler(
+                service.engine,
+                quiet_period_minutes=quiet_period_minutes,
+                daily_flush_at=daily_flush_at,
+                clock=scheduler_clock,
+            )
+            if quiet_period_minutes is not None or daily_flush_at is not None
+            else None
+        )
+        dispatcher = None
+        if webhook_url is not None:
+            from matterhorn.webhooks import WebhookDispatcher
+
+            dispatcher = WebhookDispatcher(
+                service.engine.store,
+                webhook_url,
+                transport=webhook_transport,
+                max_attempts=webhook_max_attempts,
+                backoff_seconds=webhook_backoff_seconds,
+            )
+        if scheduler is not None or dispatcher is not None:
 
             async def loop() -> None:
                 while True:
+                    if scheduler is not None:
+                        await asyncio.to_thread(scheduler.tick)
+                    if dispatcher is not None:
+                        await dispatcher.deliver_pending()
                     await asyncio.sleep(scheduler_poll_seconds)
-                    await asyncio.to_thread(
-                        service.engine.flush_quiet, quiet_period_minutes
-                    )
 
             task = asyncio.create_task(loop())
             application.state.scheduler_task = task
@@ -60,7 +96,7 @@ def create_app(
 
     app = FastAPI(
         title="Matterhorn Memory API",
-        version="0.5.0",
+        version="0.6.0",
         description="Deterministic, evidence-backed temporal memory protocol.",
         lifespan=lifespan,
     )
@@ -76,6 +112,20 @@ def create_app(
             content={
                 "error": {
                     "code": "REQUEST_VALIDATION_ERROR",
+                    "message": str(error),
+                }
+            },
+        )
+
+    @app.exception_handler(MatterhornError)
+    async def matterhorn_error(
+        _request: Request, error: MatterhornError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "error": {
+                    "code": error.code,
                     "message": str(error),
                 }
             },
@@ -195,5 +245,19 @@ def create_app(
     @app.get("/v1/tasks/{task_id}", response_model=TaskResult)
     def task(task_id: str):
         return service.task(task_id=task_id)
+
+    @app.get(
+        "/v1/scopes/{scope_id}/events",
+        response_model=list[ChangeEvent],
+    )
+    def events(scope_id: str, since: datetime | None = None):
+        return service.events(scope_id=scope_id, since=since)
+
+    @app.get(
+        "/v1/scopes/{scope_id}/export",
+        response_model=ExportEnvelope,
+    )
+    def export(scope_id: str):
+        return service.export(scope_id=scope_id)
 
     return app
