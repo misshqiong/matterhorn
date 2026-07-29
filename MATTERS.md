@@ -122,6 +122,26 @@ Scope: <code>dev</code>
 
 </details>
 
+## ledger: break the self-feeding loop, pin batch size, refresh content
+
+- Status: <code>completed</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Bookkeeping commits excluded from ingestion; extraction batches default to five records; ledger content regenerated with full coverage.","type":"completion"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:b36ee6c508cefe538b1b4958ed77aac5880b2e35](<https://github.com/misshqiong/matterhorn/commit/b36ee6c508cefe538b1b4958ed77aac5880b2e35>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git-author:be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:b36ee6c508cefe538b1b4958ed77aac5880b2e35](<https://github.com/misshqiong/matterhorn/commit/b36ee6c508cefe538b1b4958ed77aac5880b2e35>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"completed"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:b36ee6c508cefe538b1b4958ed77aac5880b2e35](<https://github.com/misshqiong/matterhorn/commit/b36ee6c508cefe538b1b4958ed77aac5880b2e35>)
+
+</details>
+
 ## ledger phase 1: GitHub adapter, devlog, repeatable fill
 
 - Status: <code>done</code>
