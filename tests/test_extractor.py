@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from matterhorn.contracts import EpisodeCard, PredicateDefinition, SourceRef
 from matterhorn.engine.extractor import observe_field
@@ -13,7 +13,7 @@ def _card(**values):
         "source_refs": [
             SourceRef(
                 source_id="m1",
-                sent_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                sent_at=datetime(2026, 1, 1, tzinfo=UTC),
                 sender="u",
             )
         ],

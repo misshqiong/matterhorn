@@ -4,11 +4,12 @@ import json
 import re
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 from pydantic import BaseModel
@@ -48,7 +49,7 @@ class FixedClock:
         self.values = [
             value
             if isinstance(value, datetime)
-            else datetime.fromisoformat(value.replace("Z", "+00:00"))
+            else datetime.fromisoformat(value)
             for value in values
         ]
         self.index = 0
@@ -147,7 +148,8 @@ def _load_case(path: Path) -> dict[str, Any]:
     except (OSError, yaml.YAMLError) as error:
         raise ValueError(f"malformed conformance case {path}: {error}") from error
     if not isinstance(case, dict):
-        raise ValueError(
+        # All unusable suite contents share the documented ValueError contract.
+        raise ValueError(  # noqa: TRY004
             f"malformed conformance case {path}: top level must be a mapping"
         )
     for field, expected_type in _REQUIRED_CASE_FIELDS.items():
@@ -156,7 +158,8 @@ def _load_case(path: Path) -> dict[str, Any]:
                 f"malformed conformance case {path}: missing {field}"
             )
         if not isinstance(case[field], expected_type):
-            raise ValueError(
+            # Field shape errors are suite validation failures, not API misuse.
+            raise ValueError(  # noqa: TRY004
                 f"malformed conformance case {path}: invalid {field}"
             )
     if not case["case_id"] or not case["title"] or not case["invariants"]:
@@ -354,9 +357,7 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
 def _run_query(engine: Engine, scope_id: str, query: dict[str, Any]) -> Any:
     args = dict(query.get("args", {}))
     if "instant" in args and isinstance(args["instant"], str):
-        args["instant"] = datetime.fromisoformat(
-            args["instant"].replace("Z", "+00:00")
-        )
+        args["instant"] = datetime.fromisoformat(args["instant"])
     result = getattr(engine.query, query["name"])(scope_id, **args)
     if isinstance(result, list):
         return [_plain(item.to_dict()) for item in result]

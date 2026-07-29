@@ -12,10 +12,13 @@
 ## 0. 准备
 
 ```bash
+git clone https://github.com/misshqiong/matterhorn.git
 cd matterhorn
 python3.12 -m venv .venv
 ./.venv/bin/pip install -e '.[api,mcp,postgres,dev]'
 ```
+
+本文后续所有命令都假定你在**仓库根目录**下执行。
 
 > 环境已经建好的话跳过即可。**但如果你想从零验证**，建议 `rm -rf .venv` 重建一次——
 > 我在验收中发现过 venv 被污染的情况（详见 §8 已知问题记录）。
@@ -449,6 +452,12 @@ tools: ['add_episode_cards', 'correct', 'list_matters', 'query_at',
 
 **这一步是最容易被跳过、也最容易藏 bug 的一步。**
 第二后端存在的意义就是证明规范能被实现两次——所以整套 conformance 必须在两个后端上跑。
+
+需要本地有 PostgreSQL 二进制（`initdb` / `pg_ctl` / `createdb`）。
+若它们不在 `PATH` 上，用 `PG_BIN` 指过去，例如
+Homebrew：`export PG_BIN=$(brew --prefix postgresql@17)/bin`；
+Debian/Ubuntu：`export PG_BIN=/usr/lib/postgresql/17/bin`。
+不想装本地实例的话，改用仓库里的 [compose.postgres.yml](../compose.postgres.yml) 起容器。
 
 ```bash
 # 起一个用完即弃的实例（不碰你已有的任何 PG 配置）

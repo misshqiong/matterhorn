@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 from enum import Enum
 from typing import Any
 
@@ -15,13 +15,13 @@ from matterhorn.contracts import (
     SourceRef,
 )
 from matterhorn.contracts.models import StrictModel
+from matterhorn.distill.traceability import resolve_traceable_sources
 from matterhorn.engine.canonical import as_utc, canonical_json
 from matterhorn.engine.identity import (
     SubjectRecord,
     derive_child_subject_key,
     normalize_title,
 )
-from matterhorn.distill.traceability import resolve_traceable_sources
 
 
 class GateReason(str, Enum):
@@ -232,8 +232,8 @@ def _inside_card_window(value: datetime, card: EpisodeCard) -> bool:
     start = (
         as_utc(card.occurred_at)
         if card.occurred_at is not None
-        else datetime.combine(card.date, time.min, tzinfo=timezone.utc)
+        else datetime.combine(card.date, time.min, tzinfo=UTC)
     )
-    day_end = datetime.combine(card.date, time.max, tzinfo=timezone.utc)
+    day_end = datetime.combine(card.date, time.max, tzinfo=UTC)
     end = as_utc(card.last_active_at) if card.last_active_at else max(start, day_end)
     return start <= as_utc(value) <= end

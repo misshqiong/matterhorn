@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Iterable
 
 from matterhorn.contracts import Cardinality, Interval, MemoryCard, SchemaProfile
 from matterhorn.engine.identity import SubjectRecord

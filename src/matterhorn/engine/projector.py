@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
 
 from matterhorn.contracts import (
     Assertion,
@@ -9,7 +9,6 @@ from matterhorn.contracts import (
     Interval,
     Operation,
     Origin,
-    PredicateDefinition,
     ProjectionStats,
     SchemaProfile,
 )

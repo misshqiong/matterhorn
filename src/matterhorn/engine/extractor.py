@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 from typing import Any
 
 from matterhorn.contracts import (
@@ -72,7 +72,7 @@ def _extract_values(raw: Any, predicate: PredicateDefinition) -> list[Any]:
 def card_valid_from(card: EpisodeCard) -> datetime:
     if card.occurred_at is not None:
         return as_utc(card.occurred_at)
-    return datetime.combine(card.date, time.min, tzinfo=timezone.utc)
+    return datetime.combine(card.date, time.min, tzinfo=UTC)
 
 
 def extract_card(

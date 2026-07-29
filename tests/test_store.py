@@ -9,10 +9,9 @@ from matterhorn.store import SQLiteStore
 
 def test_transaction_rolls_back_every_write(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "store.db")
-    with pytest.raises(RuntimeError):
-        with store.transaction():
-            store.mark_card("s", "c", "hash")
-            raise RuntimeError("abort")
+    with pytest.raises(RuntimeError), store.transaction():
+        store.mark_card("s", "c", "hash")
+        raise RuntimeError("abort")
     assert store.card_payload_hash("s", "c") is None
 
 
@@ -20,10 +19,9 @@ def test_nested_transaction_uses_savepoint(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "store.db")
     with store.transaction():
         store.mark_card("s", "outer", "hash")
-        with pytest.raises(RuntimeError):
-            with store.transaction():
-                store.mark_card("s", "inner", "hash")
-                raise RuntimeError("abort inner")
+        with pytest.raises(RuntimeError), store.transaction():
+            store.mark_card("s", "inner", "hash")
+            raise RuntimeError("abort inner")
     assert store.card_payload_hash("s", "outer") == "hash"
     assert store.card_payload_hash("s", "inner") is None
 

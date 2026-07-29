@@ -4,12 +4,10 @@ import os
 from pathlib import Path
 
 import pytest
+from conftest import CONFORMANCE
 
 from matterhorn.conformance import run_case
 from matterhorn.store import SQLiteStore
-
-from conftest import CONFORMANCE
-
 
 CASE_PATHS = sorted(CONFORMANCE.glob("*.yaml"))
 BACKENDS = ["sqlite", "postgres"]

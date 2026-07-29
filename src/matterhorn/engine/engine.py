@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,7 @@ from matterhorn.contracts import (
     SchemaProfile,
 )
 from matterhorn.contracts.schema import resolve_schema
+from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_response
 from matterhorn.engine.canonical import (
     as_utc,
     derive_assertion_id,
@@ -27,8 +28,6 @@ from matterhorn.engine.materializer import materialize
 from matterhorn.engine.projector import project_assertions
 from matterhorn.query import QueryService
 from matterhorn.store import SQLiteStore, Store
-from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_response
-
 
 Clock = Callable[[], datetime]
 
@@ -269,7 +268,8 @@ class Engine:
                     )
                     self.store.remove_distill_item(scope_id, item.card_id)
                     self._rebuild(scope_id)
-            except Exception as error:
+            # A failed queue item must be retained regardless of failure type.
+            except Exception as error:  # noqa: BLE001
                 with self.store.transaction():
                     self.store.fail_distill_item(
                         scope_id, item.card_id, f"{type(error).__name__}: {error}"
@@ -325,7 +325,7 @@ def _clock_callable(
     clock: Clock | Iterable[datetime] | None,
 ) -> Clock:
     if clock is None:
-        return lambda: datetime.now(timezone.utc)
+        return lambda: datetime.now(UTC)
     if callable(clock):
         return lambda: as_utc(clock())
     iterator: Iterator[datetime] = iter(clock)

@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from matterhorn.engine.engine import Engine
+
 
 class ExplodingGateway:
     def __getattribute__(self, name):
@@ -11,7 +12,7 @@ def test_every_query_ignores_exploding_llm_gateway(tmp_path) -> None:
     engine = Engine(
         tmp_path / "read.db",
         "org-matters/v1",
-        clock=lambda: datetime(2026, 1, 2, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 1, 2, tzinfo=UTC),
         llm=ExplodingGateway(),
     )
     engine.ingest(
@@ -38,7 +39,7 @@ def test_every_query_ignores_exploding_llm_gateway(tmp_path) -> None:
     assert engine.query.current("s", "x", "status")
     assert engine.query.timeline("s", "x", "status")
     assert engine.query.at(
-        "s", "x", "status", datetime(2026, 1, 1, tzinfo=timezone.utc)
+        "s", "x", "status", datetime(2026, 1, 1, tzinfo=UTC)
     )
     assert engine.query.by_person("s", "u1")
     assert engine.query.list_matters("s")

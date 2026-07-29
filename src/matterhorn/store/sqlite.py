@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import Iterator
 
 from matterhorn.contracts import (
     Assertion,
@@ -19,7 +19,6 @@ from matterhorn.contracts import (
 from matterhorn.engine.canonical import canonical_json, instant_text
 from matterhorn.engine.identity import SubjectRecord
 from matterhorn.store.base import DistillQueueItem, QuerySubjectRow, QueryValueRow
-
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;

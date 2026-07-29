@@ -1,15 +1,18 @@
 import json
 import subprocess
+import sys
 from importlib import import_module
-from pathlib import Path
 
 import yaml
 
 
+def _command(*args: str) -> list[str]:
+    return [sys.executable, "-m", "matterhorn.cli", *args]
+
+
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
-    executable = Path(__file__).resolve().parents[1] / ".venv/bin/mh"
     return subprocess.run(
-        [str(executable), *args],
+        _command(*args),
         check=True,
         capture_output=True,
         text=True,
@@ -228,15 +231,8 @@ def test_conformance_cli_documents_backend_selection() -> None:
 
 
 def test_conformance_cli_invalid_suite_exits_two(tmp_path) -> None:
-    executable = Path(__file__).resolve().parents[1] / ".venv/bin/mh"
     completed = subprocess.run(
-        [
-            str(executable),
-            "conformance",
-            "run",
-            "--suite",
-            str(tmp_path / "missing"),
-        ],
+        _command("conformance", "run", "--suite", str(tmp_path / "missing")),
         check=False,
         capture_output=True,
         text=True,
@@ -246,10 +242,9 @@ def test_conformance_cli_invalid_suite_exits_two(tmp_path) -> None:
 
 
 def test_conformance_cli_case_failure_exits_one(tmp_path) -> None:
-    case_path = (
-        Path(__file__).resolve().parents[1]
-        / "spec/conformance/01-basic-current.yaml"
-    )
+    from matterhorn.conformance import default_suite
+
+    case_path = default_suite() / "01-basic-current.yaml"
     case = yaml.safe_load(case_path.read_text(encoding="utf-8"))
     case["case_id"] = "seeded-failure"
     case["title"] = "Seeded expectation failure"
@@ -258,9 +253,8 @@ def test_conformance_cli_case_failure_exits_one(tmp_path) -> None:
         yaml.safe_dump(case),
         encoding="utf-8",
     )
-    executable = Path(__file__).resolve().parents[1] / ".venv/bin/mh"
     completed = subprocess.run(
-        [str(executable), "conformance", "run", "--suite", str(tmp_path)],
+        _command("conformance", "run", "--suite", str(tmp_path)),
         check=False,
         capture_output=True,
         text=True,
@@ -275,9 +269,8 @@ def test_conformance_cli_malformed_case_exits_two(tmp_path) -> None:
         "case_id: [unterminated",
         encoding="utf-8",
     )
-    executable = Path(__file__).resolve().parents[1] / ".venv/bin/mh"
     completed = subprocess.run(
-        [str(executable), "conformance", "run", "--suite", str(tmp_path)],
+        _command("conformance", "run", "--suite", str(tmp_path)),
         check=False,
         capture_output=True,
         text=True,

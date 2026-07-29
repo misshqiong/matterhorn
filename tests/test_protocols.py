@@ -3,9 +3,10 @@ from __future__ import annotations
 import ast
 import asyncio
 import os
+import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -73,8 +74,8 @@ def _engine(tmp_path) -> Engine:
         _profile(),
         gateway=ExplodingGateway(),
         clock=[
-            datetime(2026, 1, 1, 11, tzinfo=timezone.utc),
-            datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, 11, tzinfo=UTC),
+            datetime(2026, 1, 1, 12, tzinfo=UTC),
         ],
     )
 
@@ -309,8 +310,15 @@ def test_mcp_stdio_entrypoints_use_official_protocol(entrypoint, tmp_path) -> No
     async def scenario() -> None:
         db = tmp_path / f"{entrypoint}.db"
         if entrypoint == "mh":
+            executable = shutil.which("mh")
+            if executable is None:
+                script_name = "mh.exe" if os.name == "nt" else "mh"
+                candidate = Path(sys.executable).parent / script_name
+                if not candidate.is_file():
+                    raise AssertionError("installed mh console script was not found")
+                executable = str(candidate)
             parameters = StdioServerParameters(
-                command=str(Path(sys.executable).with_name("mh")),
+                command=executable,
                 args=[
                     "mcp",
                     "--db",
@@ -328,10 +336,12 @@ def test_mcp_stdio_entrypoints_use_official_protocol(entrypoint, tmp_path) -> No
                 args=["-m", "matterhorn.mcp"],
                 env=env,
             )
-        async with stdio_client(parameters) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                assert len(tools.tools) == 7
+        async with (
+            stdio_client(parameters) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+            tools = await session.list_tools()
+            assert len(tools.tools) == 7
 
     asyncio.run(scenario())

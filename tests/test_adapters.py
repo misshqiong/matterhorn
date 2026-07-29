@@ -12,7 +12,6 @@ from matterhorn.adapters import (
 )
 from matterhorn.engine import Engine
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 

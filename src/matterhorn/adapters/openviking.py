@@ -26,9 +26,10 @@ are not retained.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from typing import Any
 
 from matterhorn.contracts import EpisodeCard
 from matterhorn.engine.canonical import stable_hash
@@ -88,7 +89,10 @@ def map_openviking_digest(
 
 def _mapping(value: Any, location: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
-        raise ValueError(f"OpenViking {location} MUST be an object")
+        # Adapter payload defects consistently use ValueError at this boundary.
+        raise ValueError(  # noqa: TRY004
+            f"OpenViking {location} MUST be an object"
+        )
     return value
 
 

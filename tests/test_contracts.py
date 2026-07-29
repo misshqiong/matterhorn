@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -11,12 +11,12 @@ def test_assertion_id_matches_language_neutral_golden_bytes() -> None:
     sources = [
         SourceRef(
             source_id="z",
-            sent_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            sent_at=datetime(2026, 1, 1, tzinfo=UTC),
             sender="u",
         ),
         SourceRef(
             source_id="a",
-            sent_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            sent_at=datetime(2026, 1, 1, tzinfo=UTC),
             sender="u",
         ),
     ]
@@ -26,7 +26,7 @@ def test_assertion_id_matches_language_neutral_golden_bytes() -> None:
         "phase",
         Operation.ASSERT,
         object_key("open"),
-        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        datetime(2026, 1, 1, tzinfo=UTC),
         sources,
     )
     assert result == "aad315464957f7f00a756a7a6cb2277310fc359f5fbe817e693d62c3620b8868"

@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import RootModel
 
-from matterhorn.contracts import Assertion, Correction, EpisodeCard
+from matterhorn.contracts import Correction, EpisodeCard
 from matterhorn.contracts.models import StrictModel
 
 

@@ -1,8 +1,9 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from matterhorn.contracts import EpisodeCard
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.engine.identity import SubjectRecord, normalize_title, resolve_subject
+
 
 def _card(title, sources):
     return EpisodeCard.model_validate(
@@ -14,7 +15,7 @@ def _card(title, sources):
             "source_refs": [
                 {
                     "source_id": item,
-                    "sent_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    "sent_at": datetime(2026, 1, 1, tzinfo=UTC),
                     "sender": "u",
                 }
                 for item in sources

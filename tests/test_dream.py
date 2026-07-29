@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from matterhorn.contracts import SchemaProfile
 from matterhorn.engine import Engine
@@ -94,8 +94,8 @@ def test_dream_happy_path_and_second_run_is_noop(tmp_path) -> None:
         _profile(),
         gateway=gateway,
         clock=[
-            datetime(2026, 1, 1, 11, tzinfo=timezone.utc),
-            datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, 11, tzinfo=UTC),
+            datetime(2026, 1, 1, 12, tzinfo=UTC),
         ],
     )
     engine.ingest([_card()])
@@ -158,8 +158,8 @@ def test_dream_creates_child_subject_only_inside_successful_transaction(tmp_path
         profile,
         gateway=FakeGateway(response, expected_predicate="related_person"),
         clock=[
-            datetime(2026, 1, 1, 11, tzinfo=timezone.utc),
-            datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, 11, tzinfo=UTC),
+            datetime(2026, 1, 1, 12, tzinfo=UTC),
         ],
     )
     card = _card() | {"subject_key": "parent-1"}
@@ -191,7 +191,7 @@ def test_gateway_error_keeps_queue_and_deterministic_state(tmp_path) -> None:
         tmp_path / "retry.db",
         _profile(),
         gateway=ExplodingGateway(),
-        clock=[datetime(2026, 1, 1, 11, tzinfo=timezone.utc)],
+        clock=[datetime(2026, 1, 1, 11, tzinfo=UTC)],
     )
     deterministic = engine.ingest([_card()])
     before = engine.store.assertions("s")
@@ -212,9 +212,9 @@ def test_human_correction_at_same_instant_outranks_model(tmp_path) -> None:
         _profile(),
         gateway=gateway,
         clock=[
-            datetime(2026, 1, 1, 11, tzinfo=timezone.utc),
-            datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
-            datetime(2026, 1, 1, 13, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, 11, tzinfo=UTC),
+            datetime(2026, 1, 1, 12, tzinfo=UTC),
+            datetime(2026, 1, 1, 13, tzinfo=UTC),
         ],
     )
     engine.ingest([_card()])

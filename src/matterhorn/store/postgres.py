@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from threading import RLock
-from typing import Any, Iterator
+from typing import Any
 
 from matterhorn.contracts import (
     Assertion,
@@ -160,9 +161,8 @@ class PostgresStore:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        with self._transaction_lock:
-            with self.connection.transaction():
-                yield
+        with self._transaction_lock, self.connection.transaction():
+            yield
 
     def close(self) -> None:
         self.connection.close()

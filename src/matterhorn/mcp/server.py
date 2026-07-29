@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -30,7 +31,8 @@ class ToolResponse(StrictModel):
 def _safe(call: Callable[[], Any]) -> ToolResponse:
     try:
         return ToolResponse(ok=True, data=call())
-    except Exception as error:
+    # The transport contract converts every service failure to a typed response.
+    except Exception as error:  # noqa: BLE001
         return ToolResponse(
             ok=False,
             error=ToolError(code=type(error).__name__, message=str(error)),

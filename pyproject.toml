@@ -60,7 +60,7 @@ postgres = [
 dev = [
   "build>=1.2",
   "pytest>=8",
-  "ruff>=0.9",
+  "ruff==0.16.0",
   "twine>=6",
 ]
 
@@ -83,3 +83,21 @@ matterhorn = ["schemas/*/*.yaml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+# Pinning Ruff above plus these settings makes the stable default rule set
+# identical for local development and CI.
+target-version = "py311"
+line-length = 88
+exclude = [
+  ".git",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".venv",
+  "build",
+  "dist",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer intentionally declares CLI metadata through Argument/Option defaults.
+"src/matterhorn/cli/app.py" = ["B008"]
