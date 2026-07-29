@@ -1,0 +1,78 @@
+schema: org-matters/v1
+subjects:
+  - type: MATTER
+    primary: true
+  - type: DECISION_SLOT
+    parent: MATTER
+predicates:
+  - name: status
+    subject: MATTER
+    cardinality: SINGLE
+    extraction: deterministic
+    retract_guard: explicit
+    source_field: status
+    value_domain:
+      [open, in_progress, blocked, paused, pending, ready, done, completed, closed]
+  - name: owned_by
+    subject: MATTER
+    cardinality: SET
+    extraction: deterministic
+    object: person
+    source_field: participants
+    extraction_rule: participant_ids
+    role_filter: [owner]
+  - name: participated_by
+    subject: MATTER
+    cardinality: SET
+    extraction: deterministic
+    object: person
+    source_field: participants
+    extraction_rule: participant_ids
+  - name: blocked_by
+    subject: MATTER
+    cardinality: SET
+    extraction: deterministic
+    retract_guard: explicit
+    source_field: blocker
+  - name: next_step
+    subject: MATTER
+    cardinality: SINGLE
+    extraction: deterministic
+    retract_guard: explicit
+    source_field: next_step
+  - name: due_at
+    subject: MATTER
+    cardinality: SINGLE
+    extraction: deterministic
+    retract_guard: never
+    object: datetime
+    source_field: due
+  - name: progress
+    subject: MATTER
+    cardinality: APPEND
+    extraction: deterministic
+    retract_guard: never
+    source_field: progress
+  - name: outcome
+    subject: MATTER
+    cardinality: APPEND
+    extraction: deterministic
+    retract_guard: never
+    object: object
+    source_field: outcome
+  - name: decision_adopted
+    subject: DECISION_SLOT
+    cardinality: SINGLE
+    extraction: semantic
+    semantic_filter: conservative
+    object: boolean
+    value_domain: [true, false]
+semantic:
+  conservative_confidence_threshold: 0.8
+completion:
+  predicate: status
+  completed_values: [done, completed, closed]
+identity:
+  merge_evidence:
+    min_shared_sources: 2
+    or_share_ratio: 0.5

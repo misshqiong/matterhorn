@@ -1,0 +1,46 @@
+schema: personal-decisions/v1
+subjects:
+  - type: CHOICE
+    primary: true
+predicates:
+  - name: phase
+    subject: CHOICE
+    cardinality: SINGLE
+    extraction: deterministic
+    source_field: status
+    value_domain: [exploring, researching, comparing, chosen, deferred]
+  - name: collaborator
+    subject: CHOICE
+    cardinality: SET
+    extraction: deterministic
+    object: person
+    source_field: participants
+    extraction_rule: participant_ids
+  - name: journal_entry
+    subject: CHOICE
+    cardinality: APPEND
+    extraction: deterministic
+    retract_guard: never
+    source_field: progress
+  - name: review_on
+    subject: CHOICE
+    cardinality: SINGLE
+    extraction: deterministic
+    retract_guard: never
+    object: datetime
+    source_field: due
+  - name: rationale_class
+    subject: CHOICE
+    cardinality: SINGLE
+    extraction: semantic
+    semantic_filter: conservative
+    value_domain: [values, cost, timing]
+semantic:
+  conservative_confidence_threshold: 0.8
+completion:
+  predicate: phase
+  completed_values: [chosen]
+identity:
+  merge_evidence:
+    min_shared_sources: 3
+    or_share_ratio: 0.75

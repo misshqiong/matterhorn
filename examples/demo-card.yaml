@@ -1,0 +1,16 @@
+card_id: demo-1
+scope_id: demo
+subject_key: launch
+date: 2026-01-01
+title: Launch Matterhorn
+status: open
+participants:
+  - id: ada
+    display_name: Ada
+    role: owner
+progress: Stage 1 implementation started
+source_refs:
+  - source_id: msg-1
+    sent_at: 2026-01-01T08:00:00Z
+    sender: ada
+    excerpt: Start the stage 1 implementation.

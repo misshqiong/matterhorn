@@ -1,0 +1,12 @@
+include CHANGELOG.md
+include CONTRIBUTING.md
+include Dockerfile
+include README.zh.md
+include SECURITY.md
+include compose.postgres.yml
+recursive-include .github *.yml
+recursive-include docs *.md
+recursive-include examples *.json *.md *.py *.yml
+recursive-include skills *.md *.yaml
+recursive-include spec *.md *.yaml
+recursive-include tests *.json *.py

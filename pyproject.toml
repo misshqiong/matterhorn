@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matterhorn"
+version = "0.3.0"
+description = "The deterministic L3 temporal memory layer for agents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{name = "Matterhorn contributors"}]
+keywords = [
+  "agent",
+  "memory",
+  "temporal",
+  "bitemporal",
+  "mcp",
+  "llm",
+  "sqlite",
+  "postgresql",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Database",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "pydantic>=2,<3",
+  "PyYAML>=6",
+  "typer>=0.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/matterhorn-memory/matterhorn"
+Documentation = "https://github.com/matterhorn-memory/matterhorn/tree/main/docs"
+Repository = "https://github.com/matterhorn-memory/matterhorn"
+Issues = "https://github.com/matterhorn-memory/matterhorn/issues"
+Changelog = "https://github.com/matterhorn-memory/matterhorn/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+api = [
+  "fastapi>=0.115",
+  "httpx>=0.27",
+  "uvicorn>=0.30",
+]
+mcp = [
+  "mcp>=1.27,<2",
+]
+postgres = [
+  "psycopg[binary]>=3.2,<4",
+]
+dev = [
+  "build>=1.2",
+  "pytest>=8",
+  "ruff>=0.9",
+  "twine>=6",
+]
+
+[project.scripts]
+mh = "matterhorn.cli.app:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+matterhorn = ["schemas/*/*.yaml"]
+
+[tool.setuptools.data-files]
+"share/matterhorn/spec" = ["spec/SPEC.md"]
+"share/matterhorn/spec/conformance" = [
+  "spec/conformance/*.yaml",
+  "spec/conformance/README.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
