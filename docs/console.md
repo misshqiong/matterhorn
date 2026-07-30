@@ -5,7 +5,8 @@ static client of the public REST API, served on the same origin as the API. It
 does not have private database or engine routes.
 
 > **Screenshot placeholder:** Console overview with scope rail, matter cards,
-> current-value correction, query workbench, feed receipt, and evidence chips.
+> current-value correction, query workbench, Feed upload/quick jot, Mail
+> Connectors sheet, and evidence chips.
 
 ## Launch
 
@@ -27,6 +28,8 @@ routes, including:
 - the four deterministic query resources;
 - `POST /v1/scopes/{scope}/corrections`;
 - `POST /v1/scopes/{scope}/ingest`;
+- `POST /v1/scopes/{scope}/upload` and `/quick-message`;
+- the public `/v1/connectors/mail/...` resources;
 - optional `POST /v1/scopes/{scope}/chat`.
 
 The default loopback bind is deliberate. Matterhorn v1 has no multi-tenant
@@ -53,10 +56,23 @@ The server—not browser JavaScript—detects three pasted forms:
 Unknown input reports all three formats with a one-line example. Ingest and
 chat have input caps and independent process-local rate limits.
 
+The same Feed sheet uploads `.mbox`, `.eml`, `.yaml`, and `.json` through the
+server-side detector; upload immediately extracts and flushes. The quick jot
+form writes one sender/text message. Its optional `sent_at` defaults to the
+server clock when blank.
+
 “Load sample” inserts fictional Dana Reyes / octo-org chat. Its pre-recorded,
 packaged fixture gateway produces a matter without an API key. It is only
 selected for that exact fictional sample; ordinary extraction still uses the
 configured write gateway.
+
+## Connectors
+
+The collapsible **Connectors · Mail** sheet configures a preset or manual IMAP
+account, holds its app password only in process memory, triggers an immediate
+sync, and shows the UID watermark, UIDVALIDITY, last-run counts, credential
+state, error/help link, and next scheduled run. See the dedicated
+[mail connector guide](mail.md).
 
 ## Optional chat
 
@@ -97,6 +113,6 @@ source IDs as clickable evidence chips.
 
 ## Next version, not built here
 
-- operations views for task receipts, sync status, and the events feed;
+- operations views for task receipts and the events feed;
 - multi-scope comparison;
 - export buttons.

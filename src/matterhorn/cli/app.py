@@ -15,6 +15,18 @@ import typer
 import yaml
 
 from matterhorn.canonical import canonical_json
+from matterhorn.connectors.mail import (
+    MAIL_INTERVALS,
+    MAIL_PROVIDERS,
+    MailAuthError,
+    MailboxResetError,
+    MailConfig,
+    MailConnector,
+    MailSyncError,
+    load_mail_config,
+    reset_mail_sync_position,
+    save_mail_config,
+)
 from matterhorn.contracts import Correction, ExportEnvelope
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
 from matterhorn.defaults import Engine
@@ -24,9 +36,11 @@ app = typer.Typer(help="Matterhorn deterministic temporal memory engine.")
 query_app = typer.Typer(help="Read projected memory without an LLM.")
 schema_app = typer.Typer(help="Inspect schema profiles.")
 conformance_app = typer.Typer(help="Run the language-neutral golden contract.")
+mail_app = typer.Typer(help="Configure and pull an IMAP mailbox.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
+app.add_typer(mail_app, name="mail")
 
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
@@ -125,6 +139,196 @@ def _read_yaml_or_json(path: str) -> Any:
         return yaml.safe_load(text)
     except (OSError, yaml.YAMLError) as error:
         raise typer.BadParameter(f"could not load input: {error}") from error
+
+
+def _mail_connector(
+    engine: Engine,
+    config: MailConfig,
+    password: str,
+) -> MailConnector:
+    return MailConnector(engine, config, password)
+
+
+@mail_app.command("setup")
+def mail_setup(
+    provider: str | None = typer.Option(
+        None,
+        help="gmail, outlook, icloud, qq, 163, or manual.",
+    ),
+    host: str | None = typer.Option(
+        None,
+        help="Override the preset IMAP host; required for manual.",
+    ),
+    port: int | None = typer.Option(
+        None,
+        min=1,
+        max=65535,
+        help="Override the preset IMAP port.",
+    ),
+    ssl: bool | None = typer.Option(
+        None,
+        "--ssl/--no-ssl",
+        help="Use implicit TLS; presets default to SSL.",
+    ),
+    user: str | None = typer.Option(
+        None,
+        "--user",
+        "--account",
+        help="Mailbox login/account.",
+    ),
+    folder: str = typer.Option("INBOX", help="IMAP folder."),
+    interval: str = typer.Option(
+        "off",
+        help="Auto-sync interval: off, 15min, 1h, or 6h.",
+    ),
+    initial_window: int = typer.Option(
+        50,
+        min=1,
+        help="Most recent messages to pull on the first non-backfill sync.",
+    ),
+    scope: str | None = typer.Option(
+        None,
+        help="Default Matterhorn scope for mail sync.",
+    ),
+) -> None:
+    """Persist non-secret IMAP settings in matterhorn.toml."""
+
+    selected_provider = (
+        provider
+        or typer.prompt(
+            "Provider",
+            default="gmail",
+        )
+    ).casefold()
+    if selected_provider not in {*MAIL_PROVIDERS, "manual"}:
+        raise typer.BadParameter(
+            "--provider MUST be gmail, outlook, icloud, qq, 163, or manual"
+        )
+    if interval not in MAIL_INTERVALS:
+        raise typer.BadParameter("--interval MUST be off, 15min, 1h, or 6h")
+    preset = MAIL_PROVIDERS.get(selected_provider)
+    selected_ssl = ssl if ssl is not None else (preset.ssl if preset else True)
+    selected_host = host or (preset.host if preset else None)
+    if not selected_host:
+        selected_host = typer.prompt("IMAP host")
+    selected_port = port or (
+        preset.port if preset else (993 if selected_ssl else 143)
+    )
+    selected_user = user or typer.prompt("Mail account")
+    root_config = _load_config()
+    selected_scope = scope or root_config.get("scope")
+    config = MailConfig(
+        provider=selected_provider,
+        host=selected_host,
+        port=selected_port,
+        ssl=selected_ssl,
+        user=selected_user,
+        folder=folder,
+        interval=interval,
+        initial_window=initial_window,
+        scope=selected_scope,
+    )
+    save_mail_config(Path.cwd() / CONFIG_NAME, config)
+    _print(
+        {
+            "saved": CONFIG_NAME,
+            **config.public_dict(),
+            "credential": "not stored; use MATTERHORN_MAIL_PASSWORD or prompt",
+        }
+    )
+
+
+@mail_app.command("sync")
+def mail_sync(
+    backfill: bool = typer.Option(
+        False,
+        "--backfill",
+        help="Permit a full mailbox re-pull, including after UIDVALIDITY reset.",
+    ),
+    scope: str | None = typer.Option(
+        None,
+        help="Matterhorn scope; defaults to mail.scope or root scope.",
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Pull new IMAP UIDs, add messages, and flush synchronously."""
+
+    try:
+        config = load_mail_config(Path.cwd() / CONFIG_NAME)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    if config is None:
+        raise typer.BadParameter("run `mh mail setup` first")
+    selected_scope = scope or config.scope
+    if selected_scope is None:
+        selected_scope = _scope(None)
+    password = os.environ.get("MATTERHORN_MAIL_PASSWORD")
+    if not password:
+        password = typer.prompt(
+            "Mail app password / authorization code",
+            hide_input=True,
+        )
+    engine = _engine(
+        db,
+        schema,
+        schema_dir,
+        gateway=_write_gateway(None, None, None, None),
+    )
+    try:
+        report = _mail_connector(engine, config, password).sync(
+            scope_id=selected_scope,
+            backfill=backfill,
+        )
+    except MailboxResetError as error:
+        _print(error.report.to_dict())
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    except (MailAuthError, MailSyncError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    _print(report.to_dict())
+
+
+@mail_app.command("reset")
+def mail_reset(
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Confirm deletion of the configured connector sync position.",
+    ),
+    scope: str | None = typer.Option(
+        None,
+        help="Matterhorn scope; defaults to mail.scope or root scope.",
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Forget the mail UID position so the next sync re-pulls recent mail."""
+
+    if not yes:
+        raise typer.BadParameter(
+            "--yes is required because reset deletes the mail sync position"
+        )
+    try:
+        config = load_mail_config(Path.cwd() / CONFIG_NAME)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    if config is None:
+        raise typer.BadParameter("run `mh mail setup` first")
+    selected_scope = scope or config.scope
+    if selected_scope is None:
+        selected_scope = _scope(None)
+    engine = _engine(db, schema, schema_dir)
+    result = reset_mail_sync_position(
+        engine,
+        config,
+        scope_id=selected_scope,
+        confirm=yes,
+    )
+    _print(result)
 
 
 @app.command("init")

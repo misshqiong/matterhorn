@@ -271,6 +271,12 @@ class MessageCardExtractor:
                     else f"threads:{stable_hash(boundaries)}"
                 )
                 dumped["thread_id"] = thread_id
+                mail_subject_key = _mail_subject_key(
+                    by_source=by_source,
+                    source_ids=candidate.source_ids,
+                )
+                if mail_subject_key is not None:
+                    dumped["subject_key"] = mail_subject_key
             card_payload = {
                 **dumped,
                 "scope_id": scope_id,
@@ -354,6 +360,16 @@ def build_message_prompt(
         f"schema={profile.schema_id}; "
         f"active_card_fields={canonical_json(fields)}"
     )
+    if any(_is_email_record(item.record) for item in normalized):
+        system += (
+            " For email, aggregate all Records in each conversation before "
+            "deriving its progress. Emit one card per conversation-level update, "
+            "not one card per email. Title the underlying matter; a cleaned "
+            "subject is a good default, and reply/forward prefixes such as Re: "
+            "or 回复: MUST NOT be repeated in the title. Derive status only "
+            "when the aggregated conversation supports it; do not default "
+            "status to done."
+        )
     aliases = source_aliases(item.source_id for item in normalized)
     user = canonical_json(
         {
@@ -483,3 +499,29 @@ def _value_domain_error(
         }:
             return f"{predicate.source_field} is outside {predicate.value_domain!r}"
     return None
+
+
+def _mail_subject_key(
+    *,
+    by_source: dict[str, _ExtractionRecord],
+    source_ids: list[str],
+) -> str | None:
+    cited = [by_source[source_id].record for source_id in source_ids]
+    if not cited or not all(_is_email_record(record) for record in cited):
+        return None
+    containers = {record.container_id for record in cited}
+    boundaries = {record.thread_id for record in cited}
+    if len(containers) != 1 or len(boundaries) != 1 or None in boundaries:
+        return None
+    container_id = next(iter(containers))
+    thread_id = next(iter(boundaries))
+    assert thread_id is not None
+    prefix = f"{container_id}:"
+    if not thread_id.startswith(prefix):
+        return None
+    conversation_key = thread_id.removeprefix(prefix)
+    return f"mail:{stable_hash([container_id, conversation_key])[:20]}"
+
+
+def _is_email_record(record: Record) -> bool:
+    return record.subtype == "email" or ":mail:" in record.container_id

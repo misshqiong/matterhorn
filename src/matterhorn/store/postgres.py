@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS sync_positions (
     container_id TEXT NOT NULL,
     watermark TIMESTAMPTZ NOT NULL,
     cursor TEXT,
+    uid_watermark BIGINT,
     PRIMARY KEY (scope_id, container_id)
 );
 CREATE TABLE IF NOT EXISTS subjects (
@@ -234,6 +235,12 @@ class PostgresStore:
                 """
                 ALTER TABLE assertions
                 ADD COLUMN IF NOT EXISTS observation_id TEXT
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE sync_positions
+                ADD COLUMN IF NOT EXISTS uid_watermark BIGINT
                 """
             )
 
@@ -533,9 +540,48 @@ class PostgresStore:
                 container_id=row["container_id"],
                 watermark=as_utc(row["watermark"]),
                 cursor=row["cursor"],
+                uid_watermark=row["uid_watermark"],
             )
             for row in rows
         ]
+
+    def delete_sync_position(self, scope_id: str, container_id: str) -> bool:
+        cursor = self._execute(
+            """
+            DELETE FROM sync_positions
+            WHERE scope_id=%s AND container_id=%s
+            """,
+            (scope_id, container_id),
+        )
+        return cursor.rowcount > 0
+
+    def update_mail_sync_position(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        uid_watermark: int,
+        uidvalidity: str,
+        fallback_watermark: datetime,
+    ) -> None:
+        self._execute(
+            """
+            INSERT INTO sync_positions(
+              scope_id,container_id,watermark,cursor,uid_watermark
+            )
+            VALUES(%s,%s,%s,%s,%s)
+            ON CONFLICT(scope_id,container_id) DO UPDATE SET
+              cursor=excluded.cursor,
+              uid_watermark=excluded.uid_watermark
+            """,
+            (
+                scope_id,
+                container_id,
+                as_utc(fallback_watermark),
+                uidvalidity,
+                uid_watermark,
+            ),
+        )
 
     def subjects(self, scope_id: str) -> list[SubjectRecord]:
         rows = self._execute(

@@ -28,6 +28,12 @@ class RawIngestRequest(StrictModel):
     wait: bool = False
 
 
+class QuickMessageRequest(StrictModel):
+    sender: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=8_000)
+    sent_at: datetime | None = None
+
+
 class IngestResponse(StrictModel):
     input_format: Literal["chat", "messages", "email"]
     synthesized_timestamps: bool
@@ -159,6 +165,85 @@ class ChatResponse(StrictModel):
 class ConsoleConfigResponse(StrictModel):
     chat_enabled: bool
     chat_provider: str | None = None
+
+
+class MailConfigRequest(StrictModel):
+    provider: str
+    host: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    ssl: bool | None = None
+    user: str = Field(alias="account", min_length=1, max_length=320)
+    folder: str = Field(default="INBOX", min_length=1, max_length=512)
+    interval: str = "off"
+    initial_window: int = Field(default=50, ge=1)
+    scope: str | None = Field(default=None, min_length=1, max_length=120)
+    password: str | None = None
+
+
+class MailConfigResponse(StrictModel):
+    provider: str
+    host: str
+    port: int
+    ssl: bool
+    account: str
+    folder: str
+    interval: str
+    initial_window: int
+    scope: str | None = None
+    help_url: str | None = None
+    auth_note: str | None = None
+
+
+class MailSyncRequest(StrictModel):
+    scope_id: str | None = Field(default=None, min_length=1, max_length=120)
+    backfill: bool = False
+
+
+class MailResetRequest(StrictModel):
+    scope_id: str | None = Field(default=None, min_length=1, max_length=120)
+    confirm: bool = False
+
+
+class MailResetResponse(StrictModel):
+    scope_id: str
+    container_id: str
+    position_deleted: bool
+    next_sync: Literal["initial_window"]
+
+
+class MailSyncResponse(StrictModel):
+    scope_id: str
+    account: str
+    folder: str
+    container_id: str
+    pulled: int
+    filtered: int
+    filtered_by_reason: dict[str, int] = Field(default_factory=dict)
+    parse_errors: int
+    effective_window: int | None = None
+    cards_produced: int
+    new_assertions: int
+    new_matters: int
+    new_watermark: int
+    uidvalidity: str
+    previous_uidvalidity: str | None = None
+    reset_detected: bool
+    backfill: bool
+
+
+class MailStatusResponse(StrictModel):
+    configured: bool
+    config: MailConfigResponse | None = None
+    scope_id: str | None = None
+    password_state: str
+    last_sync_at: str | None = None
+    last_run_at: str | None = None
+    next_run_at: str | None = None
+    syncing: bool
+    uid_watermark: int | None = None
+    uidvalidity: str | None = None
+    last_report: MailSyncResponse | None = None
+    error: str | None = None
 
 
 class HealthResponse(StrictModel):

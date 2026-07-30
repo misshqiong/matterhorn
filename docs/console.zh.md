@@ -3,8 +3,8 @@
 Console 是 Matterhorn 面向运维者、开发者和演示者的操作面。它是公共 REST API
 的静态客户端，与 API 同源、同端口提供；没有数据库或引擎私有旁路。
 
-> **截图占位：** scope 导航、事项卡、当前值纠错、查询工作台、Feed receipt 与
-> evidence chips 的 Console 总览。
+> **截图占位：** scope 导航、事项卡、当前值纠错、查询工作台、Feed 上传/quick
+> jot、Mail Connectors sheet 与 evidence chips 的 Console 总览。
 
 ## 启动
 
@@ -25,6 +25,8 @@ Console 与 REST API 共用一个端口。浏览器只调用已公开并进入 O
 - 四个确定性查询接口；
 - `POST /v1/scopes/{scope}/corrections`；
 - `POST /v1/scopes/{scope}/ingest`；
+- `POST /v1/scopes/{scope}/upload` 与 `/quick-message`；
+- 公共 `/v1/connectors/mail/...` 接口；
 - 可选的 `POST /v1/scopes/{scope}/chat`。
 
 默认只绑定 loopback 是刻意的。Matterhorn v1 不提供多租户认证与授权；任何公网部署
@@ -52,6 +54,17 @@ docker run --rm -p 127.0.0.1:8000:8000 matterhorn-console
 点击 **Load sample** 会载入虚构的 Dana Reyes / octo-org 对话，并用随包发布的预录
 fixture gateway 响应生成事项，全程不需要 key。该 fixture 只匹配这份明确的虚构样例；
 普通输入仍使用正常配置的写侧 gateway。
+
+同一个 Feed sheet 可以上传 `.mbox`、`.eml`、`.yaml`、`.json`，仍由服务端格式
+探测，并立即 extract + flush。Quick jot 表单写入一条 sender/text 消息；不填写
+`sent_at` 时使用服务端时钟。
+
+## Connectors
+
+可折叠的 **Connectors · Mail** sheet 支持 provider 预设或手动 IMAP 设置；app
+password 只保存在进程内存；可以立即同步，并显示 UID watermark、UIDVALIDITY、
+上次运行统计、凭证状态、错误/帮助链接和下次调度时间。详见
+[邮件连接器指南](mail.zh.md)。
 
 ## 可选 Chat
 
@@ -87,6 +100,6 @@ Anthropic 未设置 base URL 时默认使用 `https://api.anthropic.com`；仍�
 
 ## 下一版本（本次未实现）
 
-- task receipts、sync status、events feed 运维视图；
+- task receipts、events feed 运维视图；
 - 多 scope 对比；
 - export 按钮。

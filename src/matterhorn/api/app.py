@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
+from email import policy
+from email.parser import BytesParser
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -20,13 +23,22 @@ from matterhorn.api.models import (
     CorrectionInput,
     HealthResponse,
     IngestResponse,
+    MailConfigRequest,
+    MailConfigResponse,
+    MailResetRequest,
+    MailResetResponse,
+    MailStatusResponse,
+    MailSyncRequest,
+    MailSyncResponse,
     MatterDetailResponse,
     MatterListResponse,
+    QuickMessageRequest,
     RawIngestRequest,
     ScopeListResponse,
     SubjectListResponse,
     ValueListResponse,
 )
+from matterhorn.connectors.mail import MAIL_PROVIDERS, MailConfig, MailRuntime
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
@@ -37,6 +49,9 @@ from matterhorn.contracts import (
 from matterhorn.errors import ChatUnavailableError, MatterhornError
 from matterhorn.scheduler import ServiceScheduler
 from matterhorn.service import MatterhornService
+
+MAX_UPLOAD_BYTES = 200_000
+MAX_MULTIPART_BYTES = MAX_UPLOAD_BYTES + 64_000
 
 
 def create_app(
@@ -56,11 +71,24 @@ def create_app(
     ingest_rate_limit: int = 20,
     chat_rate_limit: int = 30,
     rate_limit_window_seconds: float = 60,
+    mail_runtime: Any = None,
+    mail_config_path: str | Path | None = None,
+    mail_imap_ssl_factory: Any = None,
+    mail_imap_factory: Any = None,
 ) -> FastAPI:
     if service is None:
         if engine is None:
             raise ValueError("create_app requires engine or service")
         service = MatterhornService(engine)
+    if mail_runtime is None:
+        runtime_kwargs: dict[str, Any] = {
+            "config_path": mail_config_path or Path.cwd() / "matterhorn.toml",
+        }
+        if mail_imap_ssl_factory is not None:
+            runtime_kwargs["imap_ssl_factory"] = mail_imap_ssl_factory
+        if mail_imap_factory is not None:
+            runtime_kwargs["imap_factory"] = mail_imap_factory
+        mail_runtime = MailRuntime(service.engine, **runtime_kwargs)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -86,7 +114,7 @@ def create_app(
                 max_attempts=webhook_max_attempts,
                 backoff_seconds=webhook_backoff_seconds,
             )
-        if scheduler is not None or dispatcher is not None:
+        if scheduler is not None or dispatcher is not None or mail_runtime is not None:
 
             async def loop() -> None:
                 while True:
@@ -94,6 +122,8 @@ def create_app(
                         await asyncio.to_thread(scheduler.tick)
                     if dispatcher is not None:
                         await dispatcher.deliver_pending()
+                    if mail_runtime is not None:
+                        await asyncio.to_thread(mail_runtime.tick)
                     await asyncio.sleep(scheduler_poll_seconds)
 
             task = asyncio.create_task(loop())
@@ -117,6 +147,7 @@ def create_app(
     app.state.matterhorn_service = service
     app.state.scheduler_task = None
     app.state.console_chat_runner = chat_runner
+    app.state.mail_runtime = mail_runtime
     ingest_limiter = MemoryRateLimiter(
         limit=ingest_rate_limit,
         window_seconds=rate_limit_window_seconds,
@@ -130,12 +161,20 @@ def create_app(
     async def validation_error(
         _request: Request, error: RequestValidationError
     ) -> JSONResponse:
+        details = [
+            {
+                key: value
+                for key, value in item.items()
+                if key in {"type", "loc", "msg"}
+            }
+            for item in error.errors()
+        ]
         return JSONResponse(
             status_code=422,
             content={
                 "error": {
                     "code": "REQUEST_VALIDATION_ERROR",
-                    "message": str(error),
+                    "message": str(details),
                 }
             },
         )
@@ -200,6 +239,54 @@ def create_app(
             scope_id=scope_id,
             text=payload.text,
             wait=payload.wait,
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/upload",
+        response_model=IngestResponse,
+        summary="Upload and immediately extract mbox, EML, YAML, or JSON",
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["file"],
+                            "properties": {
+                                "file": {"type": "string", "format": "binary"}
+                            },
+                        }
+                    }
+                },
+            }
+        },
+    )
+    async def upload(scope_id: str, request: Request):
+        ingest_limiter.check(_rate_key(request, "upload"))
+        filename, content = await _multipart_upload(request)
+        return service.upload_raw(
+            scope_id=scope_id,
+            filename=filename,
+            content=content,
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/quick-message",
+        response_model=TaskReceipt | TaskResult,
+        summary="Jot one message, defaulting sent_at on the server",
+    )
+    def quick_message(
+        scope_id: str,
+        payload: QuickMessageRequest,
+        request: Request,
+    ):
+        ingest_limiter.check(_rate_key(request, "quick-message"))
+        return service.quick_message(
+            scope_id=scope_id,
+            sender=payload.sender,
+            text=payload.text,
+            sent_at=payload.sent_at,
         )
 
     @app.post(
@@ -328,6 +415,65 @@ def create_app(
         }
 
     @app.post(
+        "/v1/connectors/mail/config",
+        response_model=MailConfigResponse,
+        summary="Persist non-secret IMAP settings and load a password in memory",
+    )
+    def mail_config(payload: MailConfigRequest):
+        preset = MAIL_PROVIDERS.get(payload.provider)
+        config = MailConfig(
+            provider=payload.provider,
+            host=payload.host or (preset.host if preset is not None else ""),
+            port=payload.port or (preset.port if preset is not None else 993),
+            ssl=(
+                payload.ssl
+                if payload.ssl is not None
+                else (preset.ssl if preset is not None else True)
+            ),
+            user=payload.user,
+            folder=payload.folder,
+            interval=payload.interval,
+            initial_window=payload.initial_window,
+            scope=payload.scope,
+        )
+        return app.state.mail_runtime.configure(
+            config,
+            password=payload.password,
+        )
+
+    @app.get(
+        "/v1/connectors/mail/status",
+        response_model=MailStatusResponse,
+        summary="Read redacted mail connector state and UID position",
+    )
+    def mail_status(scope_id: str | None = None):
+        return app.state.mail_runtime.status(scope_id=scope_id)
+
+    @app.post(
+        "/v1/connectors/mail/sync",
+        response_model=MailSyncResponse,
+        summary="Pull UIDs above the stored watermark and flush them",
+    )
+    def mail_sync(payload: MailSyncRequest, request: Request):
+        ingest_limiter.check(_rate_key(request, "mail-sync"))
+        return app.state.mail_runtime.sync(
+            scope_id=payload.scope_id,
+            backfill=payload.backfill,
+        ).to_dict()
+
+    @app.post(
+        "/v1/connectors/mail/reset",
+        response_model=MailResetResponse,
+        summary="Forget the configured UID position after explicit confirmation",
+    )
+    def mail_reset(payload: MailResetRequest, request: Request):
+        ingest_limiter.check(_rate_key(request, "mail-reset"))
+        return app.state.mail_runtime.reset(
+            scope_id=payload.scope_id,
+            confirm=payload.confirm,
+        )
+
+    @app.post(
         "/v1/scopes/{scope_id}/chat",
         response_model=ChatResponse,
         summary="Ask a provider using only deterministic scoped query tools",
@@ -369,3 +515,45 @@ def create_app(
 def _rate_key(request: Request, resource: str) -> str:
     host = request.client.host if request.client is not None else "unknown"
     return f"{resource}:{host}"
+
+
+async def _multipart_upload(request: Request) -> tuple[str, bytes]:
+    content_type = request.headers.get("content-type", "")
+    if not content_type.casefold().startswith("multipart/form-data"):
+        raise ValueError("Upload requires multipart/form-data.")
+    declared = request.headers.get("content-length")
+    if declared is not None and int(declared) > MAX_MULTIPART_BYTES:
+        raise ValueError(f"Upload exceeds the {MAX_UPLOAD_BYTES}-byte input cap.")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_MULTIPART_BYTES:
+            raise ValueError(f"Upload exceeds the {MAX_UPLOAD_BYTES}-byte input cap.")
+        chunks.append(chunk)
+    envelope = (
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode(
+            "ascii"
+        )
+        + b"".join(chunks)
+    )
+    message = BytesParser(policy=policy.default).parsebytes(envelope)
+    if not message.is_multipart():
+        raise ValueError("Upload multipart body is invalid.")
+    for part in message.iter_parts():
+        if part.get_param("name", header="content-disposition") != "file":
+            continue
+        filename = part.get_filename()
+        content = part.get_payload(decode=True)
+        if content is None and part.get_content_type() == "message/rfc822":
+            nested = part.get_payload()
+            if isinstance(nested, list) and nested:
+                content = nested[0].as_bytes(policy=policy.default)
+        if not filename or content is None:
+            raise ValueError("Upload file and filename are required.")
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ValueError(
+                f"Upload exceeds the {MAX_UPLOAD_BYTES}-byte input cap."
+            )
+        return filename, content
+    raise ValueError("Upload multipart body requires a file field.")

@@ -167,6 +167,7 @@ class SyncPosition(StrictModel):
     container_id: str
     watermark: datetime | None = None
     cursor: str | None = None
+    uid_watermark: int | None = Field(default=None, ge=0)
 
 
 class Outcome(StrictModel):

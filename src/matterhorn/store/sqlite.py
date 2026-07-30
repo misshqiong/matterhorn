@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS sync_positions (
     container_id TEXT NOT NULL,
     watermark TEXT NOT NULL,
     cursor TEXT,
+    uid_watermark INTEGER,
     PRIMARY KEY (scope_id, container_id)
 );
 CREATE TABLE IF NOT EXISTS subjects (
@@ -231,6 +232,14 @@ class SQLiteStore:
         if "observation_id" not in assertion_columns:
             self.connection.execute(
                 "ALTER TABLE assertions ADD COLUMN observation_id TEXT"
+            )
+        sync_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(sync_positions)")
+        }
+        if "uid_watermark" not in sync_columns:
+            self.connection.execute(
+                "ALTER TABLE sync_positions ADD COLUMN uid_watermark INTEGER"
             )
         columns = {
             row["name"]
@@ -545,6 +554,44 @@ class SQLiteStore:
             (scope_id,),
         )
         return [SyncPosition.model_validate(dict(row)) for row in rows]
+
+    def delete_sync_position(self, scope_id: str, container_id: str) -> bool:
+        cursor = self.connection.execute(
+            """
+            DELETE FROM sync_positions
+            WHERE scope_id=? AND container_id=?
+            """,
+            (scope_id, container_id),
+        )
+        return cursor.rowcount > 0
+
+    def update_mail_sync_position(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        uid_watermark: int,
+        uidvalidity: str,
+        fallback_watermark: datetime,
+    ) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO sync_positions(
+              scope_id,container_id,watermark,cursor,uid_watermark
+            )
+            VALUES(?,?,?,?,?)
+            ON CONFLICT(scope_id,container_id) DO UPDATE SET
+              cursor=excluded.cursor,
+              uid_watermark=excluded.uid_watermark
+            """,
+            (
+                scope_id,
+                container_id,
+                instant_text(fallback_watermark),
+                uidvalidity,
+                uid_watermark,
+            ),
+        )
 
     def subjects(self, scope_id: str) -> list[SubjectRecord]:
         rows = self.connection.execute(

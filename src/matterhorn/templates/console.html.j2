@@ -87,7 +87,7 @@
     textarea { width: 100%; min-height: 9.5rem; background: transparent; border: 0; border-bottom: 1px solid var(--rule2);
       background-image: repeating-linear-gradient(transparent, transparent 1.55em, var(--rule) 1.55em, var(--rule) calc(1.55em + 1px));
       line-height: 1.62em; font: 13.5px var(--serif); padding: .1rem 0; resize: vertical; outline: none; }
-    input[type="text"], input:not([type]), input[type="datetime-local"] { width: 100%; background: transparent; border: 0;
+    input[type="text"], input:not([type]), input[type="datetime-local"], input[type="email"], input[type="password"], input[type="number"] { width: 100%; background: transparent; border: 0;
       border-bottom: 1.5px solid var(--rule2); font: 13.5px var(--mono); padding: .35rem 0; outline: none; }
     input:focus, textarea:focus { border-bottom-color: var(--ink); }
     select { background: var(--sheet); border: 1px solid var(--rule2); padding: .35rem .45rem; font: 13px var(--mono); width: 100%; }
@@ -150,6 +150,24 @@
     .chat-message.user { margin-left: 0; background: transparent; }
     .chat-message.user p { font-style: italic; color: var(--muted); }
     .chat-form { display: grid; grid-template-columns: 1fr auto; gap: .6rem; margin-top: .8rem; align-items: end; }
+    .connector-sheet > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline;
+      font: 700 16px var(--serif); border-bottom: 1px solid var(--rule); padding-bottom: .45rem; }
+    .connector-sheet > summary::-webkit-details-marker { display: none; }
+    .connector-sheet > summary::after { content: "open sheet"; color: var(--faint); font: italic 11px var(--serif); }
+    .connector-sheet[open] > summary::after { content: "close sheet"; }
+    .connector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin-top: .8rem; }
+    .check-line { display: flex; align-items: center; gap: .45rem; min-height: 2rem; font: 12px var(--mono); color: var(--muted); }
+    .check-line input { accent-color: var(--ink); }
+    .memory-rule { margin: .25rem 0 0; color: var(--credit); font: italic 12px var(--serif); }
+    .ledger-status { margin-top: .85rem; border-top: 3px double var(--rule2); }
+    .ledger-row { display: grid; grid-template-columns: minmax(7rem, .8fr) minmax(0, 1.3fr); gap: .7rem;
+      padding: .38rem 0; border-bottom: 1px solid var(--rule); }
+    .ledger-row span:first-child { color: var(--faint); font: 700 10px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+    .ledger-row code { color: var(--ink); font: 11.5px var(--mono); }
+    .upload-line { display: grid; gap: .45rem; padding-top: .65rem; border-top: 1px solid var(--rule); }
+    input[type="file"] { width: 100%; color: var(--muted); font: 11px var(--mono); }
+    .quick-sheet { border-top: 1px solid var(--rule); padding-top: .6rem; }
+    .quick-sheet summary { cursor: pointer; color: var(--muted); font: italic 13px var(--serif); }
     .error-box { border: 1.5px solid var(--debit); color: var(--debit); padding: .6rem .7rem; font: 12.5px var(--sans); margin-top: .6rem; }
     .empty { color: var(--faint); font: italic 13px var(--serif); }
     [hidden] { display: none !important; }
@@ -167,6 +185,7 @@
       .topbar { flex-direction: column; align-items: flex-start; gap: .4rem; }
       .scope-control { justify-items: start; }
       .workbench-grid { grid-template-columns: 1fr; }
+      .connector-grid { grid-template-columns: 1fr; }
       .span-two { grid-column: auto; }
     }
   </style>
@@ -217,10 +236,115 @@
               <button class="button secondary" id="load-sample" type="button">Load sample</button>
               <button class="button" id="extract-feed" type="button">Extract</button>
             </div>
+            <div class="upload-line">
+              <label for="feed-file">Upload ledger input</label>
+              <input id="feed-file" type="file" accept=".mbox,.eml,.yaml,.json">
+              <div class="button-row">
+                <button class="button secondary small" id="upload-feed" type="button">Upload + extract</button>
+              </div>
+              <p class="help">.mbox, .eml, .yaml, or .json · immediate extraction · 200 KB cap</p>
+            </div>
+            <details class="quick-sheet">
+              <summary>Quick single-message jot</summary>
+              <form class="form-stack" id="quick-form" style="margin-top:.7rem">
+                <div>
+                  <label for="quick-scope">Scope</label>
+                  <input id="quick-scope" value="demo" maxlength="120" autocomplete="off" required>
+                </div>
+                <div>
+                  <label for="quick-sender">Sender</label>
+                  <input id="quick-sender" maxlength="120" autocomplete="name" required>
+                </div>
+                <div>
+                  <label for="quick-text">One ledger line</label>
+                  <textarea id="quick-text" maxlength="8000" required placeholder="The review is complete."></textarea>
+                </div>
+                <div>
+                  <label for="quick-sent-at">Sent at (optional)</label>
+                  <input id="quick-sent-at" type="datetime-local">
+                  <p class="help">Leave blank to use the server clock.</p>
+                </div>
+                <div class="button-row">
+                  <button class="button secondary small" type="submit">Jot + flush</button>
+                </div>
+              </form>
+            </details>
           </div>
           <div class="feed-status" id="feed-status" role="status"></div>
           <pre id="feed-receipt" hidden></pre>
         </section>
+
+        <details class="card connector-sheet" id="mail-sheet" open>
+          <summary><span>Connectors · Mail</span><span class="badge" id="mail-stamp">not configured</span></summary>
+          <p class="lede">Pull an IMAP folder into the active ledger scope.</p>
+          <form class="form-stack" id="mail-config-form">
+            <div class="connector-grid">
+              <div>
+                <label for="mail-provider">Provider preset</label>
+                <select id="mail-provider">
+                  <option value="gmail">gmail</option>
+                  <option value="outlook">outlook</option>
+                  <option value="icloud">icloud</option>
+                  <option value="qq">qq</option>
+                  <option value="163">163</option>
+                  <option value="manual">manual</option>
+                </select>
+              </div>
+              <div>
+                <label for="mail-account">Account</label>
+                <input id="mail-account" type="email" maxlength="320" autocomplete="username" required>
+              </div>
+              <div>
+                <label for="mail-host">IMAP host</label>
+                <input id="mail-host" maxlength="255" required>
+              </div>
+              <div>
+                <label for="mail-port">Port</label>
+                <input id="mail-port" type="number" min="1" max="65535" required>
+              </div>
+              <div>
+                <label for="mail-folder">Folder</label>
+                <input id="mail-folder" value="INBOX" maxlength="512" required>
+              </div>
+              <div>
+                <label for="mail-interval">Auto-sync interval</label>
+                <select id="mail-interval">
+                  <option value="off">off</option>
+                  <option value="15min">15 min</option>
+                  <option value="1h">1 hour</option>
+                  <option value="6h">6 hours</option>
+                </select>
+              </div>
+              <div>
+                <label for="mail-initial-window">First-sync window</label>
+                <input id="mail-initial-window" type="number" min="1" value="50" required>
+                <p class="help">Most recent messages; full history requires backfill.</p>
+              </div>
+              <div class="check-line">
+                <input id="mail-ssl" type="checkbox" checked>
+                <span>SSL / implicit TLS</span>
+              </div>
+              <div>
+                <label for="mail-password">App password / authorization code</label>
+                <input id="mail-password" type="password" autocomplete="new-password">
+                <p class="memory-rule">Held only in this server process's memory; never written, logged, or returned by GET.</p>
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="button secondary" type="submit">Save configuration</button>
+              <button class="button" id="mail-sync" type="button">Sync now</button>
+              <button class="button secondary" id="mail-reset" type="button">Re-pull recent</button>
+            </div>
+          </form>
+          <div class="feed-status" id="mail-message" role="status"></div>
+          <div class="ledger-status" id="mail-status">
+            <div class="ledger-row"><span>Credential</span><code>re-enter password</code></div>
+            <div class="ledger-row"><span>Last sync</span><code>never</code></div>
+            <div class="ledger-row"><span>UID watermark</span><code>—</code></div>
+            <div class="ledger-row"><span>Last run</span><code>pulled 0 · filtered 0 · new matters 0</code></div>
+            <div class="ledger-row"><span>Next run</span><code>off</code></div>
+          </div>
+        </details>
       </div>
 
       <div class="zone zone-memory">
@@ -341,7 +465,14 @@
 
   <script>
     "use strict";
-    const state = { scope: "", matters: [], selected: "", detail: null, queryResult: null, chatHistory: [] };
+    const state = { scope: "", matters: [], selected: "", detail: null, queryResult: null, chatHistory: [], mailStatus: null };
+    const mailPresets = {
+      gmail: { host: "imap.gmail.com", port: 993, ssl: true, help: "https://support.google.com/accounts/answer/185833" },
+      outlook: { host: "outlook.office365.com", port: 993, ssl: true, help: "https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com" },
+      icloud: { host: "imap.mail.me.com", port: 993, ssl: true, help: "https://support.apple.com/en-us/102654" },
+      qq: { host: "imap.qq.com", port: 993, ssl: true, help: "https://wx.mail.qq.com/list/readtemplate?name=app_intro.html#/agreement/authorizationCode" },
+      "163": { host: "imap.163.com", port: 993, ssl: true, help: "https://help.mail.163.com/faq.do?m=list&categoryID=197" }
+    };
     const byId = (id) => document.getElementById(id);
     const escapeHtml = (value) => String(value)
       .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
@@ -350,9 +481,10 @@
     const jsonText = (value) => JSON.stringify(value, null, 2);
     const displayValue = (value) => typeof value === "string" ? value : jsonText(value);
     const api = async (path, options = {}) => {
+      const isForm = options.body instanceof FormData;
       const response = await fetch(path, {
         ...options,
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+        headers: { ...(!isForm ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
@@ -384,9 +516,11 @@
       state.selected = "";
       state.detail = null;
       byId("feed-scope").value = scope || byId("feed-scope").value;
+      byId("quick-scope").value = scope || byId("quick-scope").value;
       document.querySelectorAll(".scope-button").forEach((item) => item.classList.toggle("active", item.dataset.scope === scope));
       byId("scope-select").value = scope;
       await loadMatters();
+      await loadMailStatus();
       byId("matter-detail").className = "detail-placeholder";
       byId("matter-detail").innerHTML = "<p>Select a matter to inspect current values, timelines, and evidence.</p>";
     }
@@ -596,6 +730,210 @@
       }
     }
 
+    async function uploadFeed() {
+      const scope = byId("feed-scope").value.trim();
+      const file = byId("feed-file").files[0];
+      if (!file) {
+        byId("feed-status").className = "feed-status error";
+        byId("feed-status").textContent = "Choose a .mbox, .eml, .yaml, or .json file.";
+        return;
+      }
+      const body = new FormData();
+      body.append("file", file);
+      byId("feed-status").className = "feed-status";
+      byId("feed-status").textContent = "Uploading, extracting, and flushing…";
+      try {
+        const receipt = await api(`/v1/scopes/${encodeURIComponent(scope)}/upload`, { method: "POST", body });
+        byId("feed-status").className = "feed-status success";
+        byId("feed-status").textContent = `Uploaded ${file.name}; detected ${receipt.input_format}; ${receipt.status}.`;
+        byId("feed-receipt").textContent = jsonText(receipt);
+        byId("feed-receipt").hidden = false;
+        await loadScopes(scope);
+        await loadMatters();
+      } catch (error) {
+        byId("feed-status").className = "feed-status error";
+        byId("feed-status").textContent = error.message;
+      }
+    }
+
+    async function submitQuickMessage(event) {
+      event.preventDefault();
+      const scope = byId("quick-scope").value.trim();
+      const sender = byId("quick-sender").value.trim();
+      const sentAt = byId("quick-sent-at").value;
+      localStorage.setItem("matterhorn.console.sender", sender);
+      try {
+        const receipt = await api(`/v1/scopes/${encodeURIComponent(scope)}/quick-message`, {
+          method: "POST",
+          body: JSON.stringify({
+            sender,
+            text: byId("quick-text").value,
+            ...(sentAt ? { sent_at: new Date(sentAt).toISOString() } : {})
+          })
+        });
+        byId("feed-status").className = "feed-status success";
+        byId("feed-status").textContent = `Quick message ${receipt.status}; server timestamp used when blank.`;
+        byId("quick-text").value = "";
+        await loadScopes(scope);
+        await loadMatters();
+      } catch (error) {
+        byId("feed-status").className = "feed-status error";
+        byId("feed-status").textContent = error.message;
+      }
+    }
+
+    function applyMailPreset() {
+      const preset = mailPresets[byId("mail-provider").value];
+      if (!preset) return;
+      byId("mail-host").value = preset.host;
+      byId("mail-port").value = preset.port;
+      byId("mail-ssl").checked = preset.ssl;
+    }
+
+    async function loadMailStatus({ preserveMessage = false } = {}) {
+      const params = state.scope ? `?scope_id=${encodeURIComponent(state.scope)}` : "";
+      const status = await api(`/v1/connectors/mail/status${params}`);
+      state.mailStatus = status;
+      if (status.config) {
+        byId("mail-provider").value = status.config.provider;
+        byId("mail-account").value = status.config.account;
+        byId("mail-host").value = status.config.host;
+        byId("mail-port").value = status.config.port;
+        byId("mail-ssl").checked = status.config.ssl;
+        byId("mail-folder").value = status.config.folder;
+        byId("mail-interval").value = status.config.interval;
+        byId("mail-initial-window").value = status.config.initial_window;
+      } else if (!byId("mail-host").value) {
+        applyMailPreset();
+      }
+      renderMailStatus({ preserveMessage });
+    }
+
+    function renderMailStatus({ preserveMessage = false } = {}) {
+      const status = state.mailStatus || {};
+      const report = status.last_report || {};
+      const filteredReasons = Object.entries(report.filtered_by_reason || {})
+        .map(([reason, count]) => `${reason} ${count}`)
+        .join(" · ");
+      const error = status.error;
+      const config = status.config;
+      byId("mail-stamp").textContent = status.configured ? "configured" : "not configured";
+      byId("mail-stamp").className = `badge ${error ? "danger" : ""}`;
+      const help = config?.help_url || mailPresets[byId("mail-provider").value]?.help;
+      byId("mail-status").innerHTML = [
+        ["Credential", status.password_state || "re-enter password"],
+        ["Last sync", status.last_sync_at ? new Date(status.last_sync_at).toLocaleString() : "never"],
+        ["UID watermark", status.uid_watermark ?? "—"],
+        ["UIDVALIDITY", status.uidvalidity ?? "—"],
+        ["First-sync window", config?.initial_window ?? 50],
+        ["Last run", status.syncing
+          ? "Syncing…"
+          : `pulled ${report.pulled ?? 0} · dropped ${report.filtered ?? 0}${filteredReasons ? ` (${filteredReasons})` : ""} · parse errors ${report.parse_errors ?? 0} · new matters ${report.new_matters ?? 0}`],
+        ["Next run", status.next_run_at ? new Date(status.next_run_at).toLocaleString() : "off"]
+      ].map(([label, value]) => `<div class="ledger-row"><span>${escapeHtml(label)}</span><code>${escapeHtml(value)}</code></div>`).join("");
+      if (!preserveMessage) {
+        byId("mail-message").className = `feed-status ${error ? "error" : ""}`;
+        byId("mail-message").innerHTML = error
+          ? `${escapeHtml(error)}${help ? ` <a href="${escapeHtml(help)}" target="_blank" rel="noreferrer">Provider authorization help</a>` : ""}`
+          : "";
+      }
+    }
+
+    async function saveMailConfig(event) {
+      event.preventDefault();
+      const password = byId("mail-password").value;
+      try {
+        await api("/v1/connectors/mail/config", {
+          method: "POST",
+          body: JSON.stringify({
+            provider: byId("mail-provider").value,
+            host: byId("mail-host").value.trim(),
+            port: Number(byId("mail-port").value),
+            ssl: byId("mail-ssl").checked,
+            account: byId("mail-account").value.trim(),
+            folder: byId("mail-folder").value.trim(),
+            interval: byId("mail-interval").value,
+            initial_window: Number(byId("mail-initial-window").value),
+            scope: state.scope || byId("feed-scope").value.trim(),
+            ...(password ? { password } : {})
+          })
+        });
+        byId("mail-password").value = "";
+        await loadMailStatus();
+        byId("mail-message").className = "feed-status success";
+        byId("mail-message").textContent = "Non-secret settings saved; credential retained only in process memory.";
+      } catch (error) {
+        byId("mail-password").value = "";
+        byId("mail-message").className = "feed-status error";
+        byId("mail-message").textContent = error.message;
+      }
+    }
+
+    async function syncMail() {
+      const button = byId("mail-sync");
+      if (button.disabled) return;
+      const idleLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = "Syncing…";
+      byId("mail-message").className = "feed-status";
+      byId("mail-message").textContent = "Syncing… pulling UIDs and flushing.";
+      const pollTimer = window.setInterval(() => {
+        loadMailStatus({ preserveMessage: true }).catch(() => { /* The POST result remains authoritative. */ });
+      }, 2000);
+      try {
+        const report = await api("/v1/connectors/mail/sync", {
+          method: "POST",
+          body: JSON.stringify({ scope_id: state.scope || byId("feed-scope").value.trim() })
+        });
+        await loadScopes(report.scope_id);
+        await loadMatters();
+        await loadMailStatus();
+        byId("mail-message").className = "feed-status success";
+        const reasons = Object.entries(report.filtered_by_reason || {})
+          .map(([reason, count]) => `${reason} ${count}`)
+          .join(", ");
+        byId("mail-message").textContent = `Pulled ${report.pulled}; dropped ${report.filtered}${reasons ? ` (${reasons})` : ""}; parse errors ${report.parse_errors}; produced ${report.cards_produced} cards and ${report.new_assertions} assertions.`;
+      } catch (error) {
+        try {
+          await loadMailStatus();
+        } catch (_) {
+          /* Preserve the sync endpoint's error when status polling also fails. */
+        }
+        byId("mail-message").className = "feed-status error";
+        byId("mail-message").textContent = state.mailStatus?.error || error.message;
+      } finally {
+        window.clearInterval(pollTimer);
+        button.disabled = false;
+        button.textContent = idleLabel;
+      }
+    }
+
+    async function resetMail() {
+      const approved = window.confirm("Re-pull recent mail on the next sync? This deletes the saved UID watermark and UIDVALIDITY for this connector.");
+      if (!approved) return;
+      const button = byId("mail-reset");
+      button.disabled = true;
+      try {
+        const result = await api("/v1/connectors/mail/reset", {
+          method: "POST",
+          body: JSON.stringify({
+            scope_id: state.scope || byId("feed-scope").value.trim(),
+            confirm: true
+          })
+        });
+        await loadMailStatus();
+        byId("mail-message").className = "feed-status success";
+        byId("mail-message").textContent = result.position_deleted
+          ? "Saved mail position deleted. The next sync will apply the first-sync window."
+          : "No saved mail position existed. The next sync will apply the first-sync window.";
+      } catch (error) {
+        byId("mail-message").className = "feed-status error";
+        byId("mail-message").textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     async function loadChatConfig() {
       const config = await api("/v1/console/config");
       if (config.chat_enabled) {
@@ -679,6 +1017,12 @@
       byId("feed-status").textContent = "Fictional sample loaded; Extract uses the packaged fixture gateway, so no key is needed.";
     });
     byId("extract-feed").addEventListener("click", extractFeed);
+    byId("upload-feed").addEventListener("click", uploadFeed);
+    byId("quick-form").addEventListener("submit", submitQuickMessage);
+    byId("mail-provider").addEventListener("change", () => { applyMailPreset(); renderMailStatus(); });
+    byId("mail-config-form").addEventListener("submit", saveMailConfig);
+    byId("mail-sync").addEventListener("click", syncMail);
+    byId("mail-reset").addEventListener("click", resetMail);
     byId("query-kind").addEventListener("change", updateQueryFields);
     byId("query-form").addEventListener("submit", runQuery);
     byId("toggle-json").addEventListener("click", () => {
@@ -690,9 +1034,11 @@
     byId("correction-form").addEventListener("submit", submitCorrection);
     byId("cancel-correction").addEventListener("click", () => byId("correction-dialog").close());
     byId("chat-form").addEventListener("submit", askChat);
+    byId("quick-sender").value = localStorage.getItem("matterhorn.console.sender") || "";
 
     updateQueryFields();
-    Promise.all([loadScopes(), loadChatConfig()]).catch((error) => {
+    applyMailPreset();
+    Promise.all([loadScopes(), loadChatConfig(), loadMailStatus()]).catch((error) => {
       byId("scope-list").innerHTML = `<li class="error-box">${escapeHtml(error.message)}</li>`;
     });
   </script>

@@ -34,6 +34,20 @@ ARCHITECTURE_RULES = (
         "forbid": {"adapters"},
         "scope": "module",
     },
+    # Network connectors normalize through adapters and invoke only the
+    # injected engine facade; they never import store implementations or core.
+    {
+        "sources": {"connectors"},
+        "allow_only": {
+            "adapters",
+            "canonical",
+            "connectors",
+            "contracts",
+            "errors",
+        },
+        "forbid": set(),
+        "scope": "all",
+    },
 )
 
 # A future SDK-compatibility fallback that lazily imports an adapter must be

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from email.message import EmailMessage
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,8 @@ from matterhorn.adapters import (
     map_openviking_digest,
     map_reme_digest,
 )
+from matterhorn.adapters.email_mbox import map_email_message
+from matterhorn.canonical import stable_hash
 from matterhorn.engine import Engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -40,6 +43,26 @@ def _modern_record(
         "author": {"id": "ada", "kind": "human"},
         "content": content or native_id,
     }
+
+
+def _email_record(
+    native_id: str,
+    subject: str,
+    *,
+    references: str | None = None,
+):
+    message = EmailMessage()
+    message["Message-ID"] = f"<{native_id}>"
+    message["Date"] = "Wed, 29 Jul 2026 09:00:00 +0000"
+    message["From"] = "Ada <ada@example.test>"
+    message["To"] = "team@example.test"
+    message["Subject"] = subject
+    if references is not None:
+        message["References"] = references
+    message.set_content(f"Update from {native_id}.")
+    record = map_email_message(message, container_id="imap:ada@example.test/INBOX")
+    assert record is not None
+    return record
 
 
 def test_message_extractor_is_profile_driven_traceable_and_idempotent(tmp_path) -> None:
@@ -207,6 +230,102 @@ def test_record_extraction_batches_without_splitting_threads() -> None:
         [item["source_alias"] for item in prompt["records"]]
         for prompt in gateway.prompts
     ] == [["m1", "m2", "m3"], ["m1", "m2"]]
+
+
+def test_email_subject_key_stamp_is_server_derived_and_deterministic() -> None:
+    record = _email_record("one@example.test", "Re: Release readiness")
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Release readiness",
+                    "progress": "QA started.",
+                    "source_ids": ["m1"],
+                }
+            ]
+        }
+    )
+    extractor = MessageCardExtractor(gateway, "org-matters/v1")
+
+    first = extractor.extract(scope_id="mail", records=[record])
+    second = extractor.extract(scope_id="mail", records=[record])
+
+    expected = "mail:" + stable_hash(
+        ["imap:ada@example.test/INBOX", "subject:release readiness"]
+    )[:20]
+    assert first.cards[0].subject_key == expected
+    assert second.cards[0].subject_key == expected
+    assert "subject_key" not in gateway.calls[0]["response_schema"]["$defs"][
+        "MessageCardCandidate"
+    ]["properties"]
+
+
+def test_email_subject_fallback_groups_reply_and_chinese_prefixes(tmp_path) -> None:
+    records = [
+        _email_record("one@example.test", "Launch plan"),
+        _email_record("two@example.test", "Re: Fwd: launch plan"),
+        _email_record("three@example.test", "回复: LAUNCH   PLAN"),
+    ]
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Launch plan",
+                    "progress": f"Update {index}.",
+                    "source_ids": [f"m{index}"],
+                }
+                for index in range(1, 4)
+            ]
+        }
+    )
+    extractor = MessageCardExtractor(gateway, "org-matters/v1")
+
+    report = extractor.extract(scope_id="mail", records=records)
+    engine = Engine(tmp_path / "fallback.db", "org-matters/v1")
+    engine._ingest_cards_sync(report.cards)
+
+    matters = engine.query.list_matters("mail")
+    assert len(matters) == 1
+    assert len(
+        engine.query.timeline("mail", matters[0].subject_key, "progress")
+    ) == 3
+    assert "aggregate all Records in each conversation" in gateway.calls[0]["system"]
+    assert "回复:" in gateway.calls[0]["system"]
+    assert "do not default status to done" in gateway.calls[0]["system"]
+
+
+def test_distinct_email_subjects_get_distinct_matter_identities(tmp_path) -> None:
+    records = [
+        _email_record("one@example.test", "Launch plan"),
+        _email_record("two@example.test", "Budget review"),
+    ]
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": title,
+                    "progress": "Updated.",
+                    "source_ids": [f"m{index}"],
+                }
+                for index, title in enumerate(
+                    ["Launch plan", "Budget review"],
+                    start=1,
+                )
+            ]
+        }
+    )
+    report = MessageCardExtractor(gateway, "org-matters/v1").extract(
+        scope_id="mail",
+        records=records,
+    )
+    engine = Engine(tmp_path / "distinct.db", "org-matters/v1")
+    engine._ingest_cards_sync(report.cards)
+
+    assert len({card.subject_key for card in report.cards}) == 2
+    assert len(engine.query.list_matters("mail")) == 2
 
 
 def test_message_extractor_drops_fields_outside_active_profile() -> None:

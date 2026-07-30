@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+import re
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from matterhorn.contracts import (
@@ -173,6 +176,65 @@ class MatterhornService:
         if isinstance(task, TaskResult):
             result["accepted"] = len(detected.messages)
         return result
+
+    def upload_raw(
+        self,
+        *,
+        scope_id: str,
+        filename: str,
+        content: bytes,
+        now: Any = None,
+    ) -> dict[str, Any]:
+        suffix = Path(filename).suffix.casefold()
+        if suffix not in {".mbox", ".eml", ".yaml", ".json"}:
+            from matterhorn.errors import IngestFormatError
+
+            raise IngestFormatError(
+                "Upload filename MUST end in .mbox, .eml, .yaml, or .json."
+            )
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as error:
+            from matterhorn.errors import IngestFormatError
+
+            raise IngestFormatError("Upload MUST be UTF-8 text.") from error
+        return self.ingest_raw(
+            scope_id=scope_id,
+            text=text,
+            wait=True,
+            now=now,
+        )
+
+    def quick_message(
+        self,
+        *,
+        scope_id: str,
+        sender: str,
+        text: str,
+        sent_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        instant = sent_at or self.engine.now()
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=UTC)
+        sender_id = re.sub(
+            r"[^a-z0-9@._+-]+",
+            "-",
+            sender.casefold(),
+        ).strip("-") or "unknown"
+        message = Message.model_validate(
+            {
+                "id": f"quick-{uuid.uuid4().hex}",
+                "sender": {"id": sender_id, "name": sender},
+                "text": text,
+                "sent_at": instant,
+                "conversation_id": "console-quick",
+            }
+        )
+        return self.add_messages(
+            scope_id=scope_id,
+            messages=[message],
+            wait=True,
+        )
 
     def chat(
         self,

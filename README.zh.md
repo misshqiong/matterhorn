@@ -19,6 +19,9 @@ Matterhorn 自带 Console 操作面，用于浏览 scope 与事项、运行确�
 人工纠错、粘贴 chat / YAML / JSON / email，以及可选地向一个只拥有五个公共确定性
 查询工具的模型提问。
 
+Console 也能配置并运行凭证仅驻留内存的 [IMAP 邮件连接器](docs/mail.zh.md)，支持
+文件上传和 quick single-message jot。
+
 ```console
 pip install 'matterhorn-memory[api]'
 mh console
@@ -193,6 +196,7 @@ SUMMARY passed=47 failed=0 total=47
 
 - [快速开始](docs/getting-started.md)
 - [Console 操作面](docs/console.zh.md)
+- [IMAP 邮件连接器](docs/mail.zh.md)
 - [自托管开发账本](docs/ledger.zh.md)
 - [核心概念与承诺边界](docs/core-concepts.md)
 - [MCP 与 Claude Code](docs/mcp-claude-code.md)

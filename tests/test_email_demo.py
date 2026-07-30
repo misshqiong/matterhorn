@@ -19,11 +19,11 @@ def test_demo_mbox_maps_two_threads_and_filters_bulk() -> None:
     mapped = map_mbox(EMAIL_EXAMPLE / "demo.mbox")
 
     assert len(mapped.records) == 17
-    assert mapped.dropped == {"AUTOMATED": 1}
+    assert mapped.dropped == {"bulk": 1}
     assert not any("relay-bulk" in item.record_id for item in mapped.records)
     assert Counter(item.thread_id for item in mapped.records) == {
-        "email:relay-01@lumenfinch.example": 14,
-        "email:accept-01@lumenfinch.example": 3,
+        "email:message-id:relay-01@lumenfinch.example": 14,
+        "email:message-id:accept-01@lumenfinch.example": 3,
     }
 
 

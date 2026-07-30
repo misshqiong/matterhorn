@@ -24,6 +24,10 @@ running deterministic queries, making first-class human corrections, feeding
 pasted chat/YAML/JSON/email, and optionally asking a tool-using model whose only
 tools are the five public deterministic queries.
 
+The Console also configures and runs the memory-only-credential
+[IMAP mail connector](docs/mail.md), accepts file uploads, and provides a quick
+single-message jot.
+
 ```console
 pip install 'matterhorn-memory[api]'
 mh console
@@ -223,6 +227,7 @@ SUMMARY passed=47 failed=0 total=47
 
 - [Getting started](docs/getting-started.md)
 - [Console operating surface](docs/console.md)
+- [IMAP mail connector](docs/mail.md)
 - [Self-hosted development ledger](docs/ledger.md)
 - [Core concepts and the promise boundary](docs/core-concepts.md)
 - [MCP and Claude Code](docs/mcp-claude-code.md)

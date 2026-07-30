@@ -135,6 +135,18 @@ class Store(Protocol):
         cursor: str | None,
     ) -> None: ...
 
+    def update_mail_sync_position(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        uid_watermark: int,
+        uidvalidity: str,
+        fallback_watermark: datetime,
+    ) -> None: ...
+
+    def delete_sync_position(self, scope_id: str, container_id: str) -> bool: ...
+
     def sync_positions(self, scope_id: str) -> list[SyncPosition]: ...
 
     def assertions(self, scope_id: str) -> list[Assertion]: ...

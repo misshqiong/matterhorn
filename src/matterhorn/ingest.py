@@ -11,7 +11,10 @@ from datetime import UTC, datetime, timedelta
 import yaml
 from pydantic import ValidationError
 
-from matterhorn.adapters.email_mbox import map_email_text
+from matterhorn.adapters.email_mbox import (
+    email_record_to_message,
+    map_email_text,
+)
 from matterhorn.contracts import Message
 from matterhorn.errors import IngestFormatError
 
@@ -114,21 +117,7 @@ def _email_messages(text: str) -> DetectedIngest:
         mapped = map_email_text(text)
     except (TypeError, ValueError) as error:
         raise IngestFormatError(f"Invalid EML/mbox input: {error}") from error
-    messages = [
-        Message.model_validate(
-            {
-                "id": record.native_id or record.record_id.removeprefix("email:"),
-                "sender": {
-                    "id": record.author.id,
-                    "name": record.author.display_name,
-                },
-                "text": record.content,
-                "sent_at": record.sent_at,
-                "conversation_id": record.thread_id or record.container_id,
-            }
-        )
-        for record in mapped.records
-    ]
+    messages = [email_record_to_message(record) for record in mapped.records]
     if not messages:
         raise IngestFormatError("Email input contained no human messages.")
     return DetectedIngest("email", messages)
