@@ -2,6 +2,46 @@
 
 Scope: <code>dev</code>
 
+## Chore: All sample data is fictional and English by default
+
+- Status: <code>completed</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Replaced real-looking names and Chinese bodies with fictional Dana Reyes and English content in README, demo scaffold, conformance case, and fixtures. Unicode test vectors unchanged. 169 tests green.","type":"evidence"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:9477f94f82cdcf2113fea5e4b362a6fb06ebcf2f](<https://github.com/misshqiong/matterhorn/commit/9477f94f82cdcf2113fea5e4b362a6fb06ebcf2f>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"u1"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:9477f94f82cdcf2113fea5e4b362a6fb06ebcf2f](<https://github.com/misshqiong/matterhorn/commit/9477f94f82cdcf2113fea5e4b362a6fb06ebcf2f>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"completed"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:9477f94f82cdcf2113fea5e4b362a6fb06ebcf2f](<https://github.com/misshqiong/matterhorn/commit/9477f94f82cdcf2113fea5e4b362a6fb06ebcf2f>)
+
+</details>
+
+## Refactor: Import graph matches architecture; layering enforced
+
+- Status: <code>completed</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Pure refactor; canonical.py moved to top level, FIELD_WIDE_RETRACT moved to contracts, RecordExtractor Protocol in contracts, architecture test-enforced. 232 tests green.","type":"evidence"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:8ac6b8b2f76a37aa5749accee8f60dea76ea5b8b](<https://github.com/misshqiong/matterhorn/commit/8ac6b8b2f76a37aa5749accee8f60dea76ea5b8b>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"u1"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:8ac6b8b2f76a37aa5749accee8f60dea76ea5b8b](<https://github.com/misshqiong/matterhorn/commit/8ac6b8b2f76a37aa5749accee8f60dea76ea5b8b>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"completed"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:8ac6b8b2f76a37aa5749accee8f60dea76ea5b8b](<https://github.com/misshqiong/matterhorn/commit/8ac6b8b2f76a37aa5749accee8f60dea76ea5b8b>)
+
+</details>
+
 ## M4: Record layer, Slack adapter, evidence lifecycle
 
 - Status: <code>done</code>
@@ -119,6 +159,26 @@ Scope: <code>dev</code>
   - Evidence: [github:misshqiong/matterhorn:commit:66dd721cb5642b1fb8fe0e84c979e1942b7f3700](<https://github.com/misshqiong/matterhorn/commit/66dd721cb5642b1fb8fe0e84c979e1942b7f3700>)
 - <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"completed"</code>
   - Evidence: [github:misshqiong/matterhorn:commit:66dd721cb5642b1fb8fe0e84c979e1942b7f3700](<https://github.com/misshqiong/matterhorn/commit/66dd721cb5642b1fb8fe0e84c979e1942b7f3700>)
+
+</details>
+
+## Email demo + card-style HTML export published as live page
+
+- Status: <code>completed</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"mh export --format html renders self-contained file with commitments strip, card grid, by-person view, correction badges. email_mbox adapter maps mbox/EML. Demo with 18-message fictional vendor project. Published at docs/demo/. 183 tests green.","type":"evidence"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:362ec259fee8efd642511062108c48bff806b7ba](<https://github.com/misshqiong/matterhorn/commit/362ec259fee8efd642511062108c48bff806b7ba>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"u1"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:362ec259fee8efd642511062108c48bff806b7ba](<https://github.com/misshqiong/matterhorn/commit/362ec259fee8efd642511062108c48bff806b7ba>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"completed"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:362ec259fee8efd642511062108c48bff806b7ba](<https://github.com/misshqiong/matterhorn/commit/362ec259fee8efd642511062108c48bff806b7ba>)
 
 </details>
 
