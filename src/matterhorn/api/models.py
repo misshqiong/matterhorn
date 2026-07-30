@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, RootModel
 
@@ -12,6 +12,8 @@ from matterhorn.contracts import (
     Outcome,
     Participant,
     SourceRef,
+    TaskGate,
+    TaskStatus,
 )
 from matterhorn.contracts.models import StrictModel
 
@@ -19,6 +21,22 @@ from matterhorn.contracts.models import StrictModel
 class AddMessagesRequest(StrictModel):
     messages: list[Message]
     wait: bool = False
+
+
+class RawIngestRequest(StrictModel):
+    text: str = Field(min_length=1, max_length=200_000)
+    wait: bool = False
+
+
+class IngestResponse(StrictModel):
+    input_format: Literal["chat", "messages", "email"]
+    synthesized_timestamps: bool
+    accepted: int
+    task_id: str
+    status: TaskStatus | None = None
+    cards_produced: int = 0
+    new_assertions: int = 0
+    gate: TaskGate | None = None
 
 
 class CardInput(StrictModel):
@@ -100,6 +118,47 @@ class MatterResponse(StrictModel):
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
     pass
+
+
+class ScopeListResponse(RootModel[list[str]]):
+    pass
+
+
+class MatterDetailResponse(StrictModel):
+    subject_key: str
+    subject_type: str
+    title: str
+    current: list[ValueResponse]
+    timeline: dict[str, list[ValueResponse]]
+
+
+class ChatHistoryMessage(StrictModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8_000)
+
+
+class ChatRequest(StrictModel):
+    message: str = Field(min_length=1, max_length=8_000)
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
+
+
+class ChatEvidence(StrictModel):
+    name: str
+    args: dict[str, Any]
+    source_ids: list[str]
+    subject_keys: list[str]
+    error: str | None = None
+
+
+class ChatResponse(StrictModel):
+    answer: str
+    evidence: list[ChatEvidence]
+    tool_calls: int
+
+
+class ConsoleConfigResponse(StrictModel):
+    chat_enabled: bool
+    chat_provider: str | None = None
 
 
 class HealthResponse(StrictModel):

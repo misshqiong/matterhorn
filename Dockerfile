@@ -25,6 +25,9 @@ USER matterhorn
 EXPOSE 8000
 CMD ["mh", "serve", "--host", "0.0.0.0", "--port", "8000", "--db", "matterhorn.db"]
 
+FROM runtime AS console
+CMD ["mh", "console", "--no-open", "--host", "0.0.0.0", "--port", "8000", "--db", "matterhorn.db"]
+
 FROM runtime AS test
 USER root
 COPY . /app

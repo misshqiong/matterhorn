@@ -17,6 +17,37 @@ Both pages are single self-contained HTML files produced by
 `mh export <scope> --format html` — no server, no JavaScript framework,
 no external requests.
 
+## Console
+
+Matterhorn ships a Console operating surface for viewing scopes and matters,
+running deterministic queries, making first-class human corrections, feeding
+pasted chat/YAML/JSON/email, and optionally asking a tool-using model whose only
+tools are the five public deterministic queries.
+
+```console
+pip install 'matterhorn-memory[api]'
+mh console
+```
+
+The static Console and REST API share `127.0.0.1:8000`; the browser opens
+`/console`. The browser talks only to documented public REST endpoints. The
+built-in fictional Dana Reyes / octo-org sample uses a packaged fixture and
+needs no key.
+
+> **Screenshot placeholder:** scope browser, matter detail and correction,
+> query workbench, feed receipt, and evidence-bearing chat.
+
+Matterhorn still has no built-in business consumption UI: end-user boards
+belong to hosts. The Console is the product’s operator/developer/demo surface.
+See the [Console guide](docs/console.md).
+
+The default loopback bind is intentional. A public deployment must add
+authentication and a trusted network boundary in front; v1 multi-tenant
+authentication remains a non-goal.
+
+**Next version (listed, not built):** operations views for task receipts, sync
+status, and the events feed; multi-scope comparison; export buttons.
+
 ## 📒 Development ledger
 
 This project's own development is tracked by Matterhorn itself. The public
@@ -191,6 +222,7 @@ SUMMARY passed=47 failed=0 total=47
 ## Guides
 
 - [Getting started](docs/getting-started.md)
+- [Console operating surface](docs/console.md)
 - [Self-hosted development ledger](docs/ledger.md)
 - [Core concepts and the promise boundary](docs/core-concepts.md)
 - [MCP and Claude Code](docs/mcp-claude-code.md)

@@ -296,6 +296,30 @@ class PostgresStore:
             for table in tables
         )
 
+    def list_scopes(self) -> list[str]:
+        rows = self._execute(
+            """
+            SELECT DISTINCT scope_id COLLATE "C" AS scope_id FROM (
+                SELECT scope_id FROM ingested_cards
+                UNION ALL SELECT scope_id FROM record_observations
+                UNION ALL SELECT scope_id FROM evidence_sources
+                UNION ALL SELECT scope_id FROM sync_positions
+                UNION ALL SELECT scope_id FROM subjects
+                UNION ALL SELECT scope_id FROM assertions
+                UNION ALL SELECT scope_id FROM intervals
+                UNION ALL SELECT scope_id FROM memory_cards
+                UNION ALL SELECT scope_id FROM projection_stats
+                UNION ALL SELECT scope_id FROM distill_queue
+                UNION ALL SELECT scope_id FROM gate_stats
+                UNION ALL SELECT scope_id FROM tasks
+                UNION ALL SELECT scope_id FROM events
+                UNION ALL SELECT scope_id FROM webhook_deliveries
+            ) AS stored_scopes
+            ORDER BY scope_id
+            """
+        )
+        return [row["scope_id"] for row in rows]
+
     def _execute(
         self, sql: str, parameters: tuple[Any, ...] = ()
     ) -> Any:

@@ -3,18 +3,27 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
+from importlib import resources
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from matterhorn.api.limits import MemoryRateLimiter
 from matterhorn.api.models import (
     AddCardsRequest,
     AddMessagesRequest,
+    ChatRequest,
+    ChatResponse,
+    ConsoleConfigResponse,
     CorrectionInput,
     HealthResponse,
+    IngestResponse,
+    MatterDetailResponse,
     MatterListResponse,
+    RawIngestRequest,
+    ScopeListResponse,
     SubjectListResponse,
     ValueListResponse,
 )
@@ -25,7 +34,7 @@ from matterhorn.contracts import (
     TaskReceipt,
     TaskResult,
 )
-from matterhorn.errors import MatterhornError
+from matterhorn.errors import ChatUnavailableError, MatterhornError
 from matterhorn.scheduler import ServiceScheduler
 from matterhorn.service import MatterhornService
 
@@ -42,6 +51,11 @@ def create_app(
     webhook_transport: Any = None,
     webhook_max_attempts: int = 3,
     webhook_backoff_seconds: float = 1,
+    console_enabled: bool = False,
+    chat_runner: Any = None,
+    ingest_rate_limit: int = 20,
+    chat_rate_limit: int = 30,
+    rate_limit_window_seconds: float = 60,
 ) -> FastAPI:
     if service is None:
         if engine is None:
@@ -102,6 +116,15 @@ def create_app(
     )
     app.state.matterhorn_service = service
     app.state.scheduler_task = None
+    app.state.console_chat_runner = chat_runner
+    ingest_limiter = MemoryRateLimiter(
+        limit=ingest_rate_limit,
+        window_seconds=rate_limit_window_seconds,
+    )
+    chat_limiter = MemoryRateLimiter(
+        limit=chat_rate_limit,
+        window_seconds=rate_limit_window_seconds,
+    )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(
@@ -147,6 +170,14 @@ def create_app(
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get(
+        "/v1/scopes",
+        response_model=ScopeListResponse,
+        summary="List scopes present in the configured store",
+    )
+    def scopes():
+        return service.list_scopes()
+
     @app.post(
         "/v1/scopes/{scope_id}/messages",
         response_model=TaskReceipt | TaskResult,
@@ -156,6 +187,19 @@ def create_app(
             scope_id=scope_id,
             messages=request.messages,
             wait=request.wait,
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/ingest",
+        response_model=IngestResponse,
+        summary="Auto-detect and ingest pasted chat, messages, or email",
+    )
+    def ingest(scope_id: str, payload: RawIngestRequest, request: Request):
+        ingest_limiter.check(_rate_key(request, "ingest"))
+        return service.ingest_raw(
+            scope_id=scope_id,
+            text=payload.text,
+            wait=payload.wait,
         )
 
     @app.post(
@@ -182,6 +226,17 @@ def create_app(
     )
     def matters(scope_id: str):
         return service.list_matters(scope_id=scope_id)
+
+    @app.get(
+        "/v1/scopes/{scope_id}/matters/{subject_key}",
+        response_model=MatterDetailResponse,
+        summary="Read current values, timelines, and evidence for one matter",
+    )
+    def matter_detail(scope_id: str, subject_key: str):
+        return service.matter_detail(
+            scope_id=scope_id,
+            subject_key=subject_key,
+        )
 
     @app.get(
         "/v1/scopes/{scope_id}/query/current",
@@ -260,4 +315,57 @@ def create_app(
     def export(scope_id: str):
         return service.export(scope_id=scope_id)
 
+    @app.get(
+        "/v1/console/config",
+        response_model=ConsoleConfigResponse,
+        summary="Report optional Console capabilities without exposing secrets",
+    )
+    def console_config():
+        runner = app.state.console_chat_runner
+        return {
+            "chat_enabled": runner is not None,
+            "chat_provider": runner.provider if runner is not None else None,
+        }
+
+    @app.post(
+        "/v1/scopes/{scope_id}/chat",
+        response_model=ChatResponse,
+        summary="Ask a provider using only deterministic scoped query tools",
+    )
+    def chat(scope_id: str, payload: ChatRequest, request: Request):
+        chat_limiter.check(_rate_key(request, "chat"))
+        runner = app.state.console_chat_runner
+        if runner is None:
+            raise ChatUnavailableError(
+                "Console chat requires a configured provider key and model."
+            )
+        return service.chat(
+            scope_id=scope_id,
+            message=payload.message,
+            history=[
+                item.model_dump(mode="python") for item in payload.history
+            ],
+            runner=runner,
+        )
+
+    if console_enabled:
+        template = (
+            resources.files("matterhorn")
+            .joinpath("templates/console.html.j2")
+            .read_text(encoding="utf-8")
+        )
+
+        @app.get("/", include_in_schema=False)
+        def console_root():
+            return RedirectResponse("/console")
+
+        @app.get("/console", response_class=HTMLResponse, include_in_schema=False)
+        def console_page():
+            return HTMLResponse(template)
+
     return app
+
+
+def _rate_key(request: Request, resource: str) -> str:
+    host = request.client.host if request.client is not None else "unknown"
+    return f"{resource}:{host}"

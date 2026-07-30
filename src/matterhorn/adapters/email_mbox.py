@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import mailbox
 import re
+import tempfile
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -40,6 +41,19 @@ def map_email_file(path: str | Path) -> EmailMappingResult:
     if suffix == ".eml":
         return map_eml(source)
     raise ValueError("email input MUST use a .mbox or .eml filename")
+
+
+def map_email_text(text: str) -> EmailMappingResult:
+    """Map raw EML or mbox text through the ordinary email adapter."""
+
+    payload = text.encode("utf-8")
+    if text.startswith("From "):
+        with tempfile.NamedTemporaryFile(suffix=".mbox") as handle:
+            handle.write(payload)
+            handle.flush()
+            return map_mbox(handle.name)
+    message = BytesParser(policy=policy.default).parsebytes(payload)
+    return _map_messages([message])
 
 
 def map_mbox(path: str | Path) -> EmailMappingResult:

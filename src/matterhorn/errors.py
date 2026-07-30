@@ -16,3 +16,18 @@ class ResourceNotFoundError(MatterhornError):
 class ImportRefusedError(MatterhornError):
     code = "IMPORT_REFUSED"
     status_code = 400
+
+
+class IngestFormatError(MatterhornError, ValueError):
+    code = "UNRECOGNIZED_INGEST_FORMAT"
+    status_code = 400
+
+
+class RateLimitExceededError(MatterhornError):
+    code = "RATE_LIMIT_EXCEEDED"
+    status_code = 429
+
+
+class ChatUnavailableError(MatterhornError):
+    code = "CHAT_UNAVAILABLE"
+    status_code = 503

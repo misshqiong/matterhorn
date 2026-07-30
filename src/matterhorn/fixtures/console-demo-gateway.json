@@ -1,0 +1,25 @@
+{
+  "record_extraction": {
+    "cards": [
+      {
+        "date": "2026-07-29",
+        "title": "octo-org Console launch",
+        "status": "in_progress",
+        "participants": [
+          {
+            "id": "dana-reyes",
+            "display_name": "Dana Reyes",
+            "role": "owner"
+          }
+        ],
+        "progress": "REST scope browser is connected",
+        "next_step": "Finish the correction demo",
+        "due": "2026-08-05T17:00:00Z",
+        "source_ids": ["m1", "m2", "m3"]
+      }
+    ]
+  },
+  "distillation": {
+    "candidates": []
+  }
+}

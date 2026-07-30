@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import tomllib
+import webbrowser
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -953,12 +955,13 @@ def serve(
         None,
         help="POST new event batches; may come from config webhook_url.",
     ),
+    console: bool = typer.Option(
+        False,
+        "--console",
+        help="Mount the Console static client at /console.",
+    ),
 ) -> None:
-    """Serve REST with service-only scheduling and optional event webhooks."""
-    import uvicorn
-
-    from matterhorn.api import create_app
-
+    """Serve REST with scheduling, webhooks, and optional Console."""
     config = _load_config()
     quiet = (
         quiet_period_minutes
@@ -967,18 +970,125 @@ def serve(
     )
     daily = daily_flush_at or config.get("daily_flush_at")
     webhook = webhook_url or config.get("webhook_url")
-    uvicorn.run(
-        create_app(
-            engine=_engine(
-                db,
-                schema,
-                None,
-                gateway=_write_gateway(provider, base_url, api_key, model),
-            ),
-            quiet_period_minutes=quiet,
-            daily_flush_at=daily,
-            webhook_url=webhook,
+    _run_service(
+        db=db,
+        schema=schema,
+        host=host,
+        port=port,
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        quiet_period_minutes=quiet,
+        daily_flush_at=daily,
+        webhook_url=webhook,
+        console_enabled=console,
+        open_browser=False,
+    )
+
+
+@app.command("console")
+def console_command(
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8000),
+    provider: str | None = typer.Option(
+        None, help="Defaults to MATTERHORN_PROVIDER."
+    ),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None, help="Defaults to MATTERHORN_MODEL."),
+    quiet_period_minutes: float | None = typer.Option(
+        None,
+        help="Auto-flush quiet message scopes; config default is 10 minutes.",
+    ),
+    daily_flush_at: str | None = typer.Option(
+        None,
+        help="Daily UTC auto-flush time as HH:MM; may come from config.",
+    ),
+    webhook_url: str | None = typer.Option(
+        None,
+        help="POST new event batches; may come from config webhook_url.",
+    ),
+    open_browser: bool = typer.Option(
+        True,
+        "--open/--no-open",
+        help="Open the Console URL in the default browser.",
+    ),
+) -> None:
+    """Start REST and the browser-based operating Console on one port."""
+    config = _load_config()
+    quiet = (
+        quiet_period_minutes
+        if quiet_period_minutes is not None
+        else float(config.get("quiet_period_minutes", 10))
+    )
+    _run_service(
+        db=db,
+        schema=schema,
+        host=host,
+        port=port,
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        quiet_period_minutes=quiet,
+        daily_flush_at=daily_flush_at or config.get("daily_flush_at"),
+        webhook_url=webhook_url or config.get("webhook_url"),
+        console_enabled=True,
+        open_browser=open_browser,
+    )
+
+
+def _run_service(
+    *,
+    db: str,
+    schema: str,
+    host: str,
+    port: int,
+    provider: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    model: str | None,
+    quiet_period_minutes: float,
+    daily_flush_at: str | None,
+    webhook_url: str | None,
+    console_enabled: bool,
+    open_browser: bool,
+) -> None:
+    import uvicorn
+
+    from matterhorn.api import create_app
+    from matterhorn.console.chat import chat_runner_from_environment
+
+    gateway = _write_gateway(provider, base_url, api_key, model)
+    if console_enabled:
+        from matterhorn.console import ConsoleSampleGateway
+
+        gateway = ConsoleSampleGateway(gateway)
+    application = create_app(
+        engine=_engine(
+            db,
+            schema,
+            None,
+            gateway=gateway,
         ),
+        quiet_period_minutes=quiet_period_minutes,
+        daily_flush_at=daily_flush_at,
+        webhook_url=webhook_url,
+        console_enabled=console_enabled,
+        chat_runner=chat_runner_from_environment(),
+    )
+    if console_enabled:
+        console_url = f"http://{host}:{port}/console"
+        typer.echo(f"Matterhorn Console: {console_url}")
+        if open_browser:
+            timer = threading.Timer(0.75, webbrowser.open, args=(console_url,))
+            timer.daemon = True
+            timer.start()
+    uvicorn.run(
+        application,
         host=host,
         port=port,
     )

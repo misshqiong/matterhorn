@@ -13,6 +13,33 @@
 由同一渲染器从仓库开发历史生成。两个页面都是 `mh export <scope> --format html`
 产出的单文件自包含 HTML——无服务端、无前端框架、零外部请求。
 
+## Console
+
+Matterhorn 自带 Console 操作面，用于浏览 scope 与事项、运行确定性查询、进行一等
+人工纠错、粘贴 chat / YAML / JSON / email，以及可选地向一个只拥有五个公共确定性
+查询工具的模型提问。
+
+```console
+pip install 'matterhorn-memory[api]'
+mh console
+```
+
+静态 Console 与 REST API 共用 `127.0.0.1:8000`，浏览器自动打开 `/console`。
+浏览器只调用 OpenAPI 中公开的 REST 接口。内置的虚构 Dana Reyes / octo-org 样例
+使用随包 fixture，零 key 即可完整运行。
+
+> **截图占位：** scope 浏览、事项详情与纠错、查询工作台、Feed receipt 和带证据
+> Chat。
+
+Matterhorn 仍不提供内置业务消费 UI：终端用户看板属于宿主。Console 是产品自身的
+运维、开发和演示操作面。详见 [Console 指南](docs/console.zh.md)。
+
+默认只绑定 loopback 是刻意设计；公网部署必须在服务前增加认证与可信网络边界，
+v1 多租户认证仍是非目标。
+
+**下一版本（仅列出，本次不实现）：** task receipts、sync status、events feed
+运维视图；多 scope 对比；export 按钮。
+
 ## 📒 开发账本
 
 Matterhorn 用自身追踪这个项目的开发过程。公开的
@@ -165,6 +192,7 @@ SUMMARY passed=47 failed=0 total=47
 ## 文档
 
 - [快速开始](docs/getting-started.md)
+- [Console 操作面](docs/console.zh.md)
 - [自托管开发账本](docs/ledger.zh.md)
 - [核心概念与承诺边界](docs/core-concepts.md)
 - [MCP 与 Claude Code](docs/mcp-claude-code.md)
