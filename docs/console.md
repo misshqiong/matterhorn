@@ -20,11 +20,13 @@ mh console
 Matterhorn binds to `127.0.0.1:8000`, prints the URL, and opens
 `http://127.0.0.1:8000/console` in the default browser. Use `--no-open` in
 automation. `mh serve --console` mounts the same page without opening a browser.
+Both commands also mount the same nine-tool MCP server at `/mcp`.
 
 The Console and REST API share one port. The browser calls only documented
 routes, including:
 
 - `GET /v1/scopes` and scope matter/detail resources;
+- service-wide `GET /v1/events` and `GET /v1/connections`;
 - the four deterministic query resources;
 - `POST /v1/scopes/{scope}/corrections`;
 - `POST /v1/scopes/{scope}/ingest`;
@@ -36,6 +38,23 @@ The default loopback bind is deliberate. Matterhorn v1 has no multi-tenant
 authentication or authorization. Before any public deployment, put
 authentication and an appropriate trusted network boundary in front of the
 service.
+
+## Live hub view
+
+The top of the Console answers two operating questions without leaving the
+page:
+
+- **Activity stream:** latest projection events across every scope, including
+  matter title, predicate, old and new values, origin, and recorded time.
+- **Connections:** redacted mail state, UID watermark and next run; each
+  scope's latest ingestion time and message/record observation count; and the
+  service-wide distill queue length.
+
+The browser polls those public endpoints about every five seconds. The scope
+rail and active matter list refresh on the same cadence, so Claude sessions,
+agent posts, and new email become visible without a manual refresh. The page
+remains a self-contained vanilla-JavaScript REST client with no external
+resources.
 
 The Dockerfile also provides a `console` target:
 
@@ -111,8 +130,5 @@ source IDs as clickable evidence chips.
    carries `依据/Evidence` chips for the deterministic queries and source IDs;
    click a chip to highlight the matching matter.
 
-## Next version, not built here
-
-- operations views for task receipts and the events feed;
-- multi-scope comparison;
-- export buttons.
+For shared Claude Code and agent-team mounting, see
+[Agent-team hub topology](agent-team.md).

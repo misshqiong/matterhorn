@@ -34,7 +34,9 @@ mh console
 ```
 
 The static Console and REST API share `127.0.0.1:8000`; the browser opens
-`/console`. The browser talks only to documented public REST endpoints. The
+`/console`, while agent clients mount the same process at `/mcp`. The browser
+talks only to documented public REST endpoints. Live activity, connector
+health, scope lists, and matter lists refresh about every five seconds. The
 built-in fictional Dana Reyes / octo-org sample uses a packaged fixture and
 needs no key.
 
@@ -49,8 +51,8 @@ The default loopback bind is intentional. A public deployment must add
 authentication and a trusted network boundary in front; v1 multi-tenant
 authentication remains a non-goal.
 
-**Next version (listed, not built):** operations views for task receipts, sync
-status, and the events feed; multi-scope comparison; export buttons.
+For one-service multi-person and multi-agent sharing, see the
+[Agent-team hub topology](docs/agent-team.md).
 
 ## 📒 Development ledger
 
@@ -231,6 +233,7 @@ SUMMARY passed=47 failed=0 total=47
 - [Self-hosted development ledger](docs/ledger.md)
 - [Core concepts and the promise boundary](docs/core-concepts.md)
 - [MCP and Claude Code](docs/mcp-claude-code.md)
+- [Agent-team hub topology](docs/agent-team.md)
 - [Human correction](docs/corrections.md)
 - [Events and webhook delivery](docs/webhooks.md)
 - [Slack and Record integrations](docs/slack.md)

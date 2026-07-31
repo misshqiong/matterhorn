@@ -68,6 +68,19 @@
     .scope-button { background: none; border: none; padding: .1rem 0; cursor: pointer; color: var(--muted);
       font: 13px var(--mono); border-bottom: 2px solid transparent; }
     .scope-button.active { color: var(--ink); border-bottom-color: var(--debit); font-weight: 700; }
+    .hub-overview { display: grid; grid-template-columns: minmax(18rem, .9fr) minmax(0, 2fr); gap: 1rem; margin-bottom: 1.3rem; }
+    .hub-overview .card { box-shadow: none; }
+    .connection-list, .activity-list { list-style: none; margin: 0; padding: 0; }
+    .connection-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; }
+    .connection-item { border-left: 2px solid var(--rule2); padding-left: .65rem; min-width: 0; }
+    .connection-item strong { display: block; font: 700 13px var(--serif); }
+    .connection-item code { font: 11px var(--mono); color: var(--muted); }
+    .activity-list { display: grid; max-height: 12rem; overflow: auto; }
+    .activity-item { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(10rem, 1.4fr) auto; gap: .8rem;
+      padding: .48rem 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+    .activity-item:last-child { border-bottom: 0; }
+    .activity-change { font: 11.5px var(--mono); color: var(--ink); }
+    .activity-meta { font: 10.5px var(--mono); color: var(--faint); text-align: right; }
     .pipeline { display: grid; grid-template-columns: minmax(18rem, 22.5rem) minmax(0, 1.4fr) minmax(19rem, 25.5rem); gap: 1.5rem; align-items: start; }
     .zone { display: grid; gap: 1rem; min-width: 0; align-content: start; }
     .zone-head { display: flex; align-items: baseline; gap: .5rem; border-bottom: 1.5px solid var(--ink); padding-bottom: .25rem; position: relative; }
@@ -175,6 +188,7 @@
     dialog::backdrop { background: rgb(38 35 28 / 35%); }
     dialog h2 { font: 700 18px var(--serif); margin-top: 0; }
     @media (max-width: 68rem) {
+      .hub-overview { grid-template-columns: 1fr; }
       .pipeline { grid-template-columns: 1fr 1fr; }
       .zone-consume { grid-column: span 2; }
     }
@@ -186,6 +200,9 @@
       .scope-control { justify-items: start; }
       .workbench-grid { grid-template-columns: 1fr; }
       .connector-grid { grid-template-columns: 1fr; }
+      .connection-list { grid-template-columns: 1fr; }
+      .activity-item { grid-template-columns: 1fr; gap: .15rem; }
+      .activity-meta { text-align: left; }
       .span-two { grid-column: auto; }
     }
   </style>
@@ -210,6 +227,33 @@
       <p class="muted" id="scopes-title">Scopes</p>
       <ul class="scope-list" id="scope-list"></ul>
       <button class="button quiet small" id="refresh-scopes" type="button">Refresh</button>
+    </div>
+
+    <div class="hub-overview">
+      <section class="card" aria-labelledby="connections-title">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Hub pulse</p>
+            <h2 id="connections-title">Connections</h2>
+          </div>
+          <span class="badge" id="hub-state">live</span>
+        </div>
+        <ul class="connection-list" id="connection-list">
+          <li class="empty">Reading hub inputs…</li>
+        </ul>
+      </section>
+      <section class="card" aria-labelledby="activity-title">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Service-wide ledger</p>
+            <h2 id="activity-title">Activity stream</h2>
+          </div>
+          <p class="muted">refreshes every 5s</p>
+        </div>
+        <ul class="activity-list" id="activity-list">
+          <li class="empty">No projection changes yet.</li>
+        </ul>
+      </section>
     </div>
 
     <div class="pipeline">
@@ -465,7 +509,10 @@
 
   <script>
     "use strict";
-    const state = { scope: "", matters: [], selected: "", detail: null, queryResult: null, chatHistory: [], mailStatus: null };
+    const state = {
+      scope: "", matters: [], selected: "", detail: null, queryResult: null,
+      chatHistory: [], mailStatus: null, activity: [], connections: null
+    };
     const mailPresets = {
       gmail: { host: "imap.gmail.com", port: 993, ssl: true, help: "https://support.google.com/accounts/answer/185833" },
       outlook: { host: "outlook.office365.com", port: 993, ssl: true, help: "https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com" },
@@ -529,6 +576,45 @@
       if (!state.scope) { state.matters = []; renderMatters(); return; }
       state.matters = await api(`/v1/scopes/${encodeURIComponent(state.scope)}/matters`);
       renderMatters();
+    }
+
+    async function loadActivity() {
+      state.activity = await api("/v1/events?limit=40");
+      byId("activity-list").innerHTML = state.activity.length
+        ? state.activity.map((event) => `<li class="activity-item">
+            <div>
+              <strong>${escapeHtml(event.matter_title)}</strong>
+              <div class="meta">${escapeHtml(event.scope_id)} · ${escapeHtml(event.predicate)}</div>
+            </div>
+            <div class="activity-change">${escapeHtml(displayValue(event.old_value))} → ${escapeHtml(displayValue(event.new_value))}</div>
+            <div class="activity-meta">${escapeHtml(event.origin)}<br>${escapeHtml(new Date(event.recorded_at).toLocaleString())}</div>
+          </li>`).join("")
+        : '<li class="empty">No projection changes yet.</li>';
+    }
+
+    async function loadConnections() {
+      state.connections = await api("/v1/connections");
+      const status = state.connections;
+      const mail = status.mail || {};
+      const mailLabel = mail.configured
+        ? `${mail.syncing ? "syncing" : (mail.error ? "error" : "ready")} · UID ${mail.uid_watermark ?? "—"} · next ${mail.next_run_at ? new Date(mail.next_run_at).toLocaleString() : "off"}`
+        : "not configured";
+      const scopeRows = (status.scopes || []).map((scope) => `<li class="connection-item">
+        <strong>${escapeHtml(scope.scope_id)}</strong>
+        <code>${escapeHtml(scope.message_count)} messages<br>last ${escapeHtml(scope.last_ingestion_at ? new Date(scope.last_ingestion_at).toLocaleString() : "never")}</code>
+      </li>`);
+      byId("connection-list").innerHTML = [
+        `<li class="connection-item"><strong>Mail connector</strong><code>${escapeHtml(mailLabel)}</code></li>`,
+        `<li class="connection-item"><strong>Distill queue</strong><code>${escapeHtml(status.distill_queue_length)} waiting</code></li>`,
+        ...scopeRows
+      ].join("");
+      byId("hub-state").textContent = mail.error ? "attention" : "live";
+      byId("hub-state").className = `badge ${mail.error ? "danger" : ""}`;
+    }
+
+    async function pollHub() {
+      await loadScopes();
+      await Promise.all([loadMatters(), loadActivity(), loadConnections()]);
     }
 
     function renderMatters() {
@@ -1038,9 +1124,12 @@
 
     updateQueryFields();
     applyMailPreset();
-    Promise.all([loadScopes(), loadChatConfig(), loadMailStatus()]).catch((error) => {
+    Promise.all([loadScopes(), loadChatConfig(), loadMailStatus(), loadActivity(), loadConnections()]).catch((error) => {
       byId("scope-list").innerHTML = `<li class="error-box">${escapeHtml(error.message)}</li>`;
     });
+    window.setInterval(() => {
+      pollHub().catch(() => { /* Retain the last good hub snapshot. */ });
+    }, 5000);
   </script>
 </body>
 </html>

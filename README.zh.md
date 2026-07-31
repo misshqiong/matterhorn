@@ -27,9 +27,10 @@ pip install 'matterhorn-memory[api]'
 mh console
 ```
 
-静态 Console 与 REST API 共用 `127.0.0.1:8000`，浏览器自动打开 `/console`。
-浏览器只调用 OpenAPI 中公开的 REST 接口。内置的虚构 Dana Reyes / octo-org 样例
-使用随包 fixture，零 key 即可完整运行。
+静态 Console 与 REST API 共用 `127.0.0.1:8000`，浏览器自动打开 `/console`，
+agent 客户端则在同一进程的 `/mcp` 挂载。浏览器只调用 OpenAPI 中公开的 REST
+接口；activity、连接状态、scope 与事项列表约每五秒自动刷新。内置的虚构
+Dana Reyes / octo-org 样例使用随包 fixture，零 key 即可完整运行。
 
 > **截图占位：** scope 浏览、事项详情与纠错、查询工作台、Feed receipt 和带证据
 > Chat。
@@ -40,8 +41,8 @@ Matterhorn 仍不提供内置业务消费 UI：终端用户看板属于宿主。
 默认只绑定 loopback 是刻意设计；公网部署必须在服务前增加认证与可信网络边界，
 v1 多租户认证仍是非目标。
 
-**下一版本（仅列出，本次不实现）：** task receipts、sync status、events feed
-运维视图；多 scope 对比；export 按钮。
+多人、多 agent 共享同一服务的方式见
+[Agent 团队 Hub 拓扑](docs/agent-team.zh.md)。
 
 ## 📒 开发账本
 
@@ -200,6 +201,7 @@ SUMMARY passed=47 failed=0 total=47
 - [自托管开发账本](docs/ledger.zh.md)
 - [核心概念与承诺边界](docs/core-concepts.md)
 - [MCP 与 Claude Code](docs/mcp-claude-code.md)
+- [Agent 团队 Hub 拓扑](docs/agent-team.zh.md)
 - [人工纠错](docs/corrections.md)
 - [事件与 webhook 投递](docs/webhooks.md)
 - [Slack / Record 集成](docs/slack.md)

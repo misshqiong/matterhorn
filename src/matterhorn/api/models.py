@@ -246,6 +246,33 @@ class MailStatusResponse(StrictModel):
     error: str | None = None
 
 
+class ActivityEventResponse(StrictModel):
+    event_id: str
+    event_type: str
+    scope_id: str
+    subject_key: str
+    matter_title: str
+    predicate: str
+    old_value: Any
+    new_value: Any
+    valid_from: datetime
+    recorded_at: datetime
+    origin: str
+    source_ids: list[str]
+
+
+class ScopeConnectionResponse(StrictModel):
+    scope_id: str
+    last_ingestion_at: datetime | None = None
+    message_count: int = Field(ge=0)
+
+
+class ConnectionsResponse(StrictModel):
+    mail: MailStatusResponse
+    scopes: list[ScopeConnectionResponse]
+    distill_queue_length: int = Field(ge=0)
+
+
 class HealthResponse(StrictModel):
     status: str
 

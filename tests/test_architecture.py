@@ -34,6 +34,15 @@ ARCHITECTURE_RULES = (
         "forbid": {"adapters"},
         "scope": "module",
     },
+    # REST and MCP are sibling transports composed on one ASGI app through the
+    # shared service boundary. They may mount each other, but never import the
+    # write-side distillation implementation.
+    {
+        "sources": {"api", "mcp"},
+        "allow_only": None,
+        "forbid": {"distill"},
+        "scope": "all",
+    },
     # Network connectors normalize through adapters and invoke only the
     # injected engine facade; they never import store implementations or core.
     {

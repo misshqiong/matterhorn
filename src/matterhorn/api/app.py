@@ -15,10 +15,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from matterhorn.api.limits import MemoryRateLimiter
 from matterhorn.api.models import (
+    ActivityEventResponse,
     AddCardsRequest,
     AddMessagesRequest,
     ChatRequest,
     ChatResponse,
+    ConnectionsResponse,
     ConsoleConfigResponse,
     CorrectionInput,
     HealthResponse,
@@ -91,7 +93,7 @@ def create_app(
         mail_runtime = MailRuntime(service.engine, **runtime_kwargs)
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI):
+    async def service_lifespan(application: FastAPI):
         task = None
         scheduler = (
             ServiceScheduler(
@@ -137,6 +139,19 @@ def create_app(
                     await task
                 except asyncio.CancelledError:
                     pass
+
+    from matterhorn.mcp import create_server
+
+    mcp_server = create_server(service)
+    mcp_http_app = mcp_server.streamable_http_app()
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        async with (
+            mcp_server.session_manager.run(),
+            service_lifespan(application),
+        ):
+            yield
 
     app = FastAPI(
         title="Matterhorn Memory API",
@@ -216,6 +231,25 @@ def create_app(
     )
     def scopes():
         return service.list_scopes()
+
+    @app.get(
+        "/v1/events",
+        response_model=list[ActivityEventResponse],
+        summary="List the latest projection changes across every scope",
+    )
+    def activity(since: datetime | None = None, limit: int = 50):
+        return service.activity(since=since, limit=limit)
+
+    @app.get(
+        "/v1/connections",
+        response_model=ConnectionsResponse,
+        summary="Report hub inputs, per-scope ingestion, and distill backlog",
+    )
+    def connections():
+        return {
+            **service.connections(),
+            "mail": app.state.mail_runtime.status(),
+        }
 
     @app.post(
         "/v1/scopes/{scope_id}/messages",
@@ -509,6 +543,9 @@ def create_app(
         def console_page():
             return HTMLResponse(template)
 
+    # Keep the MCP SDK's own /mcp route exact and last so public REST routes
+    # remain authoritative while sharing one ASGI process and one store owner.
+    app.mount("/", mcp_http_app, name="mcp")
     return app
 
 

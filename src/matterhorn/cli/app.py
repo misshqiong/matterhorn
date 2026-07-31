@@ -37,10 +37,14 @@ query_app = typer.Typer(help="Read projected memory without an LLM.")
 schema_app = typer.Typer(help="Inspect schema profiles.")
 conformance_app = typer.Typer(help="Run the language-neutral golden contract.")
 mail_app = typer.Typer(help="Configure and pull an IMAP mailbox.")
+setup_app = typer.Typer(help="Configure agent clients for Matterhorn.")
+hook_app = typer.Typer(help="Fail-open agent lifecycle hooks.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
 app.add_typer(mail_app, name="mail")
+app.add_typer(setup_app, name="setup")
+app.add_typer(hook_app, name="hook")
 
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
@@ -112,7 +116,7 @@ def _write_gateway(
                 or config.get("fixture_path")
             ),
         )
-    except ValueError as error:
+    except (TypeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
 
 
@@ -1135,6 +1139,93 @@ def mcp_command(
     )
 
 
+@setup_app.command("claude-code")
+def setup_claude_code(
+    url: str | None = typer.Option(
+        None,
+        help=(
+            "Matterhorn hub base URL. Omit for an embedded stdio MCP server."
+        ),
+    ),
+    scope: str | None = typer.Option(
+        None,
+        help="Shared memory scope; defaults to the current directory name.",
+    ),
+) -> None:
+    """Merge project MCP and lifecycle-hook configuration for Claude Code."""
+
+    from matterhorn.claude_code import (
+        DEFAULT_HUB_URL,
+        configure_project,
+        probe_health,
+    )
+
+    config = _load_config()
+    db = str(config.get("db", DEFAULT_DB))
+    schema = str(config.get("schema", DEFAULT_SCHEMA))
+    try:
+        mcp_path, settings_path, selected_scope = configure_project(
+            Path.cwd(),
+            url=url,
+            scope=scope,
+            db=db,
+            schema=schema,
+        )
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    typer.echo(f"Wrote {mcp_path}")
+    typer.echo(f"Wrote {settings_path}")
+    typer.echo(f"Matterhorn scope: {selected_scope}")
+    if url is None and probe_health():
+        typer.echo(
+            "Hint: a Matterhorn hub answered at "
+            f"{DEFAULT_HUB_URL}; rerun with --url {DEFAULT_HUB_URL} "
+            "to mount it instead. Embedded mode was kept."
+        )
+
+
+@hook_app.command("turn-end")
+def hook_turn_end(
+    url: str | None = typer.Option(None, help="Hub base URL."),
+    scope: str = typer.Option(..., help="Target scope."),
+) -> None:
+    """Best-effort per-turn transcript tail delivery to a hub."""
+
+    from matterhorn.claude_code import session_end
+
+    session_end(sys.stdin, url=url, scope=scope, tail=40)
+
+
+@hook_app.command("session-end")
+def hook_session_end(
+    url: str | None = typer.Option(
+        None,
+        help="Matterhorn hub base URL; omitted embedded hooks are no-ops.",
+    ),
+    scope: str = typer.Option(..., help="Matterhorn scope to receive messages."),
+) -> None:
+    """Best-effort delivery of a Claude Code transcript to a hub."""
+
+    from matterhorn.claude_code import session_end
+
+    session_end(sys.stdin, url=url, scope=scope)
+
+
+@hook_app.command("session-start")
+def hook_session_start(
+    url: str | None = typer.Option(
+        None,
+        help="Matterhorn hub base URL; omitted embedded hooks are no-ops.",
+    ),
+    scope: str = typer.Option(..., help="Matterhorn scope to query."),
+) -> None:
+    """Best-effort open-matter context for a Claude Code session."""
+
+    from matterhorn.claude_code import session_start
+
+    session_start(sys.stdin, sys.stdout, url=url, scope=scope)
+
+
 @app.command()
 def serve(
     db: str = typer.Option(DEFAULT_DB),
@@ -1165,7 +1256,7 @@ def serve(
         help="Mount the Console static client at /console.",
     ),
 ) -> None:
-    """Serve REST with scheduling, webhooks, and optional Console."""
+    """Serve REST and MCP-HTTP with scheduling, webhooks, and optional Console."""
     config = _load_config()
     quiet = (
         quiet_period_minutes

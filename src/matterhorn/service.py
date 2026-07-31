@@ -287,6 +287,70 @@ class MatterhornService:
             for item in self.engine.events(scope_id, since=since)
         ]
 
+    def activity(
+        self,
+        *,
+        since: datetime | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("activity limit MUST be positive")
+        activity: list[dict[str, Any]] = []
+        for scope_id in self.list_scopes():
+            titles = {
+                item.subject_key: item.title
+                for item in self.engine.store.subjects(scope_id)
+            }
+            for item in self.engine.events(scope_id, since=since):
+                activity.append(
+                    {
+                        **item.model_dump(mode="json"),
+                        "matter_title": titles.get(
+                            item.subject_key,
+                            item.subject_key,
+                        ),
+                    }
+                )
+        activity.sort(
+            key=lambda item: (item["recorded_at"], item["event_id"]),
+            reverse=True,
+        )
+        return activity[:limit]
+
+    def connections(self) -> dict[str, Any]:
+        scopes = []
+        distill_queue_length = 0
+        for scope_id in self.list_scopes():
+            tasks = self.engine.store.tasks(scope_id)
+            observations = self.engine.store.record_observations(scope_id)
+            ingestion_times = [
+                *(item.created_at for item in tasks),
+                *(item.observed_at for item in observations),
+            ]
+            scopes.append(
+                {
+                    "scope_id": scope_id,
+                    "last_ingestion_at": (
+                        max(ingestion_times) if ingestion_times else None
+                    ),
+                    "message_count": (
+                        sum(
+                            item.accepted
+                            for item in tasks
+                            if item.kind == "messages"
+                        )
+                        + len(observations)
+                    ),
+                }
+            )
+            distill_queue_length += self.engine.store.distill_queue_count(
+                scope_id
+            )
+        return {
+            "scopes": scopes,
+            "distill_queue_length": distill_queue_length,
+        }
+
     def export(self, *, scope_id: str) -> dict[str, Any]:
         self._require_scope(scope_id)
         return self.engine.export(scope_id).model_dump(mode="json")

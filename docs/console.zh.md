@@ -18,10 +18,12 @@ mh console
 默认监听 `127.0.0.1:8000`，打印 URL，并用默认浏览器打开
 `http://127.0.0.1:8000/console`。自动化环境可加 `--no-open`。
 `mh serve --console` 会挂载同一页面，但不会主动打开浏览器。
+两个命令还会在同一端口的 `/mcp` 挂载同一个九工具 MCP 服务。
 
 Console 与 REST API 共用一个端口。浏览器只调用已公开并进入 OpenAPI 的接口：
 
 - `GET /v1/scopes` 与 scope 下的事项列表、事项详情；
+- 跨 scope 的 `GET /v1/events` 与 `GET /v1/connections`；
 - 四个确定性查询接口；
 - `POST /v1/scopes/{scope}/corrections`；
 - `POST /v1/scopes/{scope}/ingest`；
@@ -31,6 +33,20 @@ Console 与 REST API 共用一个端口。浏览器只调用已公开并进入 O
 
 默认只绑定 loopback 是刻意的。Matterhorn v1 不提供多租户认证与授权；任何公网部署
 都必须在服务前增加认证与可信网络边界。
+
+## Hub 实时视图
+
+Console 顶部用两个面板直接回答 hub 的运行状态：
+
+- **Activity stream：** 跨全部 scope 展示最新投影事件，包括事项标题、谓词、
+  old → new、origin 与记录时间；
+- **Connections：** 展示脱敏邮件连接状态、UID watermark、下次运行时间；每个
+  scope 的最近摄入时间与消息/Record observation 数；以及全服务
+  `distill_queue` 长度。
+
+浏览器约每五秒轮询上述公开接口。scope 列表和当前事项列表使用相同节奏刷新，
+因此新的 Claude 会话、agent 消息或邮件无需手动刷新即可出现。页面仍是无外部资源
+的自包含 vanilla JavaScript REST 客户端。
 
 Dockerfile 也提供 `console` target：
 
@@ -98,8 +114,5 @@ Anthropic 未设置 base URL 时默认使用 `https://api.anthropic.com`；仍�
 3. 若已配置 Chat，询问 “What is the current progress?”；回答携带确定性查询和
    source ID 的 `依据/Evidence` chips，点击即可高亮对应事项。
 
-## 下一版本（本次未实现）
-
-- task receipts、events feed 运维视图；
-- 多 scope 对比；
-- export 按钮。
+共享 Claude Code 与 agent 团队的挂载方式见
+[Agent 团队 Hub 拓扑](agent-team.zh.md)。
