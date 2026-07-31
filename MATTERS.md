@@ -42,6 +42,26 @@ Scope: <code>dev</code>
 
 </details>
 
+## Hub topology for mh console/serve
+
+- Status: <code>done</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-31T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented hub topology: single service with MCP over streamable HTTP, REST surface, exclusive DB. Added mh setup claude-code, live view, docs, verified tests.","type":"commit"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:aa2b45296c1552cfce87b57764cd8e71fd9a07fa](<https://github.com/misshqiong/matterhorn/commit/aa2b45296c1552cfce87b57764cd8e71fd9a07fa>)
+- <code>2026-07-31T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:aa2b45296c1552cfce87b57764cd8e71fd9a07fa](<https://github.com/misshqiong/matterhorn/commit/aa2b45296c1552cfce87b57764cd8e71fd9a07fa>)
+- <code>2026-07-31T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:aa2b45296c1552cfce87b57764cd8e71fd9a07fa](<https://github.com/misshqiong/matterhorn/commit/aa2b45296c1552cfce87b57764cd8e71fd9a07fa>)
+
+</details>
+
 ## M4: Record layer, Slack adapter, evidence lifecycle
 
 - Status: <code>done</code>
@@ -302,6 +322,26 @@ Scope: <code>dev</code>
 
 </details>
 
+## Console operating surface
+
+- Status: <code>done</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-30T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented console: REST client with five blocks (produce, memory, consume), chat with deterministic queries, ledger-paper design, tested.","type":"commit"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:18f051db3c1e7dc8d6438d7d298dfeaefb121404](<https://github.com/misshqiong/matterhorn/commit/18f051db3c1e7dc8d6438d7d298dfeaefb121404>)
+- <code>2026-07-30T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:18f051db3c1e7dc8d6438d7d298dfeaefb121404](<https://github.com/misshqiong/matterhorn/commit/18f051db3c1e7dc8d6438d7d298dfeaefb121404>)
+- <code>2026-07-30T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:18f051db3c1e7dc8d6438d7d298dfeaefb121404](<https://github.com/misshqiong/matterhorn/commit/18f051db3c1e7dc8d6438d7d298dfeaefb121404>)
+
+</details>
+
 ## Project strategy documentation
 
 - Status: <code>completed</code>
@@ -379,6 +419,26 @@ Scope: <code>dev</code>
   - Evidence: [github:misshqiong/matterhorn:commit:54d391cb4ad53911dbb82a4e84d94d488331e07e](<https://github.com/misshqiong/matterhorn/commit/54d391cb4ad53911dbb82a4e84d94d488331e07e>)
 - <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
   - Evidence: [github:misshqiong/matterhorn:commit:54d391cb4ad53911dbb82a4e84d94d488331e07e](<https://github.com/misshqiong/matterhorn/commit/54d391cb4ad53911dbb82a4e84d94d488331e07e>)
+
+</details>
+
+## Mail connector with IMAP hub input
+
+- Status: <code>done</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-07-30T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented mail connector: IMAP setup/sync, console panel, file upload, hardened against real inbox with batching, filtering, and aggregation.","type":"commit"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:5be08fd66b24f1e4cfaa2a310be739bfd446a361](<https://github.com/misshqiong/matterhorn/commit/5be08fd66b24f1e4cfaa2a310be739bfd446a361>)
+- <code>2026-07-30T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"be101384ced30a802b99f88128b090f8e6521daf2f38a4dbff09d783305c7806"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:5be08fd66b24f1e4cfaa2a310be739bfd446a361](<https://github.com/misshqiong/matterhorn/commit/5be08fd66b24f1e4cfaa2a310be739bfd446a361>)
+- <code>2026-07-30T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:5be08fd66b24f1e4cfaa2a310be739bfd446a361](<https://github.com/misshqiong/matterhorn/commit/5be08fd66b24f1e4cfaa2a310be739bfd446a361>)
 
 </details>
 
