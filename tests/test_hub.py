@@ -246,13 +246,25 @@ def test_setup_claude_code_embedded_and_hub_merge_existing_settings(
     hub_settings = json.loads(
         (hub / ".claude" / "settings.json").read_text()
     )
-    assert hub_settings["hooks"]["SessionEnd"][-1]["hooks"][0] == {
-            "type": "command",
-            "command": (
-                "mh hook session-end --url http://127.0.0.1:8123 --scope agent-team"
-            ),
-            "timeout": 2,
-        }
+    hub_hook = hub_settings["hooks"]["SessionEnd"][-1]["hooks"][0]
+    assert hub_hook["type"] == "command"
+    assert hub_hook["timeout"] == 2
+    # The executable path is environment-dependent (bare "mh" locally, an
+    # absolute path when installed); assert the contract, not the rendering.
+    import shlex
+
+    tokens = shlex.split(hub_hook["command"])
+    from pathlib import Path as _P
+
+    assert _P(tokens[0]).name in {"mh", "mh.exe"}
+    assert tokens[1:] == [
+        "hook",
+        "session-end",
+        "--url",
+        "http://127.0.0.1:8123",
+        "--scope",
+        "agent-team",
+    ]
 
 
 def test_setup_claude_code_cli_writes_project_files(

@@ -4,6 +4,7 @@ import asyncio
 import imaplib
 import json
 import logging
+import re as _re
 import tomllib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -15,6 +16,12 @@ from urllib.parse import quote
 import httpx
 import pytest
 from typer.testing import CliRunner
+
+
+def _plain(text: str) -> str:
+    """CLI output stripped of ANSI so assertions ignore terminal rendering."""
+
+    return _re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 from matterhorn.api import create_app
 from matterhorn.canonical import stable_hash
@@ -668,9 +675,10 @@ def test_mail_cli_appends_and_requires_selection_when_ambiguous(
     ]
     ambiguous = CliRunner().invoke(cli_app, ["mail", "sync"])
     assert ambiguous.exit_code == 2
-    assert "--account is required" in ambiguous.output
-    assert "personal" in ambiguous.output
-    assert "work" in ambiguous.output
+    plain = _plain(ambiguous.output)
+    assert "--account is required" in plain
+    assert "personal" in plain
+    assert "work" in plain
 
 
 def test_registry_ticks_all_accounts_with_independent_passwords_and_positions(
@@ -771,8 +779,9 @@ def test_mail_reset_cli_requires_yes_and_deletes_only_sync_position(
 
     refused = CliRunner().invoke(cli_app, ["mail", "reset"])
     assert refused.exit_code == 2
-    assert "--yes" in refused.output
-    assert "required" in refused.output
+    refused_plain = _plain(refused.output)
+    assert "--yes" in refused_plain
+    assert "required" in refused_plain
     assert engine.sync_positions("mail-scope")[0].uid_watermark == 42
 
     accepted = CliRunner().invoke(cli_app, ["mail", "reset", "--yes"])
