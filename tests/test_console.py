@@ -582,6 +582,61 @@ def test_keyless_console_sample_uses_packaged_fixture(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
+    async def scenario() -> None:
+        engine = _engine(tmp_path / "unified-wall.db")
+        engine._ingest_cards_sync(
+            [
+                _card(scope_id="personal", subject_key="personal-launch"),
+                {
+                    **_card(
+                        scope_id="work",
+                        subject_key="work-launch",
+                        status="blocked",
+                    ),
+                    "title": "octo-org work launch",
+                    "next_step": "Dana Reyes reviews the blocker",
+                    "due": "2026-07-30T17:00:00Z",
+                },
+            ]
+        )
+        app = create_app(engine=engine, console_enabled=True)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://matterhorn.test",
+        ) as client:
+            all_matters = await client.get("/v1/matters")
+            personal = await client.get(
+                "/v1/matters",
+                params={"scope": "personal"},
+            )
+            page = await client.get("/console")
+            paths = (await client.get("/openapi.json")).json()["paths"]
+
+        assert all_matters.status_code == 200
+        assert {
+            (item["scope_id"], item["subject_key"])
+            for item in all_matters.json()
+        } == {
+            ("personal", "personal-launch"),
+            ("work", "work-launch"),
+        }
+        assert [item["scope_id"] for item in personal.json()] == ["personal"]
+        assert "/v1/matters" in paths
+        for marker in [
+            'id="matter-list"',
+            'class="matter-wall"',
+            'id="chat-scope"',
+            'api(`/v1/matters${query}`)',
+            "scope_id",
+            "last-opened card",
+        ]:
+            assert marker in page.text
+
+    asyncio.run(scenario())
+
+
 def test_ingest_rate_limit_and_openapi_paths(tmp_path) -> None:
     async def scenario() -> None:
         app = create_app(

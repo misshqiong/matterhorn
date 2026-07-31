@@ -15,9 +15,8 @@
 
 ## Console
 
-Matterhorn 自带 Console 操作面，用于浏览 scope 与事项、运行确定性查询、进行一等
-人工纠错、粘贴 chat / YAML / JSON / email，以及可选地向一个只拥有五个公共确定性
-查询工具的模型提问。
+Matterhorn 自带成熟的三栏个人 Console：左栏配置多邮箱、AI 与 Feed；中心统一展示
+全部 scope 的事项卡片墙；右栏提供带 scope 的 Chat 与确定性查询。
 
 Console 也能配置并运行凭证仅驻留内存的 [IMAP 邮件连接器](docs/mail.zh.md)，支持
 文件上传和 quick single-message jot。
@@ -32,11 +31,8 @@ agent 客户端则在同一进程的 `/mcp` 挂载。浏览器只调用 OpenAPI 
 接口；activity、连接状态、scope 与事项列表约每五秒自动刷新。内置的虚构
 Dana Reyes / octo-org 样例使用随包 fixture，零 key 即可完整运行。
 
-> **截图占位：** scope 浏览、事项详情与纠错、查询工作台、Feed receipt 和带证据
-> Chat。
-
-Matterhorn 仍不提供内置业务消费 UI：终端用户看板属于宿主。Console 是产品自身的
-运维、开发和演示操作面。详见 [Console 指南](docs/console.zh.md)。
+> **截图占位：** 多邮箱与 AI 配置、统一事项墙、scope-aware 详情/纠错和带证据
+> Chat。详见 [Console 指南](docs/console.zh.md)。
 
 默认只绑定 loopback 是刻意设计；公网部署必须在服务前增加认证与可信网络边界，
 v1 多租户认证仍是非目标。

@@ -17,6 +17,7 @@ def run_stdio(
     api_key: str | None = None,
     model: str | None = None,
     fixture_path: str | None = None,
+    timeout: float | None = None,
 ) -> None:
     engine = Engine(
         db or os.environ.get("MATTERHORN_DB", "matterhorn.db"),
@@ -27,6 +28,7 @@ def run_stdio(
             api_key=api_key,
             model=model,
             fixture_path=fixture_path,
+            timeout=timeout,
         ),
     )
     create_server(MatterhornService(engine)).run(transport="stdio")

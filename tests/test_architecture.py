@@ -35,7 +35,9 @@ ARCHITECTURE_RULES = (
         "scope": "module",
     },
     # REST and MCP are sibling transports composed on one ASGI app through the
-    # shared service boundary. They may mount each other, but never import the
+    # shared service boundary. REST may import pure runtime configuration while
+    # provider construction stays on the composed defaults.Engine; browser
+    # reads still enter MatterhornService. Neither transport may import the
     # write-side distillation implementation.
     {
         "sources": {"api", "mcp"},

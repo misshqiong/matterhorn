@@ -108,6 +108,18 @@ class MatterhornService:
         self._require_scope(scope_id)
         return [item.to_dict() for item in self.engine.matters(scope_id)]
 
+    def all_matters(
+        self,
+        *,
+        scope_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        scopes = [scope_id] if scope_id is not None else self.list_scopes()
+        matters: list[dict[str, Any]] = []
+        for selected_scope in scopes:
+            for item in self.list_matters(scope_id=selected_scope):
+                matters.append({"scope_id": selected_scope, **item})
+        return matters
+
     def matter_detail(
         self, *, scope_id: str, subject_key: str
     ) -> dict[str, Any]:

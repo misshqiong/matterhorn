@@ -1,124 +1,132 @@
-# Mail connector
+# Mail connectors
 
-Matterhorn’s mail connector pulls RFC822 messages from one IMAP folder, maps
-them through the same email adapter used by `.eml` and mbox ingest, queues them
-through the public `Engine.add` boundary, and flushes synchronously. Network
-and message handling use only Python’s `imaplib` and `email` modules.
+Matterhorn can pull multiple IMAP accounts into independent scopes while
+keeping every password in process memory. Each account has its own settings,
+credential state, UID watermark, UIDVALIDITY, schedule, last report, and next
+run. The serve scheduler ticks every configured account.
 
-> **Screenshot placeholder:** the Console Connectors sheet showing Gmail
-> settings, the memory-only credential note, UID watermark, last-run counts,
-> and next scheduled run.
+> **Screenshot placeholder:** the Console left rail with two fictional
+> mailboxes (`Dana Reyes · personal` and `Dana Reyes · octo-org`), independent
+> watermarks and schedules, plus the Add mailbox sheet.
 
-## CLI setup and sync
+## Configuration shape and migration
 
-Configure a preset:
-
-```console
-mh mail setup \
-  --provider gmail \
-  --account dana@example.com \
-  --folder INBOX \
-  --interval 1h \
-  --initial-window 50 \
-  --scope work
-```
-
-The command writes only non-secret fields to `matterhorn.toml`:
+`matterhorn.toml` uses repeated account tables:
 
 ```toml
-[mail]
+[[mail.accounts]]
+name = "personal"
 provider = "gmail"
 host = "imap.gmail.com"
 port = 993
 ssl = true
-user = "dana@example.com"
+user = "dana.reyes@example.test"
 folder = "INBOX"
 interval = "1h"
 initial_window = 50
-scope = "work"
+scope = "personal"
+
+[[mail.accounts]]
+name = "octo-org"
+provider = "manual"
+host = "imap.octo-org.example"
+port = 993
+ssl = true
+user = "dana@octo-org.example"
+folder = "Matters"
+interval = "15min"
+initial_window = 25
+scope = "octo-org"
 ```
 
-Use `--provider manual --host ... --port ... --ssl` for another provider.
-Without the necessary flags, `mh mail setup` prompts interactively.
+`name` is optional. It becomes the stable `account_id`; otherwise Matterhorn
+derives `user@host/folder`. A legacy single `[mail]` table is loaded as one
+account and is rewritten to `[[mail.accounts]]` on the next mail save. Other
+TOML tables and every existing account are retained.
 
-The password or provider authorization code is never a setup flag and is never
-written to TOML or the database. Supply it to the sync process through the
-environment or a hidden interactive prompt:
+Passwords and authorization codes are never TOML keys.
+
+## CLI
+
+`mh mail setup` appends or updates one account instead of replacing the mail
+configuration:
+
+```console
+mh mail setup \
+  --name personal \
+  --provider gmail \
+  --account dana.reyes@example.test \
+  --folder INBOX \
+  --interval 1h \
+  --initial-window 50 \
+  --scope personal
+
+mh mail setup \
+  --account-id octo-org \
+  --provider manual \
+  --host imap.octo-org.example \
+  --account dana@octo-org.example \
+  --folder Matters \
+  --interval 15min \
+  --scope octo-org
+```
+
+Select an account for sync and reset:
 
 ```console
 export MATTERHORN_MAIL_PASSWORD='provider-app-password'
-mh mail sync
+mh mail sync --account personal
+mh mail reset --account personal --yes
 unset MATTERHORN_MAIL_PASSWORD
 ```
 
-On the first normal sync, when no UID watermark exists, the connector selects
-only the most recent `initial_window` messages (default `50`) and then stores
-the mailbox's maximum UID. The next run is incremental from that watermark.
-This bounds owner acceptance against an established mailbox instead of
-pulling its entire history. Set `initial_window` with `mh mail setup
---initial-window N`, the Console form, or the `[mail]` TOML field.
+`--account` is optional only when exactly one account exists. With multiple
+accounts, the CLI fails safely and lists the available IDs. A per-account
+environment variable can be formed by uppercasing the account ID and replacing
+non-alphanumeric characters with `_`, for example
+`MATTERHORN_MAIL_PASSWORD_OCTO_ORG`; the legacy
+`MATTERHORN_MAIL_PASSWORD` remains a fallback.
 
-`mh mail sync` reports successfully mapped `pulled` messages, all `filtered`
-drops, `parse_errors`, the first-run `effective_window`, `cards_produced`,
-`new_assertions`, `new_matters`, and the new UID watermark. A malformed message
-or an HTML body that yields no readable text is counted and skipped without
-aborting the remaining messages. HTML-only mail is converted to readable text;
-when a non-attachment `text/plain` part exists, it remains preferred.
+## Sync semantics
 
-`mh mail sync --backfill` is the explicit full-history path and starts at UID
-1, ignoring `initial_window`. IMAP message bodies are fetched in UID batches
-rather than one network round trip per message. The connector stores a position for
-`imap:<user>@<host>/<folder>`: the integer UID watermark is connector state,
-and the opaque cursor is IMAP `UIDVALIDITY`.
+On a first normal sync, only the newest `initial_window` messages are pulled.
+Later runs fetch UIDs above that account's watermark. `--backfill` explicitly
+starts at UID 1. The durable position key remains
+`imap:<user>@<host>/<folder>`, so accounts and folders cannot share a
+watermark accidentally.
 
-If `UIDVALIDITY` changes, a normal sync stops before searching or fetching
-messages. The report states the old and new values. Review the mailbox change,
-then use `mh mail sync --backfill` to authorize a full re-pull. Matterhorn’s
-ordinary idempotency rules still suppress observations it has already seen.
+If UIDVALIDITY changes, a normal run stops before re-pulling. Inspect the
+reported old/new values, then explicitly backfill. Reset removes only the
+selected account's sync position. Removing an account through REST removes its
+configuration and in-memory password but deliberately retains its watermark
+data; the delete response states that retention.
 
-## Console flow
+## Console and REST
 
-Start `mh console` and open **Produce → Connectors · Mail**:
+The Console left rail lists every mailbox with provider, login, folder, target
+scope, watermark, next run, password state, and **Sync now**, **Re-pull
+recent**, and **Remove** actions. The Add mailbox form uses the same provider
+presets. Accounts can sync simultaneously into different scopes, and their
+matters appear together on the center wall.
 
-1. Choose a provider preset or edit host, port, and SSL manually.
-2. Enter the account, folder, interval, first-sync window, and app
-   password/authorization code.
-3. Save configuration. The active Console scope becomes the scheduled target.
-4. Click **Sync now**. The button shows **Syncing…** and the status sheet keeps
-   polling during a long run. It eventually shows the report or error, UID
-   watermark, UIDVALIDITY, pulled/dropped/new-matter counts, and next run. The
-   button is re-enabled after either success or failure.
+Canonical collection resources:
 
-The existing serve scheduler runs mail sync at `15min`, `1h`, or `6h`; `off`
-disables periodic pulls. On restart, non-secret settings remain, but the
-credential must be re-entered unless `MATTERHORN_MAIL_PASSWORD` is present in
-the new process environment.
+- `GET /v1/connectors/mail/accounts`
+- `POST /v1/connectors/mail/accounts`
+- `DELETE /v1/connectors/mail/accounts/{account_id}`
+- `POST /v1/connectors/mail/accounts/{account_id}/sync`
+- `POST /v1/connectors/mail/accounts/{account_id}/reset`
 
-The public REST resources are:
+The former `/v1/connectors/mail/config`, `/status`, `/sync`, and `/reset`
+resources remain compatibility aliases to the first account. New callers
+should use the collection resources.
 
-- `POST /v1/connectors/mail/config`
-- `GET /v1/connectors/mail/status`
-- `POST /v1/connectors/mail/sync`
+No GET or response model contains a password. Authentication errors are
+redacted before logging or returning. A restart intentionally forgets
+Console-entered passwords; status then says `re-enter password`, unless the
+new process loaded an environment credential.
 
-The config POST may accept `password`; neither its response nor status GET has
-a password field.
-
-## Credential rule
-
-The mail password, app password, authorization code, or token lives only in
-the current process’s memory:
-
-- it is never written to `matterhorn.toml`, SQLite, or PostgreSQL;
-- it is never returned by a GET response;
-- it is never echoed by the CLI;
-- provider authentication exception text is discarded, and the connector logs
-  only a fixed redacted failure message.
-
-This means a restart intentionally forgets a credential entered in Console.
-
-## Provider settings and authorization
-
-The presets were checked against provider documentation on 2026-07-30:
+## Provider presets
 
 | Provider | IMAP preset | Authorization help |
 | --- | --- | --- |
@@ -128,17 +136,8 @@ The presets were checked against provider documentation on 2026-07-30:
 | QQ Mail | `imap.qq.com:993`, SSL | [QQ authorization code](https://wx.mail.qq.com/list/readtemplate?name=app_intro.html#/agreement/authorizationCode) |
 | 163 Mail | `imap.163.com:993`, SSL | [163 client authorization help](https://help.mail.163.com/faq.do?m=list&categoryID=197) |
 
-Important Outlook caveat: Microsoft’s current page says Outlook.com requires
-OAuth2/Modern Auth, even though it also links app-password guidance for some
-devices. This connector implements the requested stdlib IMAP LOGIN
-app-password/code flow; a tenant that rejects basic IMAP authentication cannot
-connect until Matterhorn gains an OAuth2 token flow. Console surfaces
-Microsoft’s current help page on authentication failure.
+Outlook.com may require OAuth2/Modern Auth; the current connector implements
+IMAP LOGIN and cannot connect to a tenant that rejects it.
 
-## Public deployment warning
-
-Matterhorn still binds to `127.0.0.1` by default. Do not expose Console or the
-mail-config endpoint directly to the internet. Put authentication,
-authorization, TLS, request-size enforcement, and a trusted reverse proxy in
-front of any public deployment. The in-memory credential rule does not replace
-transport security or endpoint access control.
+Matterhorn binds to `127.0.0.1` by default. Put authentication, authorization,
+TLS, and a trusted proxy in front before any public deployment.

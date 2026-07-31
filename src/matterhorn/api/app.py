@@ -18,6 +18,9 @@ from matterhorn.api.models import (
     ActivityEventResponse,
     AddCardsRequest,
     AddMessagesRequest,
+    AIConfigRequest,
+    AIStatusResponse,
+    AITestResponse,
     ChatRequest,
     ChatResponse,
     ConnectionsResponse,
@@ -25,8 +28,10 @@ from matterhorn.api.models import (
     CorrectionInput,
     HealthResponse,
     IngestResponse,
+    MailAccountsResponse,
     MailConfigRequest,
     MailConfigResponse,
+    MailDeleteResponse,
     MailResetRequest,
     MailResetResponse,
     MailStatusResponse,
@@ -38,9 +43,14 @@ from matterhorn.api.models import (
     RawIngestRequest,
     ScopeListResponse,
     SubjectListResponse,
+    UnifiedMatterListResponse,
     ValueListResponse,
 )
-from matterhorn.connectors.mail import MAIL_PROVIDERS, MailConfig, MailRuntime
+from matterhorn.connectors.mail import (
+    MAIL_PROVIDERS,
+    MailConfig,
+    MailRuntimeRegistry,
+)
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
@@ -49,6 +59,7 @@ from matterhorn.contracts import (
     TaskResult,
 )
 from matterhorn.errors import ChatUnavailableError, MatterhornError
+from matterhorn.runtime_ai import AIConfig, AIRuntime
 from matterhorn.scheduler import ServiceScheduler
 from matterhorn.service import MatterhornService
 
@@ -77,6 +88,9 @@ def create_app(
     mail_config_path: str | Path | None = None,
     mail_imap_ssl_factory: Any = None,
     mail_imap_factory: Any = None,
+    ai_runtime: Any = None,
+    ai_config_path: str | Path | None = None,
+    ai_gateway_factory: Any = None,
 ) -> FastAPI:
     if service is None:
         if engine is None:
@@ -90,7 +104,16 @@ def create_app(
             runtime_kwargs["imap_ssl_factory"] = mail_imap_ssl_factory
         if mail_imap_factory is not None:
             runtime_kwargs["imap_factory"] = mail_imap_factory
-        mail_runtime = MailRuntime(service.engine, **runtime_kwargs)
+        mail_runtime = MailRuntimeRegistry(service.engine, **runtime_kwargs)
+    if ai_runtime is None:
+        ai_runtime_kwargs: dict[str, Any] = {
+            "config_path": ai_config_path
+            or mail_config_path
+            or Path.cwd() / "matterhorn.toml",
+        }
+        if ai_gateway_factory is not None:
+            ai_runtime_kwargs["gateway_factory"] = ai_gateway_factory
+        ai_runtime = AIRuntime(service.engine, **ai_runtime_kwargs)
 
     @asynccontextmanager
     async def service_lifespan(application: FastAPI):
@@ -161,8 +184,11 @@ def create_app(
     )
     app.state.matterhorn_service = service
     app.state.scheduler_task = None
-    app.state.console_chat_runner = chat_runner
+    app.state.console_chat_runner = (
+        chat_runner if chat_runner is not None else ai_runtime.chat_runner
+    )
     app.state.mail_runtime = mail_runtime
+    app.state.ai_runtime = ai_runtime
     ingest_limiter = MemoryRateLimiter(
         limit=ingest_rate_limit,
         window_seconds=rate_limit_window_seconds,
@@ -246,9 +272,16 @@ def create_app(
         summary="Report hub inputs, per-scope ingestion, and distill backlog",
     )
     def connections():
+        mail_accounts = (
+            app.state.mail_runtime.accounts()
+            if hasattr(app.state.mail_runtime, "accounts")
+            else []
+        )
         return {
             **service.connections(),
             "mail": app.state.mail_runtime.status(),
+            "mail_accounts": mail_accounts,
+            "ai": app.state.ai_runtime.status(),
         }
 
     @app.post(
@@ -347,6 +380,14 @@ def create_app(
     )
     def matters(scope_id: str):
         return service.list_matters(scope_id=scope_id)
+
+    @app.get(
+        "/v1/matters",
+        response_model=UnifiedMatterListResponse,
+        summary="List matters across every scope, tagged with scope_id",
+    )
+    def all_matters(scope: str | None = None):
+        return service.all_matters(scope_id=scope)
 
     @app.get(
         "/v1/scopes/{scope_id}/matters/{subject_key}",
@@ -454,25 +495,76 @@ def create_app(
         summary="Persist non-secret IMAP settings and load a password in memory",
     )
     def mail_config(payload: MailConfigRequest):
-        preset = MAIL_PROVIDERS.get(payload.provider)
-        config = MailConfig(
-            provider=payload.provider,
-            host=payload.host or (preset.host if preset is not None else ""),
-            port=payload.port or (preset.port if preset is not None else 993),
-            ssl=(
-                payload.ssl
-                if payload.ssl is not None
-                else (preset.ssl if preset is not None else True)
-            ),
-            user=payload.user,
-            folder=payload.folder,
-            interval=payload.interval,
-            initial_window=payload.initial_window,
-            scope=payload.scope,
+        config = _mail_config_from_request(payload)
+        configure = getattr(
+            app.state.mail_runtime,
+            "configure_first",
+            app.state.mail_runtime.configure,
         )
+        return configure(config, password=payload.password)
+
+    @app.get(
+        "/v1/connectors/mail/accounts",
+        response_model=MailAccountsResponse,
+        summary="List every configured mailbox with redacted independent state",
+    )
+    def mail_accounts():
+        return app.state.mail_runtime.accounts()
+
+    @app.post(
+        "/v1/connectors/mail/accounts",
+        response_model=MailConfigResponse,
+        summary="Create or update a mailbox; keep its password in memory only",
+    )
+    def upsert_mail_account(payload: MailConfigRequest):
         return app.state.mail_runtime.configure(
-            config,
+            _mail_config_from_request(payload),
             password=payload.password,
+        )
+
+    @app.delete(
+        "/v1/connectors/mail/accounts/{account_id:path}",
+        response_model=MailDeleteResponse,
+        summary=(
+            "Remove mailbox configuration and memory credential; retain "
+            "stored watermark data"
+        ),
+    )
+    def delete_mail_account(account_id: str):
+        return app.state.mail_runtime.delete(account_id)
+
+    @app.post(
+        "/v1/connectors/mail/accounts/{account_id:path}/sync",
+        response_model=MailSyncResponse,
+        summary="Synchronize one mailbox above its independent UID watermark",
+    )
+    def sync_mail_account(
+        account_id: str,
+        payload: MailSyncRequest,
+        request: Request,
+    ):
+        ingest_limiter.check(_rate_key(request, f"mail-sync:{account_id}"))
+        return app.state.mail_runtime.sync_account(
+            account_id,
+            scope_id=payload.scope_id,
+            backfill=payload.backfill,
+        ).to_dict()
+
+    @app.post(
+        "/v1/connectors/mail/accounts/{account_id:path}/reset",
+        response_model=MailResetResponse,
+        summary="Forget one mailbox UID position after explicit confirmation",
+    )
+    def reset_mail_account(
+        account_id: str,
+        payload: MailResetRequest,
+        request: Request,
+    ):
+        ingest_limiter.check(_rate_key(request, f"mail-reset:{account_id}"))
+        return app.state.mail_runtime.reset_account(
+            account_id,
+            scope_id=payload.scope_id,
+            confirm=payload.confirm,
         )
 
     @app.get(
@@ -505,6 +597,41 @@ def create_app(
         return app.state.mail_runtime.reset(
             scope_id=payload.scope_id,
             confirm=payload.confirm,
+        )
+
+    @app.get(
+        "/v1/connectors/ai/status",
+        response_model=AIStatusResponse,
+        summary="Read redacted runtime AI configuration and key state",
+    )
+    def ai_status():
+        return app.state.ai_runtime.status()
+
+    @app.post(
+        "/v1/connectors/ai/config",
+        response_model=AIStatusResponse,
+        summary=(
+            "Persist non-secret AI settings, retain the key in memory, and "
+            "rewire subsequent write extraction and Console chat"
+        ),
+    )
+    def ai_config(payload: AIConfigRequest):
+        result = app.state.ai_runtime.configure(
+            _ai_config_from_request(payload),
+            api_key=payload.api_key,
+        )
+        app.state.console_chat_runner = app.state.ai_runtime.chat_runner
+        return result
+
+    @app.post(
+        "/v1/connectors/ai/test",
+        response_model=AITestResponse,
+        summary="Probe an AI provider without persisting candidate settings",
+    )
+    def ai_test(payload: AIConfigRequest):
+        return app.state.ai_runtime.test(
+            _ai_config_from_request(payload),
+            api_key=payload.api_key,
         )
 
     @app.post(
@@ -547,6 +674,41 @@ def create_app(
     # remain authoritative while sharing one ASGI process and one store owner.
     app.mount("/", mcp_http_app, name="mcp")
     return app
+
+
+def _mail_config_from_request(payload: MailConfigRequest) -> MailConfig:
+    if (
+        payload.account_id is not None
+        and payload.name is not None
+        and payload.account_id != payload.name
+    ):
+        raise ValueError("mail account_id and name MUST match when both are set")
+    preset = MAIL_PROVIDERS.get(payload.provider)
+    return MailConfig(
+        provider=payload.provider,
+        host=payload.host or (preset.host if preset is not None else ""),
+        port=payload.port or (preset.port if preset is not None else 993),
+        ssl=(
+            payload.ssl
+            if payload.ssl is not None
+            else (preset.ssl if preset is not None else True)
+        ),
+        user=payload.user,
+        folder=payload.folder,
+        interval=payload.interval,
+        initial_window=payload.initial_window,
+        scope=payload.scope,
+        name=payload.account_id or payload.name,
+    )
+
+
+def _ai_config_from_request(payload: AIConfigRequest) -> AIConfig:
+    return AIConfig(
+        provider=payload.provider,
+        base_url=payload.base_url,
+        model=payload.model,
+        timeout=payload.timeout,
+    )
 
 
 def _rate_key(request: Request, resource: str) -> str:

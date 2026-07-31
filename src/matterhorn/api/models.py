@@ -126,6 +126,14 @@ class MatterListResponse(RootModel[list[MatterResponse]]):
     pass
 
 
+class UnifiedMatterResponse(MatterResponse):
+    scope_id: str
+
+
+class UnifiedMatterListResponse(RootModel[list[UnifiedMatterResponse]]):
+    pass
+
+
 class ScopeListResponse(RootModel[list[str]]):
     pass
 
@@ -168,6 +176,8 @@ class ConsoleConfigResponse(StrictModel):
 
 
 class MailConfigRequest(StrictModel):
+    account_id: str | None = Field(default=None, min_length=1, max_length=512)
+    name: str | None = Field(default=None, min_length=1, max_length=512)
     provider: str
     host: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
@@ -181,6 +191,8 @@ class MailConfigRequest(StrictModel):
 
 
 class MailConfigResponse(StrictModel):
+    account_id: str
+    name: str | None = None
     provider: str
     host: str
     port: int
@@ -246,6 +258,45 @@ class MailStatusResponse(StrictModel):
     error: str | None = None
 
 
+class MailAccountsResponse(RootModel[list[MailStatusResponse]]):
+    pass
+
+
+class MailDeleteResponse(StrictModel):
+    account_id: str
+    removed: bool
+    watermark_retained: bool
+    message: str
+
+
+class AIConfigRequest(StrictModel):
+    provider: Literal["openai-compatible", "anthropic"]
+    base_url: str = Field(min_length=1, max_length=2_000)
+    model: str = Field(min_length=1, max_length=512)
+    timeout: float = Field(default=60.0, gt=0)
+    api_key: str | None = None
+
+
+class AIConfigResponse(StrictModel):
+    provider: Literal["openai-compatible", "anthropic"]
+    base_url: str
+    model: str
+    timeout: float
+
+
+class AIStatusResponse(StrictModel):
+    configured: bool
+    config: AIConfigResponse | None = None
+    source: str | None = None
+    api_key_state: str
+    chat_enabled: bool
+
+
+class AITestResponse(StrictModel):
+    reachable: bool
+    message: str
+
+
 class ActivityEventResponse(StrictModel):
     event_id: str
     event_type: str
@@ -269,6 +320,8 @@ class ScopeConnectionResponse(StrictModel):
 
 class ConnectionsResponse(StrictModel):
     mail: MailStatusResponse
+    mail_accounts: list[MailStatusResponse] = Field(default_factory=list)
+    ai: AIStatusResponse | None = None
     scopes: list[ScopeConnectionResponse]
     distill_queue_length: int = Field(ge=0)
 

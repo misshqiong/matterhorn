@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from email.message import EmailMessage
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -25,9 +26,12 @@ from matterhorn.connectors.mail import (
     MailConfig,
     MailConnector,
     MailRuntime,
+    MailRuntimeRegistry,
     MailSyncReport,
     load_mail_config,
+    load_mail_configs,
     save_mail_config,
+    save_mail_configs,
 )
 from matterhorn.contracts import EpisodeCard
 from matterhorn.defaults import Engine
@@ -527,17 +531,19 @@ def test_mail_config_toml_round_trip_never_contains_password(tmp_path) -> None:
     text = path.read_text(encoding="utf-8")
     assert "top-secret" not in text
     assert "password" not in text.casefold()
-    assert tomllib.loads(text)["mail"] == {
-        "provider": "gmail",
-        "host": "imap.gmail.com",
-        "port": 993,
-        "ssl": True,
-        "user": "dana@example.test",
-        "folder": "INBOX",
-        "interval": "off",
-        "initial_window": 50,
-        "scope": "mail-scope",
-    }
+    assert tomllib.loads(text)["mail"]["accounts"] == [
+        {
+            "provider": "gmail",
+            "host": "imap.gmail.com",
+            "port": 993,
+            "ssl": True,
+            "user": "dana@example.test",
+            "folder": "INBOX",
+            "interval": "off",
+            "initial_window": 50,
+            "scope": "mail-scope",
+        }
+    ]
     assert load_mail_config(path) == _config()
 
 
@@ -563,18 +569,182 @@ def test_mail_setup_cli_flags_write_no_secret_key(monkeypatch, tmp_path) -> None
 
     assert result.exit_code == 0, result.output
     payload = tomllib.loads((tmp_path / "matterhorn.toml").read_text())
-    assert payload["mail"] == {
-        "provider": "gmail",
-        "host": "imap.gmail.com",
-        "port": 993,
-        "ssl": True,
-        "user": "fixture@example.test",
-        "folder": "INBOX",
-        "interval": "6h",
-        "initial_window": 50,
-        "scope": "fixture",
-    }
+    assert payload["mail"]["accounts"] == [
+        {
+            "provider": "gmail",
+            "host": "imap.gmail.com",
+            "port": 993,
+            "ssl": True,
+            "user": "fixture@example.test",
+            "folder": "INBOX",
+            "interval": "6h",
+            "initial_window": 50,
+            "scope": "fixture",
+        }
+    ]
     assert "password" not in (tmp_path / "matterhorn.toml").read_text().casefold()
+
+
+def test_multi_account_toml_round_trip_and_legacy_migration(tmp_path) -> None:
+    path = tmp_path / "matterhorn.toml"
+    path.write_text(
+        """db = "fixture.db"
+[mail]
+provider = "gmail"
+host = "imap.gmail.com"
+port = 993
+ssl = true
+user = "dana@example.test"
+folder = "INBOX"
+interval = "off"
+initial_window = 50
+scope = "personal"
+""",
+        encoding="utf-8",
+    )
+    legacy = load_mail_configs(path)
+    assert [item.account_id for item in legacy] == [
+        "dana@example.test@imap.gmail.com/INBOX"
+    ]
+    work = MailConfig(
+        provider="manual",
+        host="imap.work.example",
+        port=993,
+        ssl=True,
+        user="dana@work.example",
+        folder="Matters",
+        interval="1h",
+        initial_window=25,
+        scope="work",
+        name="work-mail",
+    )
+
+    save_mail_configs(path, [*legacy, work])
+
+    text = path.read_text(encoding="utf-8")
+    payload = tomllib.loads(text)
+    assert "[mail]" not in text
+    assert text.count("[[mail.accounts]]") == 2
+    assert [item["user"] for item in payload["mail"]["accounts"]] == [
+        "dana@example.test",
+        "dana@work.example",
+    ]
+    assert [item.account_id for item in load_mail_configs(path)] == [
+        "dana@example.test@imap.gmail.com/INBOX",
+        "work-mail",
+    ]
+    assert "password" not in text.casefold()
+
+
+def test_mail_cli_appends_and_requires_selection_when_ambiguous(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for name, account, scope in [
+        ("personal", "dana@example.test", "personal"),
+        ("work", "dana@work.example", "work"),
+    ]:
+        result = CliRunner().invoke(
+            cli_app,
+            [
+                "mail",
+                "setup",
+                "--provider",
+                "gmail",
+                "--account",
+                account,
+                "--name",
+                name,
+                "--scope",
+                scope,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+    assert [item.account_id for item in load_mail_configs("matterhorn.toml")] == [
+        "personal",
+        "work",
+    ]
+    ambiguous = CliRunner().invoke(cli_app, ["mail", "sync"])
+    assert ambiguous.exit_code == 2
+    assert "--account is required" in ambiguous.output
+    assert "personal" in ambiguous.output
+    assert "work" in ambiguous.output
+
+
+def test_registry_ticks_all_accounts_with_independent_passwords_and_positions(
+    tmp_path,
+) -> None:
+    now = [datetime(2026, 7, 30, 8, tzinfo=UTC)]
+    logins: dict[str, list[str]] = {"imap.one.example": [], "imap.two.example": []}
+
+    class CredentialIMAP(FakeIMAP):
+        def __init__(self, host: str, uid: int):
+            super().__init__(str(uid + 100), {uid: _eml(uid)})
+            self.host = host
+
+        def login(self, user, password):
+            del user
+            logins[self.host].append(password)
+            return "OK", [b"authenticated"]
+
+    configs = [
+        MailConfig(
+            provider="manual",
+            host="imap.one.example",
+            port=993,
+            ssl=True,
+            user="dana@one.example",
+            interval="15min",
+            scope="personal",
+            name="personal",
+        ),
+        MailConfig(
+            provider="manual",
+            host="imap.two.example",
+            port=993,
+            ssl=True,
+            user="dana@two.example",
+            interval="15min",
+            scope="work",
+            name="work",
+        ),
+    ]
+    path = tmp_path / "matterhorn.toml"
+    save_mail_configs(path, configs)
+
+    def factory(host, _port):
+        uid = 1 if host == "imap.one.example" else 7
+        return CredentialIMAP(host, uid)
+
+    engine = _engine(tmp_path / "registry.db")
+    registry = MailRuntimeRegistry(
+        engine,
+        config_path=path,
+        environment={},
+        clock=lambda: now[0],
+        imap_ssl_factory=factory,
+    )
+    registry.configure(configs[0], password="personal-secret")
+    registry.configure(configs[1], password="work-secret")
+    now[0] = datetime(2026, 7, 30, 8, 15, tzinfo=UTC)
+
+    reports = registry.tick()
+
+    assert [(item.scope_id, item.new_watermark) for item in reports] == [
+        ("personal", 1),
+        ("work", 7),
+    ]
+    assert logins == {
+        "imap.one.example": ["personal-secret"],
+        "imap.two.example": ["work-secret"],
+    }
+    assert engine.sync_positions("personal")[0].uid_watermark == 1
+    assert engine.sync_positions("work")[0].uid_watermark == 7
+    serialized = json.dumps(registry.accounts())
+    assert "personal-secret" not in serialized
+    assert "work-secret" not in serialized
 
 
 def test_mail_reset_cli_requires_yes_and_deletes_only_sync_position(
@@ -700,7 +870,7 @@ def test_mail_reset_rest_requires_confirmation_and_console_has_button(
 
             console = await client.get("/console")
             assert console.status_code == 200
-            assert 'id="mail-reset"' in console.text
+            assert 'data-mail-action="reset"' in console.text
             assert "Re-pull recent" in console.text
             paths = (await client.get("/openapi.json")).json()["paths"]
             assert "/v1/connectors/mail/reset" in paths
@@ -783,6 +953,167 @@ def test_status_endpoint_is_redacted_and_mail_rest_round_trip(tmp_path) -> None:
         assert secret not in config_text
         assert "password" not in config_text.casefold()
         assert secret.encode() not in (tmp_path / "rest-mail.db").read_bytes()
+
+    asyncio.run(scenario())
+
+
+def test_mail_account_collection_rest_round_trip_and_delete_retains_watermark(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        secrets = {
+            "imap.personal.example": "personal-secret",
+            "imap.work.example": "work-secret",
+        }
+        observed: dict[str, str] = {}
+
+        class AccountIMAP(FakeIMAP):
+            def __init__(self, host: str, uid: int):
+                super().__init__(f"9{uid}", {uid: _eml(uid)})
+                self.host = host
+
+            def login(self, user, password):
+                del user
+                observed[self.host] = password
+                assert password == secrets[self.host]
+                return "OK", [b"authenticated"]
+
+        def factory(host, _port):
+            return AccountIMAP(
+                host,
+                3 if host == "imap.personal.example" else 8,
+            )
+
+        engine = _engine(tmp_path / "collection.db")
+        config_path = tmp_path / "matterhorn.toml"
+        app = create_app(
+            engine=engine,
+            mail_config_path=config_path,
+            mail_imap_ssl_factory=factory,
+            console_enabled=True,
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://matterhorn.test",
+        ) as client:
+            for account_id, host, user, scope, password in [
+                (
+                    "personal",
+                    "imap.personal.example",
+                    "dana@personal.example",
+                    "personal",
+                    secrets["imap.personal.example"],
+                ),
+                (
+                    "work",
+                    "imap.work.example",
+                    "dana@work.example",
+                    "work",
+                    secrets["imap.work.example"],
+                ),
+            ]:
+                response = await client.post(
+                    "/v1/connectors/mail/accounts",
+                    json={
+                        "account_id": account_id,
+                        "provider": "manual",
+                        "host": host,
+                        "port": 993,
+                        "ssl": True,
+                        "account": user,
+                        "folder": "INBOX",
+                        "scope": scope,
+                        "password": password,
+                    },
+                )
+                assert response.status_code == 200
+                assert response.json()["account_id"] == account_id
+                assert "password" not in response.text.casefold()
+
+            accounts = await client.get("/v1/connectors/mail/accounts")
+            assert [item["config"]["account_id"] for item in accounts.json()] == [
+                "personal",
+                "work",
+            ]
+            assert "personal-secret" not in accounts.text
+            assert "work-secret" not in accounts.text
+
+            personal = await client.post(
+                "/v1/connectors/mail/accounts/personal/sync",
+                json={},
+            )
+            work = await client.post(
+                "/v1/connectors/mail/accounts/work/sync",
+                json={},
+            )
+            assert personal.json()["new_watermark"] == 3
+            assert work.json()["new_watermark"] == 8
+            assert observed == secrets
+
+            removed = await client.delete(
+                "/v1/connectors/mail/accounts/personal"
+            )
+            assert removed.json()["watermark_retained"] is True
+            assert engine.sync_positions("personal")[0].uid_watermark == 3
+            remaining = await client.get("/v1/connectors/mail/accounts")
+            assert [item["config"]["account_id"] for item in remaining.json()] == [
+                "work"
+            ]
+
+            paths = (await client.get("/openapi.json")).json()["paths"]
+            for path in [
+                "/v1/connectors/mail/accounts",
+                "/v1/connectors/mail/accounts/{account_id}/sync",
+                "/v1/connectors/mail/accounts/{account_id}/reset",
+                "/v1/connectors/mail/accounts/{account_id}",
+            ]:
+                assert path in paths
+
+            console = await client.get("/console")
+            assert 'id="mail-account-list"' in console.text
+            assert 'api("/v1/connectors/mail/accounts")' in console.text
+
+        text = config_path.read_text(encoding="utf-8")
+        assert "personal-secret" not in text
+        assert "work-secret" not in text
+        assert "password" not in text.casefold()
+
+    asyncio.run(scenario())
+
+
+def test_derived_mail_account_id_with_folder_slash_is_routable(tmp_path) -> None:
+    async def scenario() -> None:
+        app = create_app(
+            engine=_engine(tmp_path / "derived-id.db"),
+            mail_config_path=tmp_path / "matterhorn.toml",
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://matterhorn.test",
+        ) as client:
+            configured = await client.post(
+                "/v1/connectors/mail/accounts",
+                json={
+                    "provider": "manual",
+                    "host": "imap.personal.example",
+                    "port": 993,
+                    "ssl": True,
+                    "account": "dana@example.test",
+                    "folder": "Archive/Matters",
+                    "scope": "personal",
+                },
+            )
+            account_id = configured.json()["account_id"]
+            assert account_id == (
+                "dana@example.test@imap.personal.example/Archive/Matters"
+            )
+            removed = await client.delete(
+                f"/v1/connectors/mail/accounts/{quote(account_id, safe='')}"
+            )
+            assert removed.status_code == 200
+            assert removed.json()["account_id"] == account_id
 
     asyncio.run(scenario())
 

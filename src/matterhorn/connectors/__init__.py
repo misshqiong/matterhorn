@@ -8,10 +8,13 @@ from matterhorn.connectors.mail import (
     MailConfig,
     MailConnector,
     MailRuntime,
+    MailRuntimeRegistry,
     MailSyncError,
     MailSyncReport,
     load_mail_config,
+    load_mail_configs,
     save_mail_config,
+    save_mail_configs,
 )
 
 __all__ = [
@@ -21,9 +24,12 @@ __all__ = [
     "MailConfig",
     "MailConnector",
     "MailRuntime",
+    "MailRuntimeRegistry",
     "MailSyncError",
     "MailSyncReport",
     "MailboxResetError",
     "load_mail_config",
+    "load_mail_configs",
     "save_mail_config",
+    "save_mail_configs",
 ]

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from matterhorn.adapters.messages import MessageCardExtractor
 from matterhorn.contracts import RecordExtractor, SchemaProfile
-from matterhorn.distill import LlmGateway
+from matterhorn.distill import LlmGateway, NullGateway
 from matterhorn.engine.engine import Clock
 from matterhorn.engine.engine import Engine as CoreEngine
 from matterhorn.store import Store
@@ -40,3 +40,69 @@ class Engine(CoreEngine):
                 self._write_gateway,
                 self.profile,
             )
+
+    def set_write_gateway(self, gateway: LlmGateway) -> None:
+        """Replace write-side provider composition for subsequent work.
+
+        Existing provider calls already executing retain their local gateway
+        object. New extraction and distillation calls observe this replacement.
+        """
+
+        self._write_gateway = gateway
+        self._extractor = MessageCardExtractor(gateway, self.profile)
+
+    def build_runtime_gateway(
+        self,
+        *,
+        provider: str,
+        base_url: str,
+        api_key: str,
+        model: str,
+        timeout: float,
+        gateway_factory=None,
+    ) -> LlmGateway:
+        if gateway_factory is None:
+            from matterhorn.gateway_config import configured_gateway
+
+            gateway_factory = configured_gateway
+        return gateway_factory(
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            timeout=timeout,
+        )
+
+    def compose_runtime_ai(
+        self,
+        *,
+        provider: str,
+        base_url: str,
+        api_key: str | None,
+        model: str,
+        timeout: float,
+        gateway_factory=None,
+        chat_runner_factory=None,
+    ):
+        if not api_key:
+            return NullGateway(), None
+        gateway = self.build_runtime_gateway(
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            timeout=timeout,
+            gateway_factory=gateway_factory,
+        )
+        if chat_runner_factory is None:
+            from matterhorn.console.chat import ConsoleChatRunner
+
+            chat_runner_factory = ConsoleChatRunner
+        runner = chat_runner_factory(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            timeout=timeout,
+        )
+        return gateway, runner

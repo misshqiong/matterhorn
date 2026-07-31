@@ -23,7 +23,7 @@ from matterhorn.connectors.mail import (
     MailConfig,
     MailConnector,
     MailSyncError,
-    load_mail_config,
+    load_mail_configs,
     reset_mail_sync_position,
     save_mail_config,
 )
@@ -105,15 +105,23 @@ def _write_gateway(
     from matterhorn.gateway_config import configured_gateway
 
     config = _load_config()
+    ai_config = config.get("ai")
+    if not isinstance(ai_config, dict):
+        ai_config = {}
     try:
         return configured_gateway(
-            provider=provider or config.get("provider"),
-            base_url=base_url,
+            provider=provider or ai_config.get("provider") or config.get("provider"),
+            base_url=base_url or ai_config.get("base_url"),
             api_key=api_key,
-            model=model,
+            model=model or ai_config.get("model"),
             fixture_path=(
                 os.environ.get("MATTERHORN_FIXTURE_PATH")
                 or config.get("fixture_path")
+            ),
+            timeout=(
+                float(ai_config["timeout"])
+                if "timeout" in ai_config
+                else None
             ),
         )
     except (TypeError, ValueError) as error:
@@ -137,6 +145,28 @@ def _scope(value: str | None) -> str:
     return selected
 
 
+def _mail_account(
+    configs: list[MailConfig],
+    account_id: str | None,
+) -> MailConfig:
+    if account_id is not None:
+        for config in configs:
+            if config.account_id == account_id:
+                return config
+        choices = ", ".join(config.account_id for config in configs) or "none"
+        raise typer.BadParameter(
+            f"unknown --account {account_id!r}; configured accounts: {choices}"
+        )
+    if len(configs) == 1:
+        return configs[0]
+    if not configs:
+        raise typer.BadParameter("run `mh mail setup` first")
+    choices = ", ".join(config.account_id for config in configs)
+    raise typer.BadParameter(
+        f"--account is required; configured accounts: {choices}"
+    )
+
+
 def _read_yaml_or_json(path: str) -> Any:
     try:
         text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
@@ -155,6 +185,12 @@ def _mail_connector(
 
 @mail_app.command("setup")
 def mail_setup(
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        "--account-id",
+        help="Stable account id; defaults to user@host/folder.",
+    ),
     provider: str | None = typer.Option(
         None,
         help="gmail, outlook, icloud, qq, 163, or manual.",
@@ -231,6 +267,7 @@ def mail_setup(
         interval=interval,
         initial_window=initial_window,
         scope=selected_scope,
+        name=name,
     )
     save_mail_config(Path.cwd() / CONFIG_NAME, config)
     _print(
@@ -253,6 +290,11 @@ def mail_sync(
         None,
         help="Matterhorn scope; defaults to mail.scope or root scope.",
     ),
+    account: str | None = typer.Option(
+        None,
+        "--account",
+        help="Account id; optional only when exactly one mailbox exists.",
+    ),
     db: str = typer.Option(DEFAULT_DB),
     schema: str = typer.Option(DEFAULT_SCHEMA),
     schema_dir: Path | None = typer.Option(None),
@@ -260,11 +302,10 @@ def mail_sync(
     """Pull new IMAP UIDs, add messages, and flush synchronously."""
 
     try:
-        config = load_mail_config(Path.cwd() / CONFIG_NAME)
+        configs = load_mail_configs(Path.cwd() / CONFIG_NAME)
     except (TypeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
-    if config is None:
-        raise typer.BadParameter("run `mh mail setup` first")
+    config = _mail_account(configs, account)
     selected_scope = scope or config.scope
     if selected_scope is None:
         selected_scope = _scope(None)
@@ -306,6 +347,11 @@ def mail_reset(
         None,
         help="Matterhorn scope; defaults to mail.scope or root scope.",
     ),
+    account: str | None = typer.Option(
+        None,
+        "--account",
+        help="Account id; optional only when exactly one mailbox exists.",
+    ),
     db: str = typer.Option(DEFAULT_DB),
     schema: str = typer.Option(DEFAULT_SCHEMA),
     schema_dir: Path | None = typer.Option(None),
@@ -317,11 +363,10 @@ def mail_reset(
             "--yes is required because reset deletes the mail sync position"
         )
     try:
-        config = load_mail_config(Path.cwd() / CONFIG_NAME)
+        configs = load_mail_configs(Path.cwd() / CONFIG_NAME)
     except (TypeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
-    if config is None:
-        raise typer.BadParameter("run `mh mail setup` first")
+    config = _mail_account(configs, account)
     selected_scope = scope or config.scope
     if selected_scope is None:
         selected_scope = _scope(None)
@@ -1128,14 +1173,20 @@ def mcp_command(
     from matterhorn.mcp.runtime import run_stdio
 
     config = _load_config()
+    ai_config = config.get("ai")
+    if not isinstance(ai_config, dict):
+        ai_config = {}
     run_stdio(
         db=str(_setting(db, DEFAULT_DB, "db")),
         schema=_setting(schema, DEFAULT_SCHEMA, "schema"),
-        provider=provider or config.get("provider"),
-        base_url=base_url,
+        provider=provider or ai_config.get("provider") or config.get("provider"),
+        base_url=base_url or ai_config.get("base_url"),
         api_key=api_key,
-        model=model,
+        model=model or ai_config.get("model"),
         fixture_path=config.get("fixture_path"),
+        timeout=(
+            float(ai_config["timeout"]) if "timeout" in ai_config else None
+        ),
     )
 
 
@@ -1355,25 +1406,40 @@ def _run_service(
     import uvicorn
 
     from matterhorn.api import create_app
-    from matterhorn.console.chat import chat_runner_from_environment
+    from matterhorn.runtime_ai import AIRuntime
 
     gateway = _write_gateway(provider, base_url, api_key, model)
     if console_enabled:
         from matterhorn.console import ConsoleSampleGateway
 
         gateway = ConsoleSampleGateway(gateway)
+    engine = _engine(
+        db,
+        schema,
+        None,
+        gateway=gateway,
+    )
+    ai_environment = dict(os.environ)
+    if provider is not None:
+        ai_environment["MATTERHORN_PROVIDER"] = provider
+    if base_url is not None:
+        ai_environment["MATTERHORN_BASE_URL"] = base_url
+    if api_key is not None:
+        ai_environment["MATTERHORN_API_KEY"] = api_key
+    if model is not None:
+        ai_environment["MATTERHORN_MODEL"] = model
+    ai_runtime = AIRuntime(
+        engine,
+        config_path=Path.cwd() / CONFIG_NAME,
+        environment=ai_environment,
+    )
     application = create_app(
-        engine=_engine(
-            db,
-            schema,
-            None,
-            gateway=gateway,
-        ),
+        engine=engine,
         quiet_period_minutes=quiet_period_minutes,
         daily_flush_at=daily_flush_at,
         webhook_url=webhook_url,
         console_enabled=console_enabled,
-        chat_runner=chat_runner_from_environment(),
+        ai_runtime=ai_runtime,
     )
     if console_enabled:
         console_url = f"http://{host}:{port}/console"

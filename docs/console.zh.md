@@ -1,118 +1,89 @@
 # Matterhorn Console
 
-Console 是 Matterhorn 面向运维者、开发者和演示者的操作面。它是公共 REST API
-的静态客户端，与 API 同源、同端口提供；没有数据库或引擎私有旁路。
+Console 现在是 Matterhorn 的成熟个人产品面，同时仍是公共 REST API 的自包含
+vanilla-JavaScript 客户端：浏览器没有 engine、store 或私有旁路。
 
-> **截图占位：** scope 导航、事项卡、当前值纠错、查询工作台、Feed 上传/quick
-> jot、Mail Connectors sheet 与 evidence chips 的 Console 总览。
+> **截图占位：** 三栏 Console：左栏多邮箱、AI 与 Feed 配置；中心跨全部 scope 的
+> ledger-paper 事项墙；右栏带 scope selector 的 Chat 与查询工作台。
 
-## 启动
-
-安装 API extra，然后启动：
+## 启动与边界
 
 ```console
 pip install 'matterhorn-memory[api]'
 mh console
 ```
 
-默认监听 `127.0.0.1:8000`，打印 URL，并用默认浏览器打开
-`http://127.0.0.1:8000/console`。自动化环境可加 `--no-open`。
-`mh serve --console` 会挂载同一页面，但不会主动打开浏览器。
-两个命令还会在同一端口的 `/mcp` 挂载同一个九工具 MCP 服务。
+默认打开 `http://127.0.0.1:8000/console`；`--no-open` 不拉起浏览器。
+`mh serve --console` 挂载同一页面，`/mcp` 提供同一个九工具 hub。v1 没有多租户
+鉴权，因此默认仍只绑定 loopback。
 
-Console 与 REST API 共用一个端口。浏览器只调用已公开并进入 OpenAPI 的接口：
+浏览器只调用公共接口：`GET /v1/matters` 与 `?scope=`、scope-aware 详情/纠错/
+查询/摄入/Chat、`GET /v1/events`、`GET /v1/connections`、mail collection API
+以及 AI 配置/脱敏状态/Test API。
 
-- `GET /v1/scopes` 与 scope 下的事项列表、事项详情；
-- 跨 scope 的 `GET /v1/events` 与 `GET /v1/connections`；
-- 四个确定性查询接口；
-- `POST /v1/scopes/{scope}/corrections`；
-- `POST /v1/scopes/{scope}/ingest`；
-- `POST /v1/scopes/{scope}/upload` 与 `/quick-message`；
-- 公共 `/v1/connectors/mail/...` 接口；
-- 可选的 `POST /v1/scopes/{scope}/chat`。
+## 三栏产品布局
 
-默认只绑定 loopback 是刻意的。Matterhorn v1 不提供多租户认证与授权；任何公网部署
-都必须在服务前增加认证与可信网络边界。
+### 左栏：来源与配置
 
-## Hub 实时视图
+**Mailboxes** 逐账号显示 provider、登录名、folder、目标 scope、watermark、
+调度、密码状态与单账号操作；Add mailbox 支持 preset 与 manual IMAP。详见
+[多邮箱连接器](mail.zh.md)。
 
-Console 顶部用两个面板直接回答 hub 的运行状态：
+**AI** 同时配置写网关与 Console Chat：
 
-- **Activity stream：** 跨全部 scope 展示最新投影事件，包括事项标题、谓词、
-  old → new、origin 与记录时间；
-- **Connections：** 展示脱敏邮件连接状态、UID watermark、下次运行时间；每个
-  scope 的最近摄入时间与消息/Record observation 数；以及全服务
-  `distill_queue` 长度。
-
-浏览器约每五秒轮询上述公开接口。scope 列表和当前事项列表使用相同节奏刷新，
-因此新的 Claude 会话、agent 消息或邮件无需手动刷新即可出现。页面仍是无外部资源
-的自包含 vanilla JavaScript REST 客户端。
-
-Dockerfile 也提供 `console` target：
-
-```console
-docker build --target console -t matterhorn-console .
-docker run --rm -p 127.0.0.1:8000:8000 matterhorn-console
+```toml
+[ai]
+provider = "openai-compatible" # 或 "anthropic"
+base_url = "https://provider.example/v1"
+model = "provider-model"
+timeout = 60.0
 ```
 
-## Feed 输入格式
+`POST /v1/connectors/ai/config` 可接收 `api_key`，但 key 永不写 TOML、不从 GET
+返回、不进入日志。`GET /v1/connectors/ai/status` 显示
+`loaded in process memory`、`loaded from environment` 或
+`re-enter API key`。重启后非敏感设置仍在，Console 输入的 key 会消失。
 
-格式识别发生在服务端，而不是浏览器 JavaScript 中。支持三种粘贴内容：
+优先级是：
 
-1. 普通聊天行，如 `Dana Reyes: The launch is in progress.`；没有时间戳时，服务端
-   按粘贴顺序合成递增时间；
-2. 遵循最小 `Message` contract 的 YAML 或 JSON；
-3. 原始 `.eml` / mbox 文本，由现有邮件 adapter 归一化。
+1. Console 运行时配置；
+2. `MATTERHORN_PROVIDER`、`MATTERHORN_BASE_URL`、`MATTERHORN_MODEL`、
+   `MATTERHORN_TIMEOUT`、`MATTERHORN_API_KEY`（以及 provider 原生 key）。
 
-无法识别时，错误会列出三种格式及各自的一行示例。ingest 和 chat 都有输入长度上限
-和相互独立的进程内简单限流。
+修改 AI 配置会替换 composed Engine 后续 extraction/distillation 使用的 gateway，
+并重建 Chat runner；已经在运行的 provider 调用继续使用自己捕获的对象。
 
-点击 **Load sample** 会载入虚构的 Dana Reyes / octo-org 对话，并用随包发布的预录
-fixture gateway 响应生成事项，全程不需要 key。该 fixture 只匹配这份明确的虚构样例；
-普通输入仍使用正常配置的写侧 gateway。
+**Test** 通过 `POST /v1/connectors/ai/test` 发起一次极小的结构化调用。探测失败时
+候选配置与 key 都不会保存。没有可用 key 时 Chat 保持隐藏，依赖 extraction 的功能
+显示现有的明确 gateway-required 错误。
 
-同一个 Feed sheet 可以上传 `.mbox`、`.eml`、`.yaml`、`.json`，仍由服务端格式
-探测，并立即 extract + flush。Quick jot 表单写入一条 sender/text 消息；不填写
-`sent_at` 时使用服务端时钟。
+**Feed input** 支持粘贴 chat、YAML/JSON Message、EML/mbox 与文件上传。精确匹配的
+虚构 Dana Reyes / octo-org 样例可使用随包 fixture gateway。
 
-## Connectors
+### 中心：统一事项墙
 
-可折叠的 **Connectors · Mail** sheet 支持 provider 预设或手动 IMAP 设置；app
-password 只保存在进程内存；可以立即同步，并显示 UID watermark、UIDVALIDITY、
-上次运行统计、凭证状态、错误/帮助链接和下次调度时间。详见
-[邮件连接器指南](mail.zh.md)。
+默认调用 `GET /v1/matters` 展示全部 scope。每张 ledger-paper 卡显示 scope tag、
+status stamp、owner、due（逾期红色）与 next step。顶部 chips 可切 All 或单 scope。
+点击卡片加载 scope-aware 详情，人工纠错从墙上同样可用。
 
-## 可选 Chat
+Activity 与 Connections 保留在墙下方的可折叠 strip，约每五秒刷新。
 
-只有通过 Matterhorn 原有环境变量配置了支持的 provider、model 和凭证时，Chat
-窗口才会显示：
+### 右栏：消费
 
-```console
-export MATTERHORN_PROVIDER=openai-compatible  # 或 anthropic
-export MATTERHORN_BASE_URL=https://provider.example/v1
-export MATTERHORN_MODEL=provider-model
-export MATTERHORN_API_KEY=...
-export MATTERHORN_TIMEOUT=60
-mh console
-```
+Chat 与确定性查询工作台共用明确的 scope selector。单 scope wall filter 会带动它；
+否则跟随最后打开的卡，最后 fallback 到第一个 scope。Chat 工具仍严格锁定 route
+scope，只有 `list_matters`、`query_current`、`query_timeline`、`query_at`、
+`query_by_person`。模型只能看到查询结果与 evidence ID，看不到 raw Record/store。
 
-Anthropic 未设置 base URL 时默认使用 `https://api.anthropic.com`；仍支持
-`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` provider 原生变量作为 fallback。
+## AI 公共资源
 
-宿主侧循环最多执行六次工具调用。工具只有 `list_matters`、`query_current`、
-`query_timeline`、`query_at`、`query_by_person`，并逐一映射到
-`MatterhornService`。scope 由宿主路由固定，模型永远拿不到原始 records 或 store。
-每条回答下方会渲染查询参数与返回证据 source ID 组成的 `依据/Evidence` chips。
+- `POST /v1/connectors/ai/config`
+- `GET /v1/connectors/ai/status`
+- `POST /v1/connectors/ai/test`
 
-## 30 秒演示
+脱敏 AI 状态也进入 `GET /v1/connections`。
 
-1. 运行 `mh console`，点击 **Load sample**，再点 **Extract**；完成态 receipt
-   显示 gate breakdown，事项卡随即出现。
-2. 打开 **octo-org Console launch**，在一个错误当前值旁点击 **Correct**，填写
-   新值、原因和 `Dana Reyes` 并提交；页面立即刷新为带 `✏️ human` 徽标的新值，
-   历史时间线仍保留。
-3. 若已配置 Chat，询问 “What is the current progress?”；回答携带确定性查询和
-   source ID 的 `依据/Evidence` chips，点击即可高亮对应事项。
+## 安全
 
-共享 Claude Code 与 agent 团队的挂载方式见
-[Agent 团队 Hub 拓扑](agent-team.zh.md)。
+凭证只驻留进程内存；浏览器只走 REST；读路径继续零模型，provider 只用于写侧提取
+与可选 Chat 消费。公网部署前必须增加认证、授权、TLS、请求限制与可信反向代理。

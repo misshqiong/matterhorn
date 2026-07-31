@@ -19,10 +19,9 @@ no external requests.
 
 ## Console
 
-Matterhorn ships a Console operating surface for viewing scopes and matters,
-running deterministic queries, making first-class human corrections, feeding
-pasted chat/YAML/JSON/email, and optionally asking a tool-using model whose only
-tools are the five public deterministic queries.
+Matterhorn ships a mature three-column personal Console: configure multiple
+mailboxes, AI, and Feed on the left; see one all-scope matter-card wall in the
+center; use scoped chat and deterministic queries on the right.
 
 The Console also configures and runs the memory-only-credential
 [IMAP mail connector](docs/mail.md), accepts file uploads, and provides a quick
@@ -40,11 +39,9 @@ health, scope lists, and matter lists refresh about every five seconds. The
 built-in fictional Dana Reyes / octo-org sample uses a packaged fixture and
 needs no key.
 
-> **Screenshot placeholder:** scope browser, matter detail and correction,
-> query workbench, feed receipt, and evidence-bearing chat.
+> **Screenshot placeholder:** multiple mailbox and AI configuration, unified
+> matter-card wall, scope-aware detail/correction, and evidence-bearing chat.
 
-Matterhorn still has no built-in business consumption UI: end-user boards
-belong to hosts. The Console is the product’s operator/developer/demo surface.
 See the [Console guide](docs/console.md).
 
 The default loopback bind is intentional. A public deployment must add

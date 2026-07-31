@@ -16,13 +16,13 @@ when an agent or application must answer “what is currently true?”, “what 
 true then?”, and “which evidence supports that answer?” the same way every
 time.
 
-## Console versus host product UI
+## Console product and host-specific UI
 
 Matterhorn ships a Console operating surface for operators, developers, and
 demos. The Console is a static peer client of the same public REST API used by
 other clients; it adds no private read path.
 
-Matterhorn still has no built-in business consumption UI. End-user boards,
-workflow screens, approvals, notifications, and domain-specific experiences
-belong to hosts. The Console exists to inspect, query, correct, feed, and
-demonstrate the memory product itself.
+The Console is the built-in personal product: multi-source configuration,
+an all-scope matter-card wall, corrections, chat, and deterministic queries.
+Host-specific approvals, notifications, permissions, and domain workflows
+still belong to hosts.

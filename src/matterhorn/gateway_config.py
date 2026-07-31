@@ -14,6 +14,12 @@ from matterhorn.distill import (
     NullGateway,
     OpenAICompatibleGateway,
 )
+from matterhorn.runtime_ai import (
+    AIConfig,
+    AIRuntime,
+    load_ai_config,
+    save_ai_config,
+)
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -50,6 +56,7 @@ def configured_gateway(
     api_key: str | None = None,
     model: str | None = None,
     fixture_path: str | Path | None = None,
+    timeout: float | None = None,
 ) -> LlmGateway:
     selected = provider or os.environ.get("MATTERHORN_PROVIDER", "null")
     resolved_base_url = (
@@ -65,7 +72,9 @@ def configured_gateway(
     if resolved_api_key is None and provider_fallback_key is not None:
         resolved_api_key = os.environ.get(provider_fallback_key)
     resolved_model = model or os.environ.get("MATTERHORN_MODEL")
-    resolved_timeout = _timeout_seconds()
+    resolved_timeout = timeout if timeout is not None else _timeout_seconds()
+    if not math.isfinite(resolved_timeout) or resolved_timeout <= 0:
+        raise ValueError("gateway timeout MUST be a positive finite number")
 
     if selected == "null":
         return NullGateway()
@@ -117,3 +126,13 @@ def _timeout_seconds() -> float:
     if not math.isfinite(value) or value <= 0:
         raise ValueError("MATTERHORN_TIMEOUT MUST be a positive finite number")
     return value
+
+
+__all__ = [
+    "AIConfig",
+    "AIRuntime",
+    "FixtureFileGateway",
+    "configured_gateway",
+    "load_ai_config",
+    "save_ai_config",
+]

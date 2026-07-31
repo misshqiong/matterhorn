@@ -10,7 +10,7 @@ import re
 import tomllib
 from collections import Counter
 from contextlib import suppress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Lock
@@ -76,7 +76,7 @@ MAIL_PROVIDERS: dict[str, MailProvider] = {
 }
 
 _UID = re.compile(rb"\d+")
-_MAIL_SECTION = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
+_MAIL_SECTION = re.compile(r"^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$")
 _EPOCH_WATERMARK = datetime(1970, 1, 1, tzinfo=UTC)
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ class MailConfig:
     interval: str = "off"
     initial_window: int = 50
     scope: str | None = None
+    name: str | None = None
 
     def __post_init__(self) -> None:
         if self.provider not in {*MAIL_PROVIDERS, "manual"}:
@@ -112,6 +113,8 @@ class MailConfig:
             raise ValueError("mail initial_window MUST be at least 1")
         if self.scope is not None and not self.scope.strip():
             raise ValueError("mail scope MUST be non-empty when supplied")
+        if self.name is not None and not self.name.strip():
+            raise ValueError("mail name MUST be non-empty when supplied")
 
     @property
     def help_url(self) -> str | None:
@@ -122,8 +125,14 @@ class MailConfig:
     def container_id(self) -> str:
         return f"imap:{self.user}@{self.host}/{self.folder}"
 
+    @property
+    def account_id(self) -> str:
+        return self.name or f"{self.user}@{self.host}/{self.folder}"
+
     def public_dict(self) -> dict[str, Any]:
         return {
+            "account_id": self.account_id,
+            "name": self.name,
             "provider": self.provider,
             "host": self.host,
             "port": self.port,
@@ -192,19 +201,39 @@ class MailboxResetError(MailSyncError):
         )
 
 
-def load_mail_config(path: str | Path) -> MailConfig | None:
+def load_mail_configs(path: str | Path) -> list[MailConfig]:
     source = Path(path)
     if not source.is_file():
-        return None
+        return []
     try:
         payload = tomllib.loads(source.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise ValueError(f"could not load {source.name}: {error}") from error
     raw = payload.get("mail")
     if raw is None:
-        return None
+        return []
     if not isinstance(raw, dict):
         raise TypeError("[mail] MUST be a TOML table")
+    accounts = raw.get("accounts")
+    if accounts is None:
+        # Legacy [mail] is intentionally accepted as one account. Any later
+        # save rewrites it as [[mail.accounts]] without dropping other tables.
+        accounts = [raw]
+    if not isinstance(accounts, list) or not all(
+        isinstance(item, dict) for item in accounts
+    ):
+        raise TypeError("[[mail.accounts]] MUST be an array of TOML tables")
+    return [_mail_config_from_mapping(item) for item in accounts]
+
+
+def load_mail_config(path: str | Path) -> MailConfig | None:
+    """Compatibility helper returning the first configured account."""
+
+    configs = load_mail_configs(path)
+    return configs[0] if configs else None
+
+
+def _mail_config_from_mapping(raw: dict[str, Any]) -> MailConfig:
     return MailConfig(
         provider=str(raw.get("provider", "manual")),
         host=str(raw.get("host", "")),
@@ -215,11 +244,30 @@ def load_mail_config(path: str | Path) -> MailConfig | None:
         interval=str(raw.get("interval", "off")),
         initial_window=int(raw.get("initial_window", 50)),
         scope=(str(raw["scope"]) if raw.get("scope") is not None else None),
+        name=(str(raw["name"]) if raw.get("name") is not None else None),
     )
 
 
 def save_mail_config(path: str | Path, config: MailConfig) -> None:
-    """Replace only `[mail]` tables and never serialize a credential."""
+    """Upsert one account and always write the collection-shaped TOML."""
+
+    configs = load_mail_configs(path)
+    replaced = False
+    for index, existing in enumerate(configs):
+        if existing.account_id == config.account_id:
+            configs[index] = config
+            replaced = True
+            break
+    if not replaced:
+        configs.append(config)
+    save_mail_configs(path, configs)
+
+
+def save_mail_configs(
+    path: str | Path,
+    configs: list[MailConfig],
+) -> None:
+    """Replace only mail tables and never serialize a credential."""
 
     target = Path(path)
     original = target.read_text(encoding="utf-8") if target.is_file() else ""
@@ -235,25 +283,30 @@ def save_mail_config(path: str | Path, config: MailConfig) -> None:
             retained.append(line)
     while retained and not retained[-1].strip():
         retained.pop()
-    values: list[tuple[str, Any]] = [
-        ("provider", config.provider),
-        ("host", config.host),
-        ("port", config.port),
-        ("ssl", config.ssl),
-        ("user", config.user),
-        ("folder", config.folder),
-        ("interval", config.interval),
-        ("initial_window", config.initial_window),
-    ]
-    if config.scope is not None:
-        values.append(("scope", config.scope))
-    rendered = [
-        *retained,
-        *([""] if retained else []),
-        "[mail]",
-        *[f"{key} = {_toml_scalar(value)}" for key, value in values],
-        "",
-    ]
+    rendered = [*retained]
+    for config in configs:
+        values: list[tuple[str, Any]] = [
+            ("provider", config.provider),
+            ("host", config.host),
+            ("port", config.port),
+            ("ssl", config.ssl),
+            ("user", config.user),
+            ("folder", config.folder),
+            ("interval", config.interval),
+            ("initial_window", config.initial_window),
+        ]
+        if config.scope is not None:
+            values.append(("scope", config.scope))
+        if config.name is not None:
+            values.append(("name", config.name))
+        rendered.extend(
+            [
+                *([""] if rendered else []),
+                "[[mail.accounts]]",
+                *[f"{key} = {_toml_scalar(value)}" for key, value in values],
+            ]
+        )
+    rendered.append("")
     target.write_text("\n".join(rendered), encoding="utf-8")
 
 
@@ -542,12 +595,26 @@ class MailRuntime:
         clock: Any = None,
         imap_ssl_factory: Any = imaplib.IMAP4_SSL,
         imap_factory: Any = imaplib.IMAP4,
+        config: MailConfig | None = None,
+        persist_config: bool = True,
     ):
         self.engine = engine
         self.config_path = Path(config_path)
-        self.config = load_mail_config(self.config_path)
+        self.config = (
+            config if config is not None else load_mail_config(self.config_path)
+        )
+        self._persist_config = persist_config
         selected_environment = environment if environment is not None else os.environ
-        self._password = selected_environment.get("MATTERHORN_MAIL_PASSWORD")
+        account_key = (
+            re.sub(r"[^A-Z0-9]+", "_", self.config.account_id.upper()).strip("_")
+            if self.config is not None
+            else ""
+        )
+        self._password = (
+            selected_environment.get(f"MATTERHORN_MAIL_PASSWORD_{account_key}")
+            if account_key
+            else None
+        ) or selected_environment.get("MATTERHORN_MAIL_PASSWORD")
         self._password_source = "environment" if self._password else None
         self._clock = clock or engine.now
         self._imap_ssl_factory = imap_ssl_factory
@@ -567,7 +634,8 @@ class MailRuntime:
         *,
         password: str | None = None,
     ) -> dict[str, Any]:
-        save_mail_config(self.config_path, config)
+        if self._persist_config:
+            save_mail_config(self.config_path, config)
         self.config = config
         if password:
             self._password = password
@@ -721,6 +789,186 @@ class MailRuntime:
             if seconds is not None
             else None
         )
+
+
+class MailRuntimeRegistry:
+    """Registry of isolated process-local mailbox runtimes."""
+
+    def __init__(
+        self,
+        engine: Any,
+        *,
+        config_path: str | Path,
+        environment: dict[str, str] | None = None,
+        clock: Any = None,
+        imap_ssl_factory: Any = imaplib.IMAP4_SSL,
+        imap_factory: Any = imaplib.IMAP4,
+    ):
+        self.engine = engine
+        self.config_path = Path(config_path)
+        self._environment = environment if environment is not None else os.environ
+        self._clock = clock
+        self._imap_ssl_factory = imap_ssl_factory
+        self._imap_factory = imap_factory
+        self._runtimes: dict[str, MailRuntime] = {}
+        for config in load_mail_configs(self.config_path):
+            self._runtimes[config.account_id] = self._runtime(config)
+
+    def _runtime(self, config: MailConfig) -> MailRuntime:
+        kwargs: dict[str, Any] = {
+            "config_path": self.config_path,
+            "environment": self._environment,
+            "imap_ssl_factory": self._imap_ssl_factory,
+            "imap_factory": self._imap_factory,
+            "config": config,
+            "persist_config": False,
+        }
+        if self._clock is not None:
+            kwargs["clock"] = self._clock
+        return MailRuntime(self.engine, **kwargs)
+
+    def configure(
+        self,
+        config: MailConfig,
+        *,
+        password: str | None = None,
+    ) -> dict[str, Any]:
+        runtime = self._runtimes.get(config.account_id)
+        if runtime is None:
+            runtime = self._runtime(config)
+            self._runtimes[config.account_id] = runtime
+        runtime.configure(config, password=password)
+        self._save()
+        return config.public_dict()
+
+    def configure_first(
+        self,
+        config: MailConfig,
+        *,
+        password: str | None = None,
+    ) -> dict[str, Any]:
+        """Compatibility update targeting the first account."""
+
+        first_id = next(iter(self._runtimes), None)
+        if first_id is None:
+            return self.configure(config, password=password)
+        if config.account_id != first_id:
+            config = replace(config, name=first_id)
+        return self.configure(config, password=password)
+
+    def accounts(self) -> list[dict[str, Any]]:
+        return [runtime.status() for runtime in self._runtimes.values()]
+
+    def account(self, account_id: str) -> MailRuntime:
+        try:
+            return self._runtimes[account_id]
+        except KeyError:
+            choices = ", ".join(self._runtimes) or "none"
+            raise MailSyncError(
+                f"Unknown mail account {account_id!r}; configured accounts: {choices}."
+            ) from None
+
+    def delete(self, account_id: str) -> dict[str, Any]:
+        self.account(account_id)
+        del self._runtimes[account_id]
+        self._save()
+        return {
+            "account_id": account_id,
+            "removed": True,
+            "watermark_retained": True,
+            "message": (
+                "Mailbox configuration and its in-memory credential were removed; "
+                "stored sync watermark data was retained."
+            ),
+        }
+
+    def sync_account(
+        self,
+        account_id: str,
+        *,
+        scope_id: str | None = None,
+        backfill: bool = False,
+    ) -> MailSyncReport:
+        return self.account(account_id).sync(
+            scope_id=scope_id,
+            backfill=backfill,
+        )
+
+    def reset_account(
+        self,
+        account_id: str,
+        *,
+        scope_id: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        return self.account(account_id).reset(
+            scope_id=scope_id,
+            confirm=confirm,
+        )
+
+    def tick(self) -> list[MailSyncReport]:
+        reports = []
+        for runtime in list(self._runtimes.values()):
+            report = runtime.tick()
+            if report is not None:
+                reports.append(report)
+        return reports
+
+    # Compatibility aliases deliberately target the first configured account.
+    def status(self, *, scope_id: str | None = None) -> dict[str, Any]:
+        runtime = self._first(required=False)
+        if runtime is None:
+            return _empty_mail_status()
+        return runtime.status(scope_id=scope_id)
+
+    def sync(
+        self,
+        *,
+        scope_id: str | None = None,
+        backfill: bool = False,
+    ) -> MailSyncReport:
+        return self._first().sync(scope_id=scope_id, backfill=backfill)
+
+    def reset(
+        self,
+        *,
+        scope_id: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        return self._first().reset(scope_id=scope_id, confirm=confirm)
+
+    def _first(self, *, required: bool = True) -> MailRuntime | None:
+        runtime = next(iter(self._runtimes.values()), None)
+        if runtime is None and required:
+            raise MailSyncError("Mail connector is not configured.")
+        return runtime
+
+    def _save(self) -> None:
+        save_mail_configs(
+            self.config_path,
+            [
+                runtime.config
+                for runtime in self._runtimes.values()
+                if runtime.config is not None
+            ],
+        )
+
+
+def _empty_mail_status() -> dict[str, Any]:
+    return {
+        "configured": False,
+        "config": None,
+        "scope_id": None,
+        "password_state": "re-enter password",
+        "last_sync_at": None,
+        "last_run_at": None,
+        "next_run_at": None,
+        "syncing": False,
+        "uid_watermark": None,
+        "uidvalidity": None,
+        "last_report": None,
+        "error": None,
+    }
 
 
 def _require_ok(status: Any, action: str) -> None:
