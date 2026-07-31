@@ -48,10 +48,12 @@ mh extract history.json --adapter slack-history \
   --provider openai-compatible
 ```
 
-Configure the write-side model with `MATTERHORN_BASE_URL`,
-`MATTERHORN_API_KEY` (or `OPENAI_API_KEY`), and `MATTERHORN_MODEL`. Anthropic is
-available as `--provider anthropic`. No provider is configured on read
-commands.
+Configure the write-side model with the `--base-url`, `--model`, and
+`--api-key` overrides, a non-secret `[ai]` table plus a credential environment
+variable, or the standard `MATTERHORN_*` environment. Anthropic is available
+as `--provider anthropic`. A key entered in the Console is process-local to
+that running service and does not leak into a separate CLI process. No
+provider is configured on read commands.
 
 `mh extract` persists the response cursor and the newest observed timestamp for
 each container. Inspect them with:

@@ -52,11 +52,12 @@ mh setup claude-code \
   --scope release-room
 ```
 
-The `SessionEnd` hook posts each session's user and assistant text to
-`release-room`; `SessionStart` injects the scope's open matters. Explicit MCP
-tool calls from every mounted session reach the same nine-tool server. For
-multiple machines, replace loopback with the authenticated TLS origin
-described under Security.
+The `Stop` hook posts the recent user/assistant transcript tail after every
+completed turn, while `SessionEnd` posts the full transcript and
+`SessionStart` injects the scope's open matters. Overlap is harmless because
+Claude transcript messages use deterministic IDs. Explicit MCP tool calls from
+every mounted session reach the same nine-tool server. For multiple machines,
+replace loopback with the authenticated TLS origin described under Security.
 
 ## Agent SDK and subagents
 

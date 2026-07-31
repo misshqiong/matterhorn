@@ -3,6 +3,8 @@
 Console 现在是 Matterhorn 的成熟个人产品面，同时仍是公共 REST API 的自包含
 vanilla-JavaScript 客户端：浏览器没有 engine、store 或私有旁路。
 
+<!-- screenshot: console-wall -->
+![Matterhorn Console — unified matter wall](images/console-wall.png)
 > **截图占位：** 三栏 Console：左栏多邮箱、AI 与 Feed 配置；中心跨全部 scope 的
 > ledger-paper 事项墙；右栏带 scope selector 的 Chat 与查询工作台。
 
@@ -29,6 +31,10 @@ mh console
 调度、密码状态与单账号操作；Add mailbox 支持 preset 与 manual IMAP。详见
 [多邮箱连接器](mail.zh.md)。
 
+<!-- screenshot: console-mailboxes -->
+> **截图占位：** Dana Reyes 的虚构 personal / octo-org 两个邮箱，各自显示 scope、
+> watermark、调度与操作。
+
 **AI** 同时配置写网关与 Console Chat：
 
 ```toml
@@ -53,6 +59,10 @@ timeout = 60.0
 修改 AI 配置会替换 composed Engine 后续 extraction/distillation 使用的 gateway，
 并重建 Chat runner；已经在运行的 provider 调用继续使用自己捕获的对象。
 
+<!-- screenshot: console-ai -->
+> **截图占位：** 运行时 AI provider、model、timeout、脱敏 key 状态，以及 Test /
+> Save AI 控件。
+
 **Test** 通过 `POST /v1/connectors/ai/test` 发起一次极小的结构化调用。探测失败时
 候选配置与 key 都不会保存。没有可用 key 时 Chat 保持隐藏，依赖 extraction 的功能
 显示现有的明确 gateway-required 错误。
@@ -64,7 +74,12 @@ timeout = 60.0
 
 默认调用 `GET /v1/matters` 展示全部 scope。每张 ledger-paper 卡显示 scope tag、
 status stamp、owner、due（逾期红色）与 next step。顶部 chips 可切 All 或单 scope。
-点击卡片加载 scope-aware 详情，人工纠错从墙上同样可用。
+点击卡片会打开 modal，展示 scope-aware 当前值、evidence 状态/source ID 以及每个值
+的人工纠错入口。纠错使用第二个 modal，提交后会刷新仍打开的详情 modal 与事项墙。
+
+<!-- screenshot: console-detail-modal -->
+> **截图占位：** 统一事项墙上方的详情 modal，含 predicate value、origin、evidence
+> 状态/source ID 与 Correct 操作。
 
 Activity 与 Connections 保留在墙下方的可折叠 strip，约每五秒刷新。
 
@@ -82,6 +97,15 @@ scope，只有 `list_matters`、`query_current`、`query_timeline`、`query_at`�
 - `POST /v1/connectors/ai/test`
 
 脱敏 AI 状态也进入 `GET /v1/connections`。
+
+## 30 秒 fixture 演示
+
+1. 启动 `mh console`，展开 **Feed input**，依次点 **Load sample**、**Extract**；
+   精确匹配的虚构文本走随包 fixture，不需要 AI key。
+2. 保持 **All** scope chip，点击新事项卡；带证据详情会以 modal 覆盖在统一墙上。
+3. 点击某个值旁的 **correct** 打开纠错 modal；只读演示可直接关闭而不提交。
+4. 在 **Working scope** 选 `personal` 并跑一次确定性查询。配置真实 AI key 前，
+   Chat 保持隐藏。
 
 ## 安全
 

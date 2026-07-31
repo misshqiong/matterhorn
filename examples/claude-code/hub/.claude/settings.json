@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/.venv/bin/mh hook session-start --url http://127.0.0.1:8000 --scope claude-code",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/.venv/bin/mh hook session-end --url http://127.0.0.1:8000 --scope claude-code",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/.venv/bin/mh hook turn-end --url http://127.0.0.1:8000 --scope claude-code",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

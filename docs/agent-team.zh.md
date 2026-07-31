@@ -51,10 +51,11 @@ mh setup claude-code \
   --scope release-room
 ```
 
-`SessionEnd` hook 把每个会话的 user / assistant 文本发到 `release-room`；
-`SessionStart` 把该 scope 的未关闭事项注入上下文。所有已挂载会话的显式 MCP
-调用都会到达同一个九工具服务。多机共享时，应把 loopback URL 换成下文安全章节
-所述、具备认证与 TLS 的入口。
+`Stop` hook 在每轮完成后投递最近的 user / assistant transcript tail；
+`SessionEnd` 投递完整 transcript，`SessionStart` 把该 scope 的未关闭事项注入
+上下文。Claude transcript 消息使用确定性 ID，因此重叠投递无害。所有已挂载会话
+的显式 MCP 调用都会到达同一个九工具服务。多机共享时，应把 loopback URL 换成
+下文安全章节所述、具备认证与 TLS 的入口。
 
 ## Agent SDK 与 subagent
 

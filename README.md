@@ -39,8 +39,11 @@ health, scope lists, and matter lists refresh about every five seconds. The
 built-in fictional Dana Reyes / octo-org sample uses a packaged fixture and
 needs no key.
 
+<!-- screenshot: console-wall -->
+![Matterhorn Console — unified matter wall](docs/images/console-wall.png)
 > **Screenshot placeholder:** multiple mailbox and AI configuration, unified
-> matter-card wall, scope-aware detail/correction, and evidence-bearing chat.
+> matter-card wall, modal scope-aware detail/correction, and evidence-bearing
+> chat.
 
 See the [Console guide](docs/console.md).
 
@@ -66,14 +69,13 @@ human-readable ledger. See [the ledger design](docs/ledger.md).
 ## Five-minute journey
 
 ```console
-pip install 'matterhorn-memory[mcp]'
+pip install 'matterhorn-memory[api]'
 mkdir matterhorn-demo && cd matterhorn-demo
 mh init
 mh add demo-messages.yaml
 mh flush demo
 mh matters demo
-mh events demo
-mh export demo --out demo-snapshot.json
+mh console
 ```
 
 `mh init` creates an idempotent local SQLite setup and a tiny offline fixture
@@ -88,11 +90,23 @@ demo. `mh matters` prints a projected matter such as:
 }
 ```
 
+`mh console` opens the product: configure mailboxes and AI, work from one
+all-scope matter wall, open matter details in a modal, and chat over a selected
+scope. The packaged Dana Reyes / octo-org sample works without a key. Real
+mail sync needs the mailbox credential, while real extraction and chat need a
+configured AI key.
+
 The fixture is only the demo's replaceable message-to-card extractor. For real
 messages, configure an OpenAI-compatible or Anthropic write gateway in
-`matterhorn.toml` or the documented environment variables.
+the Console AI panel, `matterhorn.toml`, or the documented environment
+variables.
 
-## Write-gateway environment
+## Write-gateway configuration
+
+The Console AI panel can configure the provider at runtime. A key entered
+there stays in process memory, is never written to TOML, and overrides an
+environment credential until that process exits. The environment remains the
+non-interactive fallback:
 
 | Variable | Meaning |
 | --- | --- |
@@ -102,14 +116,48 @@ messages, configure an OpenAI-compatible or Anthropic write gateway in
 | `MATTERHORN_API_KEY` | Preferred provider credential; provider-native keys remain supported |
 | `MATTERHORN_TIMEOUT` | Positive floating-point request timeout in seconds; defaults to `60` |
 
-Connect Claude Code by adding `.mcp.json` in this directory:
+## Claude Code
+
+Run setup from the Claude Code project:
+
+```console
+mh setup claude-code
+mh setup claude-code --url http://127.0.0.1:8000
+```
+
+The first command writes a stdio `matterhorn` entry to `.mcp.json`; the second
+writes a URL-type entry for the hub at `/mcp`. Both merge absolute-path
+`SessionStart` and `SessionEnd` command hooks into `.claude/settings.json`.
+Hub mode also installs a `Stop` hook so each completed turn is delivered
+without waiting for session exit. All hooks fail open within the setup-enforced
+two-second cap; a down service stays silent.
+
+Manual `.mcp.json` configuration remains an alternative. Embedded stdio:
 
 ```json
 {
   "mcpServers": {
     "matterhorn": {
+      "type": "stdio",
       "command": "mh",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "env": {
+        "MATTERHORN_DB": "/absolute/project/matterhorn.db",
+        "MATTERHORN_SCHEMA": "org-matters/v1"
+      }
+    }
+  }
+}
+```
+
+Hub URL type:
+
+```json
+{
+  "mcpServers": {
+    "matterhorn": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }
@@ -119,6 +167,19 @@ Then ask: **“Who owns the payment refactor, and what evidence supports that?�
 The agent uses `list_matters` and the query tools. Matterhorn does not ask a
 model to compose the answer: the answer and evidence come from deterministic
 projection.
+
+## Current CLI
+
+- Write and project: `mh init`, `mh add`, `mh ingest`, `mh extract`,
+  `mh flush`, `mh dream`, `mh replay`, and `mh correct`.
+- Read and move data: `mh matters`, `mh task`, `mh events`, `mh export`,
+  `mh import`, `mh sync-status`, and `mh query` (`current`, `timeline`, `at`,
+  `by-person`, `list`).
+- Operate and integrate: `mh console`, `mh serve`, `mh mcp`, `mh mail`
+  (`setup`, `sync`, `reset`), `mh setup` (`claude-code`), and `mh hook`
+  (`session-start`, `session-end`, `turn-end`).
+- Inspect and verify: `mh schema` (`list`, `show`) and `mh conformance`
+  (`run`).
 
 ## Two-verb SDK
 

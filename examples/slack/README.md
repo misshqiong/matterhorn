@@ -19,5 +19,7 @@ The transcript shows:
   and matters.
 
 Production hosts use `mh extract --adapter slack-history` for downloaded
-history pages, or call the `add_records` MCP/REST/SDK surface after mapping
-Events API payloads. See [the Slack guide](../../docs/slack.md).
+history pages, or call the `add_records` MCP/SDK surface after mapping Events
+API payloads. REST intentionally keeps Message and card write doors rather
+than exposing a Record RPC route. See
+[the Slack guide](../../docs/slack.md).

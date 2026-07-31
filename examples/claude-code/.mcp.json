@@ -1,14 +1,15 @@
 {
   "mcpServers": {
     "matterhorn": {
+      "type": "stdio",
       "command": "mh",
       "args": [
-        "mcp",
-        "--db",
-        ".matterhorn/claude-code.db",
-        "--schema",
-        "org-matters/v1"
-      ]
+        "mcp"
+      ],
+      "env": {
+        "MATTERHORN_DB": "/absolute/path/to/project/matterhorn.db",
+        "MATTERHORN_SCHEMA": "org-matters/v1"
+      }
     }
   }
 }

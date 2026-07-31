@@ -4,6 +4,8 @@ The Console is Matterhorn's personal product surface. It remains a
 self-contained vanilla-JavaScript client of the public REST API—no engine,
 store, or private browser route.
 
+<!-- screenshot: console-wall -->
+![Matterhorn Console — unified matter wall](images/console-wall.png)
 > **Screenshot placeholder:** mature three-column Console: multiple mailboxes,
 > AI and Feed configuration in the left rail; an all-scope ledger-paper matter
 > wall in the center; scoped chat and query workbench on the right.
@@ -36,6 +38,11 @@ The page uses public routes only:
 watermark, schedule, password state, and per-account actions. The Add mailbox
 form supports presets and manual IMAP. See [Mail connectors](mail.md).
 
+<!-- screenshot: console-mailboxes -->
+> **Screenshot placeholder:** Dana Reyes's fictional personal and octo-org
+> mailbox accounts with independent scopes, watermarks, schedules, and
+> actions.
+
 **AI** configures the write gateway and Console chat together:
 
 ```toml
@@ -63,6 +70,10 @@ Changing runtime AI configuration replaces the composed Engine's gateway for
 subsequent extraction/distillation and rebuilds the chat runner. Calls already
 in progress keep their current provider object.
 
+<!-- screenshot: console-ai -->
+> **Screenshot placeholder:** runtime AI provider, model, timeout, redacted key
+> state, Test, and Save AI controls.
+
 **Test** makes one tiny structured provider request through
 `POST /v1/connectors/ai/test`. Candidate settings and keys are not saved when
 the probe fails. Without a usable key, chat stays hidden and extraction
@@ -77,7 +88,14 @@ packaged fixture gateway.
 The default wall calls `GET /v1/matters` and displays every scope. Each
 ledger-paper card includes its scope tag, status stamp, owners, due date
 (overdue in red), and next step. Filter chips select All or one scope. Opening
-a card loads its scope-aware detail and human correction flow.
+a card opens a modal with its scope-aware current values, evidence state/source
+IDs, and per-value human correction action. Correction uses its own modal, then
+refreshes the open detail modal and wall.
+
+<!-- screenshot: console-detail-modal -->
+> **Screenshot placeholder:** a matter detail modal over the unified wall,
+> showing predicate values, origin, evidence state/source IDs, and Correct
+> actions.
 
 Activity and connections remain in a collapsible strip below the wall and
 refresh about every five seconds.
@@ -98,6 +116,18 @@ records or store access.
 - `POST /v1/connectors/ai/test`
 
 The redacted AI status is also included in `GET /v1/connections`.
+
+## 30-second fixture demo
+
+1. Start `mh console`, expand **Feed input**, choose **Load sample**, then
+   **Extract**. The exact fictional text routes to the packaged fixture and
+   does not need an AI key.
+2. Keep the **All** scope chip selected and open the new matter card. Its
+   evidence-bearing detail appears in a modal over the unified wall.
+3. Choose **correct** beside a value to open the correction modal; close it
+   without submitting if you only want a read-only walkthrough.
+4. Select `personal` in **Working scope** and run a deterministic query. Chat
+   remains hidden until a real AI key is configured.
 
 ## Safety
 

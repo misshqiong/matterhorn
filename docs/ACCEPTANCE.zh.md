@@ -89,7 +89,8 @@ Next:
 1. `add` 只返回 receipt，事项在 `flush` 前不会凭空出现；
 2. `matterhorn.toml` 让后续命令不再重复 `--db/--schema`；
 3. `matters` 的 owner/status/next_step 来自确定性投影；
-4. 把当前目录接入 Claude Code 的 `mh mcp` 后，问“谁负责支付重构？”，agent
+4. 在当前目录运行 `mh setup claude-code` 接入 embedded stdio（或加
+   `--url http://127.0.0.1:8000` 接入 hub）后，问“谁负责支付重构？”，agent
    应先用 `list_matters`，答案为 `u1`，而不是让模型重新生成一份事实。
 
 ---
@@ -100,19 +101,21 @@ Next:
 ./.venv/bin/python -m pytest -q
 ```
 
-**本次实跑**：`143 passed, 47 skipped, 7 warnings`。47 个 skip 是 PostgreSQL
-conformance 用例——没设 DSN 时跳过，§6 会把它们跑起来。7 个 warning 全部来自
-旧 `ChatMessage` 兼容测试触发的预期弃用提示。
+**2026-07-31 本次实跑**：`254 passed, 48 skipped, 7 warnings`。48 个 skip
+包括 47 个 PostgreSQL conformance 用例和 1 个 PostgreSQL Console/store parity
+用例——没设 DSN 时跳过，§6 会把它们跑起来。7 个 warning 全部来自旧
+`ChatMessage` 兼容测试触发的预期弃用提示。
 
 窄终端也实际跑了整套，而不只是看 help：
 
 ```bash
-env COLUMNS=32 LINES=20 NO_COLOR=1 .venv/bin/python -m pytest -q
+env COLUMNS=60 LINES=24 NO_COLOR=1 .venv/bin/python -m pytest -q
 ```
 
-真实汇总同样是 `143 passed, 47 skipped, 7 warnings`；此外 `mh --help`、
-`mh serve --help`、`mh export --help`、`mh import --help` 在 32 列下退出码均为
-0。
+真实汇总同样是 `254 passed, 48 skipped, 7 warnings`。额外的 32 列 stress
+运行当前会暴露一个 layout-sensitive 测试断言：Rich 把 `--account` 在两个连字符
+之间换行，`tests/test_mail.py::test_mail_cli_appends_and_requires_selection_when_ambiguous`
+因此失败；CLI 本身仍按契约退出 2 并显示完整错误。这不是双后端通过证据。
 
 ```bash
 ./.venv/bin/mh conformance run
@@ -150,7 +153,7 @@ sed -i '' 's/object_value: open/object_value: SABOTAGED/' $D/01-basic-current.ya
 
 ## 3. 逐条验证不变量（核心验收）
 
-这一节是手册的重点。**九条原则和十条不变量都是从生产 bug 里提炼的**，
+这一节是手册的重点。**九条原则和十一条不变量都是从生产 bug 里提炼的**，
 下面每条都能被你亲眼看到。
 
 ### 3.1 INV-4：字段缺失 ≠ 显式清除（blocker/next_step/due 闪断 bug）
@@ -521,8 +524,9 @@ tools: ['add_cards', 'add_messages', 'add_records', 'correct', 'list_matters',
 
 **验收点**：这是**真的 MCP 协议往返**（官方 SDK 客户端 + stdio），不是内存里调函数。
 
-接到 Claude Code：见 [examples/claude-code/](../examples/claude-code/)，
-里面有可直接用的 `.mcp.json` 和随附的 Skill。
+接到 Claude Code：运行 `mh setup claude-code`（hub 加 `--url`）；实际生成的
+embedded/hub `.mcp.json` 与 `.claude/settings.json` 形状，以及可选 Skill，见
+[examples/claude-code/](../examples/claude-code/)。
 
 ### 5.3 SDK 嵌入模式
 
@@ -720,11 +724,11 @@ MATTERHORN_TEST_POSTGRES_DSN="postgresql://matterhorn@127.0.0.1:55432/matterhorn
   --dsn "postgresql://matterhorn@127.0.0.1:55432/matterhorn"
 ```
 
-**期望**：`190 passed`、零失败、零 skip，
-`SUMMARY passed=47 failed=0 total=47`。这是 §1 的 143 个本地通过项
-加上 47 个 PostgreSQL conformance 用例；本轮沙箱没有把它观察成实跑结果。
+**期望**：`302 passed`、零失败、零 skip，
+`SUMMARY passed=47 failed=0 total=47`。这是 §1 的 254 个本地通过项
+加上 48 个 PostgreSQL 用例；本轮沙箱没有把它观察成实跑结果。
 
-若仍看到 `47 skipped`，说明 DSN 没生效，PG 根本没被验证。
+若仍看到 `48 skipped`，说明 DSN 没生效，PG 根本没被验证。
 
 **进阶：验证排序不依赖数据库 locale**（一个答案取决于部署 locale 的规范不算规范）：
 

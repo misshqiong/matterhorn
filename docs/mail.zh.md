@@ -4,6 +4,7 @@ Matterhorn 可把多个 IMAP 账号分别同步进独立 scope，同时保证每
 进程内存。每个账号都有独立的配置、凭证状态、UID watermark、UIDVALIDITY、
 调度、上次报告与下次运行时间；serve scheduler 会逐个 tick 全部账号。
 
+<!-- screenshot: console-mailboxes -->
 > **截图占位：** Console 左栏同时显示两个虚构邮箱（`Dana Reyes · personal` 与
 > `Dana Reyes · octo-org`）、各自 watermark / 调度，以及 Add mailbox sheet。
 

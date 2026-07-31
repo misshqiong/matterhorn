@@ -9,6 +9,17 @@ The story includes a delivery date moving from June 1 to June 10 to June 20,
 an explicit option A to option B reversal, an owner handoff from Mira Venn to
 Theo Rill, and an acceptance-memo commitment that remains overdue.
 
+For production mail, use the live IMAP connector: configure and sync accounts
+with `mh mail setup` / `mh mail sync`, or use **Mailboxes** under the Console's
+Connectors controls. Each account keeps its own scope, schedule, watermark, and
+process-local credential. This checked-in mbox demo remains the deterministic,
+network-free path for evaluation and regression proof.
+
+<!-- screenshot: email-ledger -->
+> **Screenshot placeholder:** the exported fictional email matter ledger with
+> due-date changes, decision reversal, owner handoff, overdue commitment, and
+> linked source emails.
+
 ## Run with a configured gateway
 
 `run.sh` performs the full `init → add demo.mbox → flush → export html` chain.

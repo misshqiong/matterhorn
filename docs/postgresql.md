@@ -1,6 +1,6 @@
 # PostgreSQL deployment
 
-Install `matterhorn[postgres]` and pass a psycopg v3 DSN to `Engine` or
+Install `matterhorn-memory[postgres]` and pass a psycopg v3 DSN to `Engine` or
 `mh serve --db`.
 
 The DSN must remain pinned to one writable primary. Matterhorn checks

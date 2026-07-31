@@ -5,6 +5,7 @@ keeping every password in process memory. Each account has its own settings,
 credential state, UID watermark, UIDVALIDITY, schedule, last report, and next
 run. The serve scheduler ticks every configured account.
 
+<!-- screenshot: console-mailboxes -->
 > **Screenshot placeholder:** the Console left rail with two fictional
 > mailboxes (`Dana Reyes · personal` and `Dana Reyes · octo-org`), independent
 > watermarks and schedules, plus the Add mailbox sheet.

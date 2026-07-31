@@ -1,36 +1,31 @@
 # MCP and Claude Code
 
-Install a service-capable extra. The API extra includes the official MCP Python
-SDK because `mh serve` and `mh console` always expose Streamable HTTP at
-`/mcp`:
-
-```console
-pip install 'matterhorn-memory[api]'
-mh console
-```
-
-The same nine typed tools are registered once and served over both transports:
+Matterhorn registers the same nine typed tools once for both transports:
 `add_messages`, `add_cards`, `add_records`, `query_current`,
 `query_timeline`, `query_at`, `query_by_person`, `list_matters`, and
-`correct`. `mh mcp` remains the stdio entry point for embedded use.
+`correct`. Install the API extra for a hub or the MCP extra for embedded
+stdio.
 
-## One-command Claude Code setup
+## Set up Claude Code
 
-From a Claude Code project, choose one topology:
+Run setup in the Claude Code project and choose one ownership model:
 
 ```console
-# Embedded: Claude Code starts `mh mcp` over stdio.
+# Embedded: Claude Code starts one stdio database owner.
 mh setup claude-code
 
-# Hub: Claude Code mounts the already-running service by URL.
-mh setup claude-code --url http://127.0.0.1:8000 --scope agent-team
+# Hub: Claude Code mounts the already-running service.
+mh setup claude-code --url http://127.0.0.1:8000
 ```
 
-The default scope is the current directory name. Setup merges a `matterhorn`
-entry into `.mcp.json` and lifecycle hooks into `.claude/settings.json`;
-unrelated MCP servers, settings, and hook handlers are preserved.
+The default scope is the project directory name. Setup read-modify-writes the
+`matterhorn` entry in `.mcp.json` and Matterhorn hook entries in
+`.claude/settings.json`; unrelated servers, settings, and hook handlers remain
+in place.
 
-Hub mode writes the current Claude Code HTTP shape:
+Embedded mode writes a stdio entry with `command: mh`, `args: [mcp]`, and
+absolute `MATTERHORN_DB` plus `MATTERHORN_SCHEMA` environment values. Hub mode
+writes the current Claude Code URL shape:
 
 ```json
 {
@@ -43,73 +38,62 @@ Hub mode writes the current Claude Code HTTP shape:
 }
 ```
 
-This matches the current
-[Claude Code MCP documentation](https://code.claude.com/docs/en/mcp), which
-accepts `type: "http"` (`streamable-http` is an alias). Matterhorn uses the
-official Python SDK's documented `streamable_http_app()` mount and runs its
-session manager in the parent FastAPI lifespan.
+Passing either a service base URL or its `/mcp` URL produces the normalized
+`/mcp` endpoint. If the default hub answers `/healthz` within 200 ms while
+embedded setup is requested, setup prints a hint but keeps embedded mode.
 
-Embedded mode writes:
+## Lifecycle and per-turn delivery
 
-```json
-{
-  "mcpServers": {
-    "matterhorn": {
-      "type": "stdio",
-      "command": "mh",
-      "args": ["mcp"],
-      "env": {
-        "MATTERHORN_DB": "/absolute/project/matterhorn.db",
-        "MATTERHORN_SCHEMA": "org-matters/v1"
-      }
-    }
-  }
-}
-```
+Setup writes command hooks with an absolute path to the running `mh` executable
+and a two-second outer timeout:
 
-If the default hub answers `/healthz` within 200 ms while embedded setup is
-requested, setup prints a hint but does not switch modes.
+- `SessionStart` requests the scope's matters, filters terminal statuses, and
+  prints a compact open-matters block for Claude Code context.
+- In hub mode, `Stop` delivers the most recent 40 text-bearing user/assistant
+  transcript messages after every completed turn, so the shared wall can
+  update before the session ends.
+- In hub mode, `SessionEnd` delivers the full text-bearing transcript. The
+  overlap with `Stop` is safe because message IDs are deterministic from the
+  Claude session plus the record UUID, or a stable content fallback when no
+  UUID exists.
 
-## Lifecycle hooks
+Both delivery hooks post the minimal Message contract with `wait: false`.
+Unknown or malformed transcript JSONL records are skipped. Embedded setup also
+writes `SessionStart` and `SessionEnd`, but without a hub URL they are silent
+no-ops; this prevents a second process from opening the embedded database.
 
-In hub mode, `SessionEnd` reads Claude Code's documented `transcript_path`,
-extracts text-bearing user and assistant messages, and posts the minimal
-Message contract to:
+Hook work has its own 1.5-second total deadline inside Claude Code's two-second
+command cap. Malformed input, a missing transcript, a down service, a timeout,
+or a bad response produces no alarming stdout/stderr and still exits zero.
+Hooks never block or break a Claude session.
 
-```text
-POST /v1/scopes/{scope}/messages
-{"messages": [...], "wait": false}
-```
+## Hub transport and concurrency
 
-`SessionStart` gets the scope's matters, filters terminal statuses, and prints
-a compact open-matters block. Claude Code adds plain `SessionStart` stdout to
-the model context, as specified by its
-[hooks reference](https://code.claude.com/docs/en/hooks).
+`mh serve` and `mh console` mount the official SDK's Streamable HTTP
+application at `/mcp`; `mh mcp` is the embedded stdio entry point.
 
-The hook payload fields are documented, but Claude Code does not publish a
-stable schema for every line in its transcript JSONL. Matterhorn therefore
-accepts the current `type: user|assistant` plus `message.role/content` shape,
-extracts only text blocks, and skips unknown or malformed records.
+**One process owns a database.** In embedded mode, the one stdio server owns
+its configured database. Do not point multiple stdio servers, hooks, CLIs, or
+services at that SQLite file concurrently.
 
-Every hook is fail-open: it uses a 1.5-second network timeout, catches malformed
-input, unavailable services, and bad responses, writes no alarming stderr, and
-exits zero. Setup gives each Claude Code command hook a two-second cap.
+In hub mode, the `mh serve` or `mh console` process owns the database
+exclusively. Claude Code sessions, browsers, agents, and automation share it
+through REST or MCP over HTTP, never by opening the database path. Use an
+explicit port in the URL, such as `http://127.0.0.1:8000/mcp`.
 
-Embedded setup still installs the hook entries, but omits `--url`; those hooks
-are silent no-ops. Automatic transcript ingestion and start-of-session context
-are hub features. This avoids opening the embedded database from a second hook
-process.
+## Troubleshooting
 
-## The concurrency rule
-
-**One process owns a database file.** In embedded mode, one `mh mcp` process
-owns its configured file. Do not point multiple stdio servers, hooks, CLIs, or
-services at that same SQLite file concurrently.
-
-In hub mode, the database belongs exclusively to the `mh serve` / `mh console`
-process. Every other process—Claude Code sessions, agent teams, scripts, and
-the browser—must go through REST or MCP over HTTP. Sharing happens by mounting
-the same service URL and scope, not by sharing a database path.
+- **A hook works now but fails after moving the environment:** generated hook
+  commands intentionally contain the absolute `mh` path. Rerun setup from the
+  replacement environment to refresh that path.
+- **The service is down:** hub hooks are intentionally silent and exit zero in
+  at most two seconds. Start the hub and the next `Stop`/`SessionEnd` delivery
+  will resume; deterministic IDs make overlapping retries no-ops.
+- **Claude Code cannot mount the hub:** confirm the service base URL has an
+  explicit port and that `/mcp` is reachable through the same authenticated
+  boundary as `/v1`.
+- **Multiple local clients need the same scope:** run one hub and give each
+  project the same `--url` and `--scope`. Do not share the SQLite path.
 
 See [Agent-team topology](agent-team.md) for multi-person and multi-agent
 patterns.

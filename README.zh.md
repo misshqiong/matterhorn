@@ -31,8 +31,11 @@ agent 客户端则在同一进程的 `/mcp` 挂载。浏览器只调用 OpenAPI 
 接口；activity、连接状态、scope 与事项列表约每五秒自动刷新。内置的虚构
 Dana Reyes / octo-org 样例使用随包 fixture，零 key 即可完整运行。
 
+<!-- screenshot: console-wall -->
+![Matterhorn Console — unified matter wall](docs/images/console-wall.png)
 > **截图占位：** 多邮箱与 AI 配置、统一事项墙、scope-aware 详情/纠错和带证据
-> Chat。详见 [Console 指南](docs/console.zh.md)。
+> Chat；事项详情与纠错在 modal 中打开。详见
+> [Console 指南](docs/console.zh.md)。
 
 默认只绑定 loopback 是刻意设计；公网部署必须在服务前增加认证与可信网络边界，
 v1 多租户认证仍是非目标。
@@ -53,14 +56,13 @@ Matterhorn 用自身追踪这个项目的开发过程。公开的
 ## 五分钟旅程
 
 ```console
-pip install 'matterhorn-memory[mcp]'
+pip install 'matterhorn-memory[api]'
 mkdir matterhorn-demo && cd matterhorn-demo
 mh init
 mh add demo-messages.yaml
 mh flush demo
 mh matters demo
-mh events demo
-mh export demo --out demo-snapshot.json
+mh console
 ```
 
 `mh init` 会幂等地创建本地 SQLite 配置和一个离线 fixture 小样例。`mh matters`
@@ -75,10 +77,18 @@ mh export demo --out demo-snapshot.json
 }
 ```
 
-fixture 只替代演示里的「消息→卡」提取器；处理真实消息时，请在
-`matterhorn.toml` 或环境变量里配置 OpenAI-compatible / Anthropic 写侧网关。
+`mh console` 随后打开产品：配置邮箱与 AI，在统一事项墙上处理所有 scope，在 modal
+中查看详情/纠错，并针对选定 scope Chat。随包的 Dana Reyes / octo-org 样例不需要
+key；真实邮箱同步需要邮箱凭证，真实提取与 Chat 需要配置 AI key。
 
-## 写侧网关环境变量
+fixture 只替代演示里的「消息→卡」提取器；处理真实消息时，请在
+Console AI 面板、`matterhorn.toml` 或环境变量里配置 OpenAI-compatible /
+Anthropic 写侧网关。
+
+## 写侧网关配置
+
+Console 的 AI 面板可在运行时配置 provider。面板输入的 key 只驻留当前进程，
+不会写进 TOML，并在该进程内覆盖环境凭证；环境变量仍是非交互启动的 fallback：
 
 | 变量 | 含义 |
 | --- | --- |
@@ -88,14 +98,47 @@ fixture 只替代演示里的「消息→卡」提取器；处理真实消息时
 | `MATTERHORN_API_KEY` | 首选 provider 凭证；仍支持 provider 原生 key |
 | `MATTERHORN_TIMEOUT` | 正浮点请求超时秒数，默认 `60` |
 
-在当前目录写入 Claude Code 的 `.mcp.json`：
+## Claude Code
+
+在 Claude Code 项目目录运行：
+
+```console
+mh setup claude-code
+mh setup claude-code --url http://127.0.0.1:8000
+```
+
+第一条向 `.mcp.json` 写入 stdio `matterhorn`；第二条写入指向 hub `/mcp` 的
+URL-type entry。两者都会把使用 `mh` 绝对路径的 `SessionStart` /
+`SessionEnd` command hooks 合并进 `.claude/settings.json`；hub 模式还会安装
+`Stop`，每轮结束即投递，不必等整个会话结束。所有 hook 都 fail-open，setup 写入的
+总上限不超过两秒；服务不可用时保持静默。
+
+也可手工配置 `.mcp.json`。嵌入式 stdio：
 
 ```json
 {
   "mcpServers": {
     "matterhorn": {
+      "type": "stdio",
       "command": "mh",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "env": {
+        "MATTERHORN_DB": "/absolute/project/matterhorn.db",
+        "MATTERHORN_SCHEMA": "org-matters/v1"
+      }
+    }
+  }
+}
+```
+
+Hub URL type：
+
+```json
+{
+  "mcpServers": {
+    "matterhorn": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }
@@ -103,6 +146,18 @@ fixture 只替代演示里的「消息→卡」提取器；处理真实消息时
 
 然后问：**“谁负责支付重构？证据是什么？”** agent 会调用 `list_matters` 和查询
 工具。Matterhorn 不让模型组装答案；答案和证据都来自确定性投影。
+
+## 当前 CLI
+
+- 写入与投影：`mh init`、`mh add`、`mh ingest`、`mh extract`、`mh flush`、
+  `mh dream`、`mh replay`、`mh correct`；
+- 读取与搬运：`mh matters`、`mh task`、`mh events`、`mh export`、
+  `mh import`、`mh sync-status`、`mh query`（`current`、`timeline`、`at`、
+  `by-person`、`list`）；
+- 运行与集成：`mh console`、`mh serve`、`mh mcp`、`mh mail`（`setup`、
+  `sync`、`reset`）、`mh setup`（`claude-code`）、`mh hook`
+  （`session-start`、`session-end`、`turn-end`）；
+- 检查与验收：`mh schema`（`list`、`show`）和 `mh conformance`（`run`）。
 
 ## 两个动词的 SDK
 
