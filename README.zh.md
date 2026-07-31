@@ -17,7 +17,8 @@
 
 Matterhorn 自带成熟的三栏个人 Console：左栏配置多邮箱、AI 与 Feed；中心统一展示
 全部 scope 的事项卡片墙；右栏提供带 scope 的 Chat 与确定性查询。详情 modal 可用
-带人工来源的方式把重复卡归并到 canonical 事项；被归并标题保留为「又名」，且可撤销。
+Timeline 展示 status/progress/outcome 的来源发送者与 excerpt，也可用带人工来源的
+方式把重复卡归并到 canonical 事项；被归并标题保留为「又名」，且可撤销。
 
 Console 也能配置并运行凭证仅驻留内存的 [IMAP 邮件连接器](docs/mail.zh.md)，支持
 文件上传和 quick single-message jot。
@@ -215,7 +216,7 @@ print(engine.task(receipt.task_id).gate)
 ════════╪════ 引擎承诺边界 ═════════════════════════════════════════════
         ▼
    EpisodeCard ──► 校验 ──► 断言 ──► 区间 ──► 答案
-        ▲          确定、幂等、可重放（INV-1…INV-12）
+        ▲          确定、幂等、可重放（INV-1…INV-13）
         │
 高级入口: add_cards(episode_cards)
 ```
@@ -223,6 +224,11 @@ print(engine.task(receipt.task_id).gate)
 卡以下是 best-effort 提取；从带证据的卡到最终答案，是 Matterhorn 的硬确定性承诺。
 一种新输入只有在能无损映射成带溯源 EpisodeCard 时才可准入，绝不为接入便利松动
 P5。
+
+同一次 flush 中，引擎绝不把不同 conversation 混进一次提取调用；它以确定顺序处理
+conversation unit 和保持完整 boundary 的 chunk，并在每个 chunk 落库后刷新事项
+anchor。因此较早 conversation 创建的事项能在同一次 flush 接收后续 conversation
+的关联进展，而不会产生重复事项。
 
 ## 渐进披露
 
@@ -237,12 +243,13 @@ P5。
 10 分钟）；它也可按 UTC `daily_flush_at = "HH:MM"` 每日 flush，并推送事件
 webhook。嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
 
-唯一规范是 [spec/SPEC.md](spec/SPEC.md)。47 个语言无关 golden 用例已经覆盖
-消息入口、跨会话同 ID 隔离，以及 receipt/flush 幂等重放：
+唯一规范是 [spec/SPEC.md](spec/SPEC.md)。57 个语言无关 golden 用例已经覆盖
+消息入口、conversation-scoped rolling extraction、boundary chunk 确定性，以及
+receipt/flush 幂等重放：
 
 ```console
 $ mh conformance run
-SUMMARY passed=54 failed=0 total=54
+SUMMARY passed=57 failed=0 total=57
 ```
 
 ## 文档

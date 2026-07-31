@@ -1,0 +1,61 @@
+case_id: rolling-anchor-across-conversations
+title: A later conversation attaches to a matter born earlier in the same flush
+invariants: [P1, P2, P5, P9, INV-13]
+schema_profile: org-matters/v1
+scope_id: rolling-conversations
+clock:
+  - "2026-07-31T08:59:00Z"
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T10:01:00Z"
+  - "2026-07-31T11:00:00Z"
+cards: []
+message_batches:
+  - messages:
+      - id: second
+        sender: {id: bob, name: Bob}
+        text: "Payment succeeded for order 1042."
+        sent_at: "2026-07-31T10:00:00Z"
+        conversation_id: conv-b
+      - id: first
+        sender: {id: ada, name: Ada}
+        text: "Order 1042 is awaiting payment."
+        sent_at: "2026-07-31T09:00:00Z"
+        conversation_id: conv-a
+message_model_responses:
+  - cards:
+      - date: "2026-07-31"
+        title: Order 1042 payment
+        status: open
+        source_ids: ["rolling-conversations:conv-a:first"]
+  - cards:
+      - date: "2026-07-31"
+        title: Order 1042 payment succeeded
+        progress: Payment succeeded for order 1042.
+        source_ids: ["rolling-conversations:conv-b:second"]
+        subject_key: sub_bae669bf1b4b1eb462ab
+model_responses:
+  - {candidates: []}
+  - {candidates: []}
+expect:
+  extraction_calls:
+    - records:
+        - {container_id: "rolling-conversations:conv-a", content: "Order 1042 is awaiting payment."}
+    - records:
+        - {container_id: "rolling-conversations:conv-b", content: "Payment succeeded for order 1042."}
+  task_results:
+    - status: completed
+      cards_produced: 2
+      new_assertions: 2
+      gate: {accepted: 2, rejected: {}}
+  second_task_results:
+    - {status: completed, cards_produced: 0, new_assertions: 0}
+  assertions:
+    - {subject_key: sub_bae669bf1b4b1eb462ab, predicate: status, object_value: open}
+    - {subject_key: sub_bae669bf1b4b1eb462ab, predicate: progress, object_value: "Payment succeeded for order 1042."}
+  intervals:
+    - {subject_key: sub_bae669bf1b4b1eb462ab, predicate: status, object_value: open}
+    - {subject_key: sub_bae669bf1b4b1eb462ab, predicate: progress, object_value: "Payment succeeded for order 1042."}
+  subject_count: 1
+  matters:
+    - {subject_key: sub_bae669bf1b4b1eb462ab, title: Order 1042 payment, status: open}
+  queries: []

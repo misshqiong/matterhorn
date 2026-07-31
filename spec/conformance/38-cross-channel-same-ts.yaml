@@ -1,6 +1,6 @@
 case_id: cross-channel-same-ts
 title: Same Slack ts in different channels is not shared evidence
-invariants: [P5, P9, INV-2, INV-5, INV-11]
+invariants: [P5, P9, INV-2, INV-5, INV-11, INV-13]
 schema_profile: org-matters/v1
 scope_id: m4-cross-channel
 clock:
@@ -40,15 +40,16 @@ record_batches:
 record_model_responses:
   - cards:
       - date: "2026-07-29"
-        title: Website launch
-        status: open
-        occurred_at: "2026-07-29T09:00:00Z"
-        source_ids: ["CRED:1699887654.123456"]
-      - date: "2026-07-29"
         title: Office lease
         status: pending
         occurred_at: "2026-07-29T09:00:00Z"
         source_ids: ["CBLUE:1699887654.123456"]
+  - cards:
+      - date: "2026-07-29"
+        title: Website launch
+        status: open
+        occurred_at: "2026-07-29T09:00:00Z"
+        source_ids: ["CRED:1699887654.123456"]
 expect:
   record_reports:
     - records_processed: 2

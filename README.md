@@ -22,8 +22,10 @@ no external requests.
 Matterhorn ships a mature three-column personal Console: configure multiple
 mailboxes, AI, and Feed on the left; see one all-scope matter-card wall in the
 center; use scoped chat and deterministic queries on the right. The detail
-modal can merge duplicate cards into a canonical matter with human provenance;
-merged titles remain visible as aliases and the correction is reversible.
+modal shows the status/progress/outcome timeline with source senders and
+excerpts, and can merge duplicate cards into a canonical matter with human
+provenance; merged titles remain visible as aliases and the correction is
+reversible.
 
 The Console also configures and runs the memory-only-credential
 [IMAP mail connector](docs/mail.md), accepts file uploads, and provides a quick
@@ -252,7 +254,7 @@ Public door: add(messages)
 ════════╪════ Engine promise boundary ═══════════════════════════════════
         ▼
    EpisodeCard ──► validation ──► assertions ──► intervals ──► answers
-        ▲          deterministic, idempotent, replayable (INV-1…INV-12)
+        ▲          deterministic, idempotent, replayable (INV-1…INV-13)
         │
 Advanced door: add_cards(episode_cards)
 ```
@@ -261,6 +263,12 @@ Below the card is best-effort extraction. From the evidence-backed card through
 every answer is Matterhorn's hard deterministic promise. A new input form is
 accepted only when it maps losslessly to that card contract without weakening
 provenance.
+
+Within a flush, the engine never mixes conversations in one extraction call.
+It orders conversation units and boundary-preserving chunks deterministically,
+then refreshes known-matter anchors after every accepted chunk. A matter born
+early in the flush can therefore receive linked progress from a later
+conversation without creating a duplicate.
 
 ## Progressive disclosure
 
@@ -278,13 +286,13 @@ Service mode exposes resource-style REST endpoints under
 it can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 47
-language-neutral golden cases include the Message door, conversation-scoped ID
-collision protection, and receipt/flush replay:
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 57
+language-neutral golden cases include the Message door, conversation-scoped
+rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=54 failed=0 total=54
+SUMMARY passed=57 failed=0 total=57
 ```
 
 ## Guides

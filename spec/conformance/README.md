@@ -10,15 +10,15 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-12`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-13`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each newly processed card, accepted semantic assertion, or correction. |
 | `cards` | yes | Ordered EpisodeCard mappings, validated exactly as SPEC section 3.3. |
 | `message_batches` | no | Ordered `{messages}` batches passed to `add`, each followed by `flush`. |
-| `message_model_responses` | no | Ordered closed Message/Record-to-card fixture responses consumed by message batches. |
-| `record_batches` | no | Ordered `{records, cursors?, backfill?}` mappings passed to `add_records`. |
-| `record_model_responses` | no | Ordered Record-to-card response fixtures; one is consumed for every batch containing unseen, non-revoked Records. |
+| `message_model_responses` | no | Ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
+| `record_batches` | no | Ordered `{records, cursors?, backfill?, batch_size?}` mappings passed to `add_records`. |
+| `record_model_responses` | no | Ordered Record-to-card response fixtures, one per extractor call over unseen, non-revoked Records. |
 | `corrections` | no | Ordered Correction mappings; default empty list. |
 | `merge_operations` | no | Ordered merge/unmerge mappings with `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional operation-level `expect_error`. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
@@ -63,11 +63,13 @@ JSON-serializes and returns the next element. It must fail clearly if the
 fixture list is exhausted.
 
 `record_model_responses` uses the closed `{cards: [...]}` response from SPEC
-section 16. Its `source_ids` must cite `record_id` values in the corresponding
-batch. Record fixtures use the closed section 3.2 contract. A revocation-only
-batch consumes no model response. The runner supplies the current canonical
-matter anchors to each extraction call, so a response may cite an exactly
-offered `subject_key`; a non-offered value is silently stripped.
+section 16. Each item is consumed by one conversation-scoped, boundary-packed
+extractor call, not necessarily one input batch. Its `source_ids` must cite
+`record_id` values in that exact call. Record fixtures use the closed section
+3.2 contract. A revocation-only batch consumes no model response. The runner
+supplies fresh canonical matter anchors to each extraction call, so a response
+may cite an exactly offered `subject_key`; a non-offered value is silently
+stripped.
 
 `message_model_responses` uses the same closed `{cards: [...]}` shape, but its
 sources must be section 3.1 namespaced Message-derived Record IDs.
@@ -88,6 +90,7 @@ sources must be section 3.1 namespaced Message-derived Record IDs.
 | `second_record_reports` | Ordered partial reports after exact Record re-ingest. |
 | `task_results` | Ordered partial task results for first-pass Message batches. |
 | `second_task_results` | Ordered partial results after exact Message re-add. |
+| `extraction_calls` | Ordered calls, each with an exact ordered `records` list of partial Record mappings. |
 | `events` | Partial ChangeEvent mappings compared as an exact multiset. |
 | `merge_count` | Exact active SubjectMerge count. |
 | `matters` | Partial-field exact multiset of canonical ergonomic Matters, including aliases. |

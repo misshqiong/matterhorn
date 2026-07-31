@@ -75,7 +75,12 @@ timeout = 60.0
 默认调用 `GET /v1/matters` 展示全部 scope。每张 ledger-paper 卡显示 scope tag、
 status stamp、owner、due（逾期红色）与 next step。顶部 chips 可切 All 或单 scope。
 点击卡片会打开 modal，展示 scope-aware 当前值、evidence 状态/source ID 以及每个值
-的人工纠错入口；被归并标题会以「又名」显示。同一个详情 modal 内还有
+的人工纠错入口；被归并标题会以「又名」显示。ledger-paper 风格的 **Timeline**
+按时间展示 `status`、`progress` 以及存在时的 `outcome` 历史，每条包含生效日期、
+predicate、值、来源发送者与 excerpt 摘要。数据仍来自同一个公共
+`GET /v1/scopes/{scope}/matters/{subject_key}` 详情请求；timeline value 新增的
+`source_details` 包含 `source_id`、`sender`、`excerpt`、`uri`、`status`、
+`revoked_at`。同一个详情 modal 内还有
 **Merge into…** 表单，候选只来自当前事项墙同 scope 的其他事项，并要求填写原因与
 姓名（复用纠错 sender 偏好）。它只调用公共
 `POST /v1/scopes/{scope}/merges`，成功后关闭 modal 并刷新事项墙。纠错使用第二个
@@ -83,9 +88,10 @@ modal，提交后会刷新仍打开的详情 modal 与事项墙。
 
 <!-- screenshot: console-detail-modal -->
 > **截图占位：** 统一事项墙上方的详情 modal，含 predicate value、origin、evidence
-> 状态/source ID、「又名」、Correct 与 Merge into 操作。
+> 状态/source ID、进度 Timeline、「又名」、Correct 与 Merge into 操作。
 
-Activity 与 Connections 保留在墙下方的可折叠 strip，约每五秒刷新。
+Activity 与 Connections 保留在墙下方的可折叠 strip，约每五秒刷新；打开的详情与
+Timeline 沿用现有 detail-fetch 行为，不随这次轮询重复请求。
 
 ### 右栏：消费
 

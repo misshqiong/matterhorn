@@ -90,8 +90,14 @@ The default wall calls `GET /v1/matters` and displays every scope. Each
 ledger-paper card includes its scope tag, status stamp, owners, due date
 (overdue in red), and next step. Filter chips select All or one scope. Opening
 a card opens a modal with its scope-aware current values, evidence state/source
-IDs, aliases from merged titles, and per-value human correction action. The
-same detail modal has a ledger-style **Merge into…** form populated from the
+IDs, aliases from merged titles, and per-value human correction action. A
+ledger-style **Timeline** flattens the chronological `status`, `progress`, and
+present `outcome` histories, showing each effective date, predicate, value,
+source sender, and excerpt snippet. It is supplied by the same public
+`GET /v1/scopes/{scope}/matters/{subject_key}` detail request; its timeline
+values include additive `source_details` entries (`source_id`, `sender`,
+`excerpt`, `uri`, `status`, `revoked_at`). The same detail modal has a
+ledger-style **Merge into…** form populated from the
 other matters currently on the wall in that scope. It requires a reason and
 name, reuses the correction sender preference, submits only to
 `POST /v1/scopes/{scope}/merges`, then closes and refreshes the wall.
@@ -99,11 +105,12 @@ Correction uses its own modal, then refreshes the open detail modal and wall.
 
 <!-- screenshot: console-detail-modal -->
 > **Screenshot placeholder:** a matter detail modal over the unified wall,
-> showing predicate values, origin, evidence state/source IDs, merged-title
-> aliases, Correct actions, and the Merge into form.
+> showing predicate values, origin, evidence state/source IDs, the progress
+> timeline, merged-title aliases, Correct actions, and the Merge into form.
 
 Activity and connections remain in a collapsible strip below the wall and
-refresh about every five seconds.
+refresh about every five seconds. The open detail and its timeline follow the
+existing detail-fetch pattern and are not refetched by that poll.
 
 ### Right — consumption
 

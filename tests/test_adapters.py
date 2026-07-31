@@ -291,6 +291,12 @@ def test_record_extractor_keeps_only_offered_anchor_subject_keys() -> None:
     assert valid.cards[0].subject_key == "known-release"
     assert "Known open matters" in valid_gateway.calls[0]["system"]
     assert '"subject_key":"sub_known_release"' in valid_gateway.calls[0]["system"]
+    assert "shared identifiers" in valid_gateway.calls[0]["system"]
+    assert "complementary status transition" in valid_gateway.calls[0]["system"]
+    assert "NO linking signal" in valid_gateway.calls[0]["system"]
+    assert "paying, and adjusting or rescheduling" in valid_gateway.calls[0][
+        "system"
+    ]
 
     fabricated_gateway = StaticGateway(
         {

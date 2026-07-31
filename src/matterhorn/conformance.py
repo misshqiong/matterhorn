@@ -66,8 +66,10 @@ class FixtureGateway:
     def __init__(self, responses: list[Any]):
         self.responses = list(responses)
         self.index = 0
+        self.calls: list[dict[str, Any]] = []
 
-    def complete(self, **_kwargs: Any) -> str:
+    def complete(self, **kwargs: Any) -> str:
+        self.calls.append(kwargs)
         if self.index >= len(self.responses):
             raise ConformanceFailure("model_responses fixture was exhausted")
         value = self.responses[self.index]
@@ -230,11 +232,8 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         or "message_model_responses" in case
         or "model_responses" in case
     )
-    engine = Engine(
-        store,
-        profile,
-        clock=FixedClock(case.get("clock", [])),
-        gateway=FixtureGateway(
+    fixture_gateway = (
+        FixtureGateway(
             [
                 *record_model_responses,
                 *message_model_responses,
@@ -242,7 +241,13 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             ]
         )
         if has_gateway_fixtures
-        else None,
+        else None
+    )
+    engine = Engine(
+        store,
+        profile,
+        clock=FixedClock(case.get("clock", [])),
+        gateway=fixture_gateway,
     )
     expected_error = case.get("expect_error")
     if expected_error:
@@ -274,6 +279,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             scope_id=case["scope_id"],
             cursors=batch.get("cursors"),
             backfill=batch.get("backfill", False),
+            batch_size=batch.get("batch_size", 8),
         )
         for batch in case.get("record_batches", [])
     ]
@@ -320,6 +326,15 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             ],
             expect["task_results"],
             "task_results",
+        )
+    if "extraction_calls" in expect:
+        if fixture_gateway is None:
+            raise ConformanceFailure(
+                "extraction_calls requires gateway fixture responses"
+            )
+        _assert_extraction_calls(
+            fixture_gateway.calls,
+            expect["extraction_calls"],
         )
     if "dream_report" in expect:
         actual_report = _plain(first_dream)
@@ -399,6 +414,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             scope_id=case["scope_id"],
             cursors=batch.get("cursors"),
             backfill=batch.get("backfill", False),
+            batch_size=batch.get("batch_size", 8),
         )
         for batch in case.get("record_batches", [])
     ]
@@ -571,6 +587,46 @@ def _assert_partial_exact(
                 f"{label}: no actual item matched {wanted!r}; remaining={unmatched!r}"
             )
     _equal(unmatched, [], f"{label} unmatched")
+
+
+def _assert_extraction_calls(
+    gateway_calls: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> None:
+    actual = []
+    for call in gateway_calls:
+        try:
+            payload = json.loads(call["user"])
+        except (KeyError, TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("records"), list
+        ):
+            continue
+        actual.append(
+            {
+                "records": [item["record"] for item in payload["records"]]
+            }
+        )
+
+    _equal(len(actual), len(expected), "extraction_calls length")
+    for call_index, (actual_call, expected_call) in enumerate(
+        zip(actual, expected, strict=True)
+    ):
+        wanted_records = expected_call["records"]
+        actual_records = actual_call["records"]
+        _equal(
+            len(actual_records),
+            len(wanted_records),
+            f"extraction_calls[{call_index}] records length",
+        )
+        for record_index, (record, wanted) in enumerate(
+            zip(actual_records, wanted_records, strict=True)
+        ):
+            _equal(
+                {key: record[key] for key in wanted},
+                wanted,
+                f"extraction_calls[{call_index}].records[{record_index}]",
+            )
 
 
 def _snapshot(engine: Engine, scope_id: str) -> str:

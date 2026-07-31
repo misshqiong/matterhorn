@@ -1,0 +1,64 @@
+case_id: boundary-chunk-determinism
+title: Boundary-preserving chunks are deterministic across re-ingest and replay
+invariants: [P1, P9, INV-3, INV-13]
+schema_profile: org-matters/v1
+scope_id: deterministic-chunks
+clock: ["2026-07-31T09:01:00Z"]
+cards: []
+record_batches:
+  - batch_size: 2
+    records:
+      - record_id: "C:single-2"
+        native_id: single-2
+        container_id: C
+        sent_at: "2026-07-31T09:04:00Z"
+        author: {id: ada, kind: human}
+        content: single-2
+      - record_id: "C:thread-3"
+        native_id: thread-3
+        container_id: C
+        thread_id: "C:thread"
+        sent_at: "2026-07-31T09:03:00Z"
+        author: {id: ada, kind: human}
+        content: thread-3
+      - record_id: "C:thread-1"
+        native_id: thread-1
+        container_id: C
+        thread_id: "C:thread"
+        sent_at: "2026-07-31T09:00:00Z"
+        author: {id: ada, kind: human}
+        content: thread-1
+      - record_id: "C:single-1"
+        native_id: single-1
+        container_id: C
+        sent_at: "2026-07-31T09:02:00Z"
+        author: {id: ada, kind: human}
+        content: single-1
+      - record_id: "C:thread-2"
+        native_id: thread-2
+        container_id: C
+        thread_id: "C:thread"
+        sent_at: "2026-07-31T09:01:00Z"
+        author: {id: ada, kind: human}
+        content: thread-2
+record_model_responses:
+  - {cards: []}
+  - {cards: []}
+expect:
+  extraction_calls:
+    - records:
+        - {content: thread-1}
+        - {content: thread-2}
+        - {content: thread-3}
+    - records:
+        - {content: single-1}
+        - {content: single-2}
+  record_reports:
+    - {records_processed: 5, cards_accepted: 0, assertions_emitted: 0}
+  second_record_reports:
+    - {records_processed: 0, records_skipped: 5, assertions_emitted: 0}
+  assertions: []
+  intervals: []
+  subject_count: 0
+  replay_events_emitted: 0
+  queries: []

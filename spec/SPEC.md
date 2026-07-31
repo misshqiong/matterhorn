@@ -118,6 +118,15 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   active edge and MUST restore the independently projected subjects. Replay
   MUST preserve the active edge set and produce byte-identical canonical
   projection state.
+- **INV-13 — Conversation-scoped rolling extraction.** Record extraction units
+  MUST contain exactly one `container_id` and MUST be processed in the
+  deterministic order and boundary-preserving chunks defined by section 16.
+  The Engine MUST recompute canonical SubjectAnchors before every extractor
+  call and MUST make every card accepted from earlier calls in the same
+  `add_records` operation visible to that snapshot. Consequently, later
+  chunks and conversations can attach to a matter born earlier in the same
+  operation without mixing conversation evidence or waiting for another
+  flush.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -231,7 +240,9 @@ from every currently materialized primary subject that is not merged away,
 order them by newest projected activity first with UTF-8 bytewise ascending
 `subject_key` as the tie-break, and retain at most the first 40. `status` and
 `last_active_at` MUST be copied from the projected matter when available.
-Anchor construction MUST NOT call a model.
+Anchor construction MUST NOT call a model. During one `add_records` operation,
+each anchor snapshot MUST reflect every accepted card already applied from an
+earlier extraction call in that operation.
 
 ## 4. SchemaProfile contract
 
@@ -770,15 +781,15 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-12`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-13`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, new cards, accepted semantic assertions, and corrections. |
 | `cards` | Ordered EpisodeCard mappings. |
 | `message_batches` | Optional ordered `{messages}` batches passed through `add`, each followed by `flush`. |
-| `message_model_responses` | Optional ordered closed Message/Record-to-card fixture responses consumed by message batches. |
-| `record_batches` | Optional ordered `{records,cursors?,backfill?}` batches passed to `add_records`. |
-| `record_model_responses` | Optional ordered closed Record-to-card responses, one for each batch containing unseen non-revoked Records. |
+| `message_model_responses` | Optional ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
+| `record_batches` | Optional ordered `{records,cursors?,backfill?,batch_size?}` batches passed to `add_records`. |
+| `record_model_responses` | Optional ordered closed Record-to-card responses, one per extractor call over unseen non-revoked Records. |
 | `corrections` | Ordered Correction mappings, default `[]`. |
 | `merge_operations` | Optional ordered merge/unmerge mappings. Each contains `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional `expect_error` for an operation-level rejection. |
 | `model_responses` | Optional ordered list of closed response objects returned once per queued card during `dream()`. Absence means the semantic path is not run. |
@@ -795,6 +806,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.second_record_reports` | Optional ordered partial mappings checked after exact Record re-ingest. |
 | `expect.task_results` | Optional ordered partial task-result mappings for first-pass message batches. |
 | `expect.second_task_results` | Optional ordered partial task-result mappings after exact message re-add. |
+| `expect.extraction_calls` | Optional ordered extractor-call mappings. Each contains an exact ordered `records` list of partial Record mappings, proving unit and chunk boundaries. |
 | `expect.events` | Optional expected ChangeEvent mappings, compared as a partial-field exact multiset. |
 | `expect.merge_count` | Optional exact active SubjectMerge count. |
 | `expect.matters` | Optional partial-field exact multiset of ergonomic canonical Matters, including aliases. |
@@ -1048,6 +1060,32 @@ only and is not a protocol input. The RecordExtractor operation is
 supply the section 3.4 anchor list. A legacy direct ChatMessage call MAY omit
 the keyword and retains its permissive subject-key behavior.
 
+For each `add_records` operation, after exact-observation filtering and removal
+of revoked Records from extraction, the Engine MUST perform this orchestration:
+
+1. Group active Records into conversation units by exact `container_id`. One
+   extractor call MUST NOT contain Records from more than one unit.
+2. Order units by their earliest `sent_at`, with UTF-8 bytewise ascending
+   `container_id` as the tie-break.
+3. Within a unit, order Records by `(sent_at, UTF-8 bytewise record_id)`. Group
+   them by the section 16 boundary (`thread_id` when non-null, otherwise
+   `record_id`) in first-record order, then pack complete groups into chunks of
+   at most `batch_size`. A boundary group MUST NOT be split. If one group alone
+   exceeds `batch_size`, it MUST be one oversized chunk.
+4. Process units and their chunks serially. Immediately before each extractor
+   call, recompute section 3.4 anchors. Immediately after the call, run every
+   accepted card through the ordinary gate, subject resolution,
+   canonicalization, assertion, projection, and materialization pipeline before
+   computing the next snapshot.
+
+The Engine MUST pass exactly one such chunk to each RecordExtractor call while
+retaining the extractor Protocol signature and `batch_size` argument. A direct
+SDK extractor call MAY retain its own boundary batching. `AddRecordsReport` and
+the enclosing task gate MUST sum accepted cards, rejected cards, rejection
+reasons, card IDs, and emitted assertions across all chunks exactly as if the
+operation had one response. Replay MUST rebuild only from persisted
+cards/assertions and MUST NOT rerun any extraction call.
+
 The response schema and prompt MUST be derived from the active
 `SchemaProfile`. In addition to required card `date`, `title`, and
 `source_ids`, the extractor MUST expose only EpisodeCard fields named by the
@@ -1057,15 +1095,23 @@ MUST NOT supply `thread_id` for Record input. When a profile predicate declares
 a non-null `value_domain`, an extracted field value for that predicate MUST
 equal one domain member.
 
+The prompt MUST define investigating, diagnosing, developing, fixing, testing,
+verifying, accepting, submitting, deploying, paying, and adjusting or
+rescheduling as lifecycle progress on one underlying matter rather than new
+matters. One purchase, incident, or change request MUST remain one matter from
+start to finish.
+
 When anchors are non-empty, the prompt MUST contain a “Known open matters”
 section listing each offered `subject_key`, `title`, and nullable `status`. It
-MUST instruct the model to prefer an exact offered key when Records progress,
-investigate, verify, fix, or accept that matter; investigation, verification,
-and acceptance of a known matter are progress on that matter and MUST NOT be
-framed as new matters. It MUST instruct the model to omit `subject_key` only
-when no known matter fits and to emit separate cards with their own
-`source_ids` when a batch touches several known matters. The closed-envelope
-instruction MUST include a literal card example containing `subject_key`.
+MUST instruct the model to attach by exact offered key when Records carry a
+linking signal: shared identifiers (including order, ticket, flight, or issue
+IDs, amounts, or names), a complementary status transition, close time
+proximity plus the same topic, or lifecycle continuation. Because attachment
+is an evidence-backed assertion, Records with no linking signal to any known
+matter MUST omit `subject_key`; a separate matter can be merged later. The
+prompt MUST require separate cards with their own `source_ids` when a call
+touches several known matters. The closed-envelope instruction MUST retain a
+literal two-card example with one attached card and one new card.
 
 After decoding and before EpisodeCard validation, a modern Record extractor
 MUST keep a model-supplied `subject_key` if and only if it exactly equals one
@@ -1238,4 +1284,7 @@ Java 实现共同的验收资产。M4 增加通用 Record 合同、Slack 纯适�
 导出；导入只接受空 scope 与本地可用的同版本 profile。INV-12 增加带来源、无环、
 可撤销的主语归并：提取前把 canonical 事项作为 anchors 给模型，模型只能引用实际
 提供的 key，connector 确定性 key 优先；归并后的投影与写入沿链落到 canonical
-target，被合并标题作为别名显示，unmerge 与 replay 不丢失原断言。
+target，被合并标题作为别名显示，unmerge 与 replay 不丢失原断言。INV-13 要求按
+`container_id` 划分绝不混合的 conversation extraction unit，以最早 `sent_at` 和
+bytewise container key 确定顺序，按完整 boundary 分块；每次模型调用前重算 anchor，
+并让本次 flush 已落库的卡立即进入下一次 anchor snapshot。

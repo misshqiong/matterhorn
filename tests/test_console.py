@@ -152,6 +152,86 @@ def test_correction_round_trip_through_rest_is_human(tmp_path) -> None:
             assert status["value"] == "done"
             assert status["origin"] == "human"
             assert status["source_ids"] == ["console:correction-1"]
+            assert status["source_details"] == [
+                {
+                    "source_id": "console:correction-1",
+                    "sender": "Dana Reyes",
+                    "excerpt": "Console correction. Reason: shipped.",
+                    "uri": None,
+                    "status": "active",
+                    "revoked_at": None,
+                }
+            ]
+
+    asyncio.run(scenario())
+
+
+def test_matter_detail_timeline_exposes_chronological_source_details(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        engine = _engine(tmp_path / "timeline.db")
+        engine._ingest_cards_sync(
+            [
+                {
+                    **_card(status="open"),
+                    "progress": "Diagnosing order 1042.",
+                    "occurred_at": "2026-07-29T09:00:00Z",
+                    "source_refs": [
+                        {
+                            "source_id": "mail:first",
+                            "sent_at": "2026-07-29T09:00:00Z",
+                            "sender": "Ada",
+                            "excerpt": "Order 1042 is awaiting payment.",
+                        }
+                    ],
+                },
+                {
+                    **_card(status="done"),
+                    "progress": "Payment verified.",
+                    "outcome": {
+                        "type": "payment",
+                        "content": "Order 1042 paid.",
+                    },
+                    "occurred_at": "2026-07-30T10:00:00Z",
+                    "source_refs": [
+                        {
+                            "source_id": "mail:second",
+                            "sent_at": "2026-07-30T10:00:00Z",
+                            "sender": "Bob",
+                            "excerpt": "Payment succeeded for order 1042.",
+                        }
+                    ],
+                },
+            ]
+        )
+        app = create_app(engine=engine)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://matterhorn.test"
+        ) as client:
+            response = await client.get(
+                "/v1/scopes/s/matters/octo-launch"
+            )
+
+        assert response.status_code == 200
+        timeline = response.json()["timeline"]
+        assert [item["value"] for item in timeline["status"]] == [
+            "open",
+            "done",
+        ]
+        assert timeline["progress"][0]["source_details"][0] == {
+            "source_id": "mail:first",
+            "sender": "Ada",
+            "excerpt": "Order 1042 is awaiting payment.",
+            "uri": None,
+            "status": "active",
+            "revoked_at": None,
+        }
+        assert timeline["outcome"][0]["value"] == {
+            "type": "payment",
+            "content": "Order 1042 paid.",
+        }
 
     asyncio.run(scenario())
 
@@ -636,6 +716,9 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             "matterhorn.console.sender",
             "/merges`",
             "又名",
+            "Timeline",
+            "source_details",
+            'new Set(["status", "progress", "outcome"])',
         ]:
             assert marker in page.text
 

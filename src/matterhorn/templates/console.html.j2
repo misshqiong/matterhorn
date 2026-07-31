@@ -277,6 +277,15 @@
     .predicate { color: var(--faint); font: 700 9.5px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
     .correct-value { cursor: pointer; border: 0; background: none; color: var(--muted); text-decoration: underline dotted; font: italic 12px var(--serif); }
     .detail-aliases { margin: .2rem 0 .7rem; color: var(--muted); font: italic 12px var(--serif); }
+    .timeline-panel { margin-top: .9rem; padding-top: .75rem; border-top: 2px double var(--rule); }
+    .timeline-panel h3 { margin: 0 0 .55rem; font-size: 14px; }
+    .matter-timeline { list-style: none; margin: 0; padding: 0 0 0 .7rem; border-left: 1px solid var(--rule-strong); }
+    .timeline-entry { position: relative; display: grid; grid-template-columns: 6.3rem minmax(0, 1fr); gap: .65rem; padding: .15rem 0 .75rem .65rem; }
+    .timeline-entry::before { content: ""; position: absolute; left: -.92rem; top: .38rem; width: .36rem; height: .36rem; border: 1px solid var(--ink); border-radius: 50%; background: var(--sheet); }
+    .timeline-date { color: var(--faint); font: 10px var(--mono); }
+    .timeline-value { margin-top: .12rem; font: 13px var(--serif); }
+    .timeline-source { margin-top: .28rem; color: var(--muted); font: 10.5px/1.35 var(--mono); }
+    .timeline-source strong { color: var(--ink); font-weight: 700; }
     .merge-panel { margin-top: .85rem; padding-top: .75rem; border-top: 2px double var(--rule); }
     .merge-panel h3 { margin: 0 0 .45rem; font-size: 14px; }
     .evidence { color: var(--muted); font: 10.5px var(--mono); }
@@ -641,6 +650,7 @@
       const aliases = detail.aliases?.length
         ? `<p class="detail-aliases"><strong>又名</strong> · ${escapeHtml(detail.aliases.join(" · "))}</p>`
         : "";
+      const timeline = timelineHtml(detail);
       const mergeTargets = state.matters.filter((matter) =>
         matter.scope_id === detail.scope_id && matter.subject_key !== detail.subject_key
       );
@@ -658,7 +668,32 @@
           </section>`
         : '<section class="merge-panel"><h3>Merge into…</h3><p class="empty">No other matters in this scope are currently on the wall.</p></section>';
       return `<div class="detail-head"><div><p class="eyebrow">${escapeHtml(detail.scope_id)} · ${escapeHtml(detail.subject_key)}</p><h2>${escapeHtml(detail.title)}</h2></div><button type="button" class="detail-close">Close</button></div>
-        ${aliases}<ul class="detail-values">${values}</ul>${mergeControl}`;
+        ${aliases}<ul class="detail-values">${values}</ul>${timeline}${mergeControl}`;
+    }
+
+    function timelineHtml(detail) {
+      const tracked = new Set(["status", "progress", "outcome"]);
+      const entries = Object.entries(detail.timeline || {})
+        .filter(([predicate]) => tracked.has(predicate))
+        .flatMap(([predicate, values]) => values.map((value) => ({ ...value, predicate })))
+        .sort((left, right) => left.valid_from.localeCompare(right.valid_from)
+          || left.predicate.localeCompare(right.predicate)
+          || left.assertion_id.localeCompare(right.assertion_id));
+      const rows = entries.length
+        ? entries.map((entry) => {
+            const sources = entry.source_details?.length
+              ? entry.source_details.map((source) => {
+                  const excerpt = source.excerpt || "No excerpt available.";
+                  const snippet = excerpt.length > 160 ? `${excerpt.slice(0, 157)}…` : excerpt;
+                  return `<div class="timeline-source"><strong>${escapeHtml(source.sender)}</strong> · ${escapeHtml(snippet)}</div>`;
+                }).join("")
+              : `<div class="timeline-source">${escapeHtml((entry.source_ids || []).join(", "))}</div>`;
+            const date = new Date(entry.valid_from);
+            const label = Number.isNaN(date.valueOf()) ? entry.valid_from : date.toLocaleDateString();
+            return `<li class="timeline-entry"><time class="timeline-date" datetime="${escapeHtml(entry.valid_from)}">${escapeHtml(label)}</time><div><span class="predicate">${escapeHtml(entry.predicate)}</span><div class="timeline-value">${escapeHtml(displayValue(entry.value))}</div>${sources}</div></li>`;
+          }).join("")
+        : '<li class="empty">No status or progress history yet.</li>';
+      return `<section class="timeline-panel"><h3>Timeline</h3><ol class="matter-timeline">${rows}</ol></section>`;
     }
 
     function renderMatters() {

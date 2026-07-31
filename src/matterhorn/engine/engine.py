@@ -305,17 +305,9 @@ class Engine:
         active = [record for record, _ in pending if record.revoked_at is None]
         if active and self._extractor is None:
             raise RuntimeError("record extraction requires a RecordExtractor")
-        extraction = (
-            self._extractor.extract(
-                scope_id=scope_id,
-                records=active,
-                batch_size=batch_size,
-                anchors=self._subject_anchors(scope_id),
-            )
-            if active
-            else None
-        )
-        cards = extraction.cards if extraction is not None else []
+        chunks = _conversation_extraction_chunks(active, batch_size) if active else []
+        cards: list[EpisodeCard] = []
+        rejection_counts: dict[str, int] = {}
         emitted: list[Assertion] = []
         with self.store.transaction():
             for record, observation_hash in pending:
@@ -332,8 +324,24 @@ class Engine:
                     record.container_id,
                     _record_observed_at(record),
                 )
-            if cards:
-                emitted = self._ingest_cards_sync(cards, scope_id=scope_id)
+            for chunk in chunks:
+                assert self._extractor is not None
+                extraction = self._extractor.extract(
+                    scope_id=scope_id,
+                    records=chunk,
+                    batch_size=batch_size,
+                    anchors=self._subject_anchors(scope_id),
+                )
+                chunk_cards = list(extraction.cards)
+                cards.extend(chunk_cards)
+                rejection_counts = _merge_counts(
+                    rejection_counts,
+                    extraction.rejection_counts,
+                )
+                if chunk_cards:
+                    emitted.extend(
+                        self._ingest_cards_sync(chunk_cards, scope_id=scope_id)
+                    )
             if pending and not backfill:
                 by_container: dict[str, list[Record]] = {}
                 for record, _ in pending:
@@ -346,9 +354,6 @@ class Engine:
                         cursor=(cursors or {}).get(container_id),
                     )
 
-        rejection_counts = (
-            extraction.rejection_counts if extraction is not None else {}
-        )
         return AddRecordsReport(
             scope_id=scope_id,
             records_received=len(validated),
@@ -1312,6 +1317,55 @@ def _record_observed_at(record: Record) -> datetime:
         for instant in (record.sent_at, record.edited_at, record.revoked_at)
         if instant is not None
     )
+
+
+def _conversation_extraction_chunks(
+    records: list[Record], batch_size: int
+) -> list[list[Record]]:
+    """Order conversation units and pack whole matter boundaries into chunks."""
+
+    if batch_size < 1:
+        raise ValueError("batch_size MUST be positive")
+
+    by_container: dict[str, list[Record]] = {}
+    for record in records:
+        by_container.setdefault(record.container_id, []).append(record)
+
+    units = sorted(
+        by_container.items(),
+        key=lambda item: (
+            min(as_utc(record.sent_at) for record in item[1]),
+            item[0].encode("utf-8"),
+        ),
+    )
+    chunks: list[list[Record]] = []
+    for _, unit_records in units:
+        ordered = sorted(
+            unit_records,
+            key=lambda record: (
+                as_utc(record.sent_at),
+                record.record_id.encode("utf-8"),
+            ),
+        )
+        by_boundary: dict[str, list[Record]] = {}
+        for record in ordered:
+            by_boundary.setdefault(record.matter_boundary, []).append(record)
+
+        current: list[Record] = []
+        for boundary_records in by_boundary.values():
+            if len(boundary_records) > batch_size:
+                if current:
+                    chunks.append(current)
+                    current = []
+                chunks.append(boundary_records)
+                continue
+            if current and len(current) + len(boundary_records) > batch_size:
+                chunks.append(current)
+                current = []
+            current.extend(boundary_records)
+        if current:
+            chunks.append(current)
+    return chunks
 
 
 def _message_to_record(scope_id: str, message: Message) -> Record:

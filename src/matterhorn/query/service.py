@@ -28,6 +28,7 @@ class ValueResult:
     supporting_assertion_ids: list[str]
     source_ids: list[str]
     source_refs: list[EvidenceRef]
+    source_details: list[dict[str, Any]]
     evidence_status: str
     origin: str
 
@@ -132,6 +133,7 @@ class QueryService:
 
     def _value(self, scope_id: str, row: QueryValueRow) -> ValueResult:
         source_refs = self._store.source_states(scope_id, row.source_refs)
+        source_states = {item.source_id: item for item in source_refs}
         revoked = sum(
             item.status == EvidenceStatus.revoked for item in source_refs
         )
@@ -152,6 +154,19 @@ class QueryService:
             supporting_assertion_ids=row.supporting_assertion_ids,
             source_ids=row.source_ids,
             source_refs=source_refs,
+            source_details=[
+                {
+                    "source_id": item.source_id,
+                    "sender": item.sender,
+                    "excerpt": item.excerpt,
+                    "uri": item.uri,
+                    "status": source_states[item.source_id].status.value,
+                    "revoked_at": source_states[item.source_id].model_dump(
+                        mode="json"
+                    )["revoked_at"],
+                }
+                for item in row.source_refs
+            ],
             evidence_status=evidence_status.value,
             origin=row.origin,
         )

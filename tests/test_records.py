@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from matterhorn import Engine, Record
+from matterhorn.canonical import stable_hash
 
 
 class SequenceGateway:
@@ -91,6 +92,143 @@ def test_add_records_uses_injected_extractor(tmp_path) -> None:
     ]
     assert report.records_processed == 1
     assert report.cards_accepted == 0
+
+
+def test_engine_orders_conversation_units_and_packs_boundaries(tmp_path) -> None:
+    class RecordingExtractor:
+        def __init__(self):
+            self.calls = []
+
+        def extract(self, **kwargs):
+            self.calls.append(kwargs)
+            rejection_counts = (
+                {"UNPARSEABLE": 1}
+                if len(self.calls) == 1
+                else {"NO_SOURCES": len(self.calls)}
+            )
+            return SimpleNamespace(cards=[], rejection_counts=rejection_counts)
+
+    def record(container, native_id, sent_at, thread_id=None):
+        return {
+            "record_id": f"{container}:{native_id}",
+            "native_id": native_id,
+            "container_id": container,
+            "thread_id": thread_id,
+            "sent_at": sent_at,
+            "author": {"id": "ada", "kind": "human"},
+            "content": native_id,
+        }
+
+    extractor = RecordingExtractor()
+    engine = Engine(tmp_path / "units.db", extractor=extractor)
+    report = engine.add_records(
+        [
+            record("B", "later", "2026-07-31T10:00:00Z"),
+            record("A", "thread-3", "2026-07-31T09:02:00Z", "A:thread"),
+            record("B", "earlier", "2026-07-31T08:00:00Z"),
+            record("A", "single-2", "2026-07-31T09:04:00Z"),
+            record("A", "thread-1", "2026-07-31T09:00:00Z", "A:thread"),
+            record("A", "single-1", "2026-07-31T09:03:00Z"),
+            record("A", "thread-2", "2026-07-31T09:01:00Z", "A:thread"),
+        ],
+        scope_id="team",
+        batch_size=2,
+    )
+
+    assert [
+        [record.record_id for record in call["records"]]
+        for call in extractor.calls
+    ] == [
+        ["B:earlier", "B:later"],
+        ["A:thread-1", "A:thread-2", "A:thread-3"],
+        ["A:single-1", "A:single-2"],
+    ]
+    assert report.cards_dropped == 6
+    assert report.drop_reasons == {"UNPARSEABLE": 1, "NO_SOURCES": 5}
+
+
+def test_engine_rolls_new_anchor_between_conversations(tmp_path) -> None:
+    first_boundary = "early:first"
+    born_subject = "sub_" + stable_hash(
+        ["team", "MATTER", "thread", first_boundary]
+    )[:20]
+
+    class RollingGateway:
+        def __init__(self):
+            self.calls = []
+
+        def complete(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return json.dumps(
+                    {
+                        "cards": [
+                            {
+                                "date": "2026-07-31",
+                                "title": "Order 1042 payment",
+                                "status": "open",
+                                "source_ids": ["m1"],
+                            }
+                        ]
+                    }
+                )
+            return json.dumps(
+                {
+                    "cards": [
+                        {
+                            "date": "2026-07-31",
+                            "title": "Order 1042 payment succeeded",
+                            "progress": "Payment succeeded for order 1042.",
+                            "source_ids": ["m1"],
+                            "subject_key": born_subject,
+                        }
+                    ]
+                }
+            )
+
+    gateway = RollingGateway()
+    engine = Engine(
+        tmp_path / "rolling.db",
+        gateway=gateway,
+        clock=[
+            datetime(2026, 7, 31, 9, 1, tzinfo=UTC),
+            datetime(2026, 7, 31, 10, 1, tzinfo=UTC),
+        ],
+    )
+    report = engine.add_records(
+        [
+            {
+                "record_id": "late:second",
+                "native_id": "second",
+                "container_id": "late",
+                "sent_at": "2026-07-31T10:00:00Z",
+                "author": {"id": "bob", "kind": "human"},
+                "content": "Payment succeeded for order 1042.",
+            },
+            {
+                "record_id": first_boundary,
+                "native_id": "first",
+                "container_id": "early",
+                "sent_at": "2026-07-31T09:00:00Z",
+                "author": {"id": "ada", "kind": "human"},
+                "content": "Order 1042 is awaiting payment.",
+            },
+        ],
+        scope_id="team",
+    )
+
+    prompts = [json.loads(call["user"]) for call in gateway.calls]
+    assert [prompt["records"][0]["record"]["container_id"] for prompt in prompts] == [
+        "early",
+        "late",
+    ]
+    assert born_subject not in gateway.calls[0]["system"]
+    assert born_subject in gateway.calls[1]["system"]
+    assert report.cards_accepted == 2
+    assert report.assertions_emitted == 2
+    assert [matter.subject_key for matter in engine.query.list_matters("team")] == [
+        born_subject
+    ]
 
 
 def test_engine_offers_only_newest_canonical_anchors_with_bytewise_ties(

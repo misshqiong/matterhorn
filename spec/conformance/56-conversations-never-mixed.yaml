@@ -1,0 +1,38 @@
+case_id: conversations-never-mixed
+title: Conversation units are separate extractor calls with bytewise tie ordering
+invariants: [P1, P5, P9, INV-13]
+schema_profile: org-matters/v1
+scope_id: separate-conversations
+clock: ["2026-07-31T09:01:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: "B:one"
+        native_id: one
+        container_id: B
+        sent_at: "2026-07-31T09:00:00Z"
+        author: {id: bob, display_name: Bob, kind: human}
+        content: "Only conversation B."
+      - record_id: "A:one"
+        native_id: one
+        container_id: A
+        sent_at: "2026-07-31T09:00:00Z"
+        author: {id: ada, display_name: Ada, kind: human}
+        content: "Only conversation A."
+record_model_responses:
+  - {cards: []}
+  - {cards: []}
+expect:
+  extraction_calls:
+    - records:
+        - {container_id: A, content: "Only conversation A."}
+    - records:
+        - {container_id: B, content: "Only conversation B."}
+  record_reports:
+    - {records_processed: 2, cards_accepted: 0, assertions_emitted: 0}
+  second_record_reports:
+    - {records_processed: 0, records_skipped: 2, assertions_emitted: 0}
+  assertions: []
+  intervals: []
+  subject_count: 0
+  queries: []

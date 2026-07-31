@@ -11,7 +11,7 @@ Public door: add(messages)
 ════════╪════ Engine promise boundary ═══════════════════════════════════
         ▼
    EpisodeCard ──► validation ──► assertions ──► intervals ──► answers
-        ▲          deterministic, idempotent, replayable (INV-1…INV-12)
+        ▲          deterministic, idempotent, replayable (INV-1…INV-13)
         │
 Advanced door: add_cards(episode_cards)
 ```
@@ -45,6 +45,22 @@ Communication Records add an immutable observation dimension. An edit produces
 a new assertion even when extraction yields the same fact. A deletion revokes
 the source, not the assertion or interval; queries return active, partially
 revoked, or revoked evidence status with the original permalink.
+
+## Conversation units and rolling anchors
+
+Record extraction is conversation-scoped. During one `add_records` or Message
+flush, the engine groups active Records by `container_id`, orders conversations
+by their earliest message time (then bytewise container ID), and never sends
+two conversations in one model call. Inside a conversation it orders Records
+chronologically and packs whole reply/thread boundaries into size-limited
+chunks; an oversized boundary stays whole.
+
+Before every chunk, the engine derives a fresh list of canonical open-matter
+anchors. It applies accepted cards and rebuilds the projection before moving to
+the next chunk. A matter first recognized in an earlier conversation or chunk
+is therefore available for evidence-backed attachment later in the same flush.
+Replay remains model-free: it rebuilds from stored cards and assertions and
+never repeats extraction.
 
 ## Answers are derived, not generated
 

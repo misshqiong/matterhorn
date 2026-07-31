@@ -7,6 +7,7 @@ from pydantic import Field, RootModel
 
 from matterhorn.contracts import (
     EvidenceRef,
+    EvidenceStatus,
     Message,
     Operation,
     Outcome,
@@ -91,6 +92,15 @@ class SubjectUnmergeInput(StrictModel):
     source_refs: list[SourceRef] = Field(min_length=1)
 
 
+class ValueSourceDetailResponse(StrictModel):
+    source_id: str
+    sender: str
+    excerpt: str | None = None
+    uri: str | None = None
+    status: EvidenceStatus
+    revoked_at: datetime | None = None
+
+
 class ValueResponse(StrictModel):
     subject_key: str
     predicate: str
@@ -102,6 +112,7 @@ class ValueResponse(StrictModel):
     supporting_assertion_ids: list[str]
     source_ids: list[str]
     source_refs: list[EvidenceRef]
+    source_details: list[ValueSourceDetailResponse]
     evidence_status: str
     origin: str
 

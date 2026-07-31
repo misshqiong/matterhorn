@@ -1,6 +1,6 @@
 case_id: message-id-namespacing
 title: Colliding native message ids in two conversations remain distinct evidence
-invariants: [P5, P9, INV-2, INV-5, INV-7]
+invariants: [P5, P9, INV-2, INV-5, INV-7, INV-13]
 schema_profile: org-matters/v1
 scope_id: team-a
 clock:
@@ -26,6 +26,7 @@ message_model_responses:
         title: Alpha
         status: open
         source_ids: ["team-a:alpha:duplicate"]
+  - cards:
       - date: "2026-07-28"
         title: Beta
         status: open

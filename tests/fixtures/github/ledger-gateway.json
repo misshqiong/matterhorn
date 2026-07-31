@@ -1,16 +1,21 @@
 {
-  "record_extraction": {
-    "cards": [
-      {
-        "date": "2026-07-29",
-        "title": "Matterhorn project strategy",
-        "progress": "Matterhorn is a deterministic, evidence-backed L3 temporal memory layer with LLM-confined writes and deterministic projected reads. Its public package is matterhorn-memory, its Python import is matterhorn, and its default facade is add(messages) plus matters(scope_id). Thread identity is the first matter boundary; revocation changes evidence status without deleting conclusions; SQLite and PostgreSQL share the same golden conformance contract; the latest listed release is 0.6.0.",
-        "source_ids": [
-          "devlog:0001"
-        ]
-      }
-    ]
-  },
+  "record_extraction": [
+    {
+      "cards": []
+    },
+    {
+      "cards": [
+        {
+          "date": "2026-07-29",
+          "title": "Matterhorn project strategy",
+          "progress": "Matterhorn is a deterministic, evidence-backed L3 temporal memory layer with LLM-confined writes and deterministic projected reads. Its public package is matterhorn-memory, its Python import is matterhorn, and its default facade is add(messages) plus matters(scope_id). Thread identity is the first matter boundary; revocation changes evidence status without deleting conclusions; SQLite and PostgreSQL share the same golden conformance contract; the latest listed release is 0.6.0.",
+          "source_ids": [
+            "devlog:0001"
+          ]
+        }
+      ]
+    }
+  ],
   "distillation": {
     "candidates": []
   }
