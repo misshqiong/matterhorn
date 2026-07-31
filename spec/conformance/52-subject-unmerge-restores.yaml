@@ -1,0 +1,60 @@
+case_id: subject-unmerge-restores
+title: Unmerge reverses the projection correction without deleting assertions
+invariants: [P7, P8, P9, INV-3, INV-9, INV-12]
+schema_profile: org-matters/v1
+scope_id: merge-reversible
+clock:
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T10:01:00Z"
+  - "2026-07-31T11:01:00Z"
+  - "2026-07-31T12:01:00Z"
+cards:
+  - card_id: target-card
+    scope_id: merge-reversible
+    subject_key: target
+    date: 2026-07-31
+    title: Canonical release
+    status: open
+    source_refs:
+      - {source_id: target-evidence, sent_at: "2026-07-31T09:00:00Z", sender: Ada}
+  - card_id: source-card
+    scope_id: merge-reversible
+    subject_key: source
+    date: 2026-07-31
+    title: Release QA
+    status: blocked
+    source_refs:
+      - {source_id: source-evidence, sent_at: "2026-07-31T10:00:00Z", sender: Bob}
+merge_operations:
+  - operation: merge
+    source_subject_key: source
+    target_subject_key: target
+    valid_from: "2026-07-31T11:00:00Z"
+    source_refs:
+      - {source_id: merge-reason, sent_at: "2026-07-31T11:00:00Z", sender: Dana}
+  - operation: unmerge
+    source_subject_key: source
+    valid_from: "2026-07-31T12:00:00Z"
+    source_refs:
+      - {source_id: unmerge-reason, sent_at: "2026-07-31T12:00:00Z", sender: Dana}
+expect:
+  assertions:
+    - {subject_key: source, predicate: status, object_value: blocked}
+    - {subject_key: target, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: source, predicate: status, object_value: blocked}
+    - {subject_key: target, predicate: status, object_value: open}
+  subject_count: 2
+  merge_count: 0
+  matters:
+    - {subject_key: source, title: Release QA, status: blocked, aliases: []}
+    - {subject_key: target, title: Canonical release, status: open, aliases: []}
+  queries:
+    - name: current
+      args: {subject_key: source, predicate: status}
+      result:
+        - {value: blocked, source_ids: [source-evidence]}
+    - name: current
+      args: {subject_key: target, predicate: status}
+      result:
+        - {value: open, source_ids: [target-evidence]}

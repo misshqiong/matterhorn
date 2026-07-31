@@ -18,6 +18,11 @@ class ImportRefusedError(MatterhornError):
     status_code = 400
 
 
+class SubjectMergeConflictError(MatterhornError, ValueError):
+    code = "SUBJECT_MERGE_CONFLICT"
+    status_code = 409
+
+
 class IngestFormatError(MatterhornError, ValueError):
     code = "UNRECOGNIZED_INGEST_FORMAT"
     status_code = 400

@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from matterhorn.canonical import derive_assertion_id, object_key
-from matterhorn.contracts import EpisodeCard, Operation, SourceRef
+from matterhorn.contracts import EpisodeCard, Operation, SourceRef, SubjectAnchor
 
 
 def test_assertion_id_matches_language_neutral_golden_bytes() -> None:
@@ -49,4 +49,18 @@ def test_episode_card_contract_rejects_unknown_fields() -> None:
                 ],
                 "free_form_fact": "forbidden",
             }
+        )
+
+
+def test_subject_anchor_is_closed_and_exported() -> None:
+    anchor = SubjectAnchor(
+        subject_key="release",
+        title="Release readiness",
+        status="open",
+        last_active_at="2026-07-31T09:00:00Z",
+    )
+    assert anchor.subject_key == "release"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        SubjectAnchor.model_validate(
+            {"subject_key": "release", "title": "Release", "extra": True}
         )

@@ -25,7 +25,8 @@ multi-tenant authentication.
 The page uses public routes only:
 
 - `GET /v1/matters` (all scopes) and `?scope=` filtering;
-- scoped matter detail, corrections, deterministic query, ingest, and chat;
+- scoped matter detail, corrections, reversible subject merges, deterministic
+  query, ingest, and chat;
 - `GET /v1/events` and `GET /v1/connections`;
 - collection mail connector resources;
 - AI config, redacted status, and test resources.
@@ -89,13 +90,17 @@ The default wall calls `GET /v1/matters` and displays every scope. Each
 ledger-paper card includes its scope tag, status stamp, owners, due date
 (overdue in red), and next step. Filter chips select All or one scope. Opening
 a card opens a modal with its scope-aware current values, evidence state/source
-IDs, and per-value human correction action. Correction uses its own modal, then
-refreshes the open detail modal and wall.
+IDs, aliases from merged titles, and per-value human correction action. The
+same detail modal has a ledger-style **Merge into…** form populated from the
+other matters currently on the wall in that scope. It requires a reason and
+name, reuses the correction sender preference, submits only to
+`POST /v1/scopes/{scope}/merges`, then closes and refreshes the wall.
+Correction uses its own modal, then refreshes the open detail modal and wall.
 
 <!-- screenshot: console-detail-modal -->
 > **Screenshot placeholder:** a matter detail modal over the unified wall,
-> showing predicate values, origin, evidence state/source IDs, and Correct
-> actions.
+> showing predicate values, origin, evidence state/source IDs, merged-title
+> aliases, Correct actions, and the Merge into form.
 
 Activity and connections remain in a collapsible strip below the wall and
 refresh about every five seconds.
@@ -126,7 +131,11 @@ The redacted AI status is also included in `GET /v1/connections`.
    evidence-bearing detail appears in a modal over the unified wall.
 3. Choose **correct** beside a value to open the correction modal; close it
    without submitting if you only want a read-only walkthrough.
-4. Select `personal` in **Working scope** and run a deterministic query. Chat
+4. With two matters in the same scope, open the duplicate, choose its canonical
+   target under **Merge into…**, and record a reason. The duplicate disappears
+   from the wall and its title appears as an alias on the target; `mh unmerge`
+   or the public unmerge REST resource reverses the correction.
+5. Select `personal` in **Working scope** and run a deterministic query. Chat
    remains hidden until a real AI key is configured.
 
 ## Safety

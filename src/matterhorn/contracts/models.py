@@ -209,6 +209,13 @@ class EpisodeCard(StrictModel):
         return value
 
 
+class SubjectAnchor(StrictModel):
+    subject_key: str
+    title: str
+    status: str | None = None
+    last_active_at: datetime | None = None
+
+
 @runtime_checkable
 class RecordExtractionReport(Protocol):
     @property
@@ -226,6 +233,7 @@ class RecordExtractor(Protocol):
         scope_id: str,
         records: list[Record],
         batch_size: int,
+        anchors: list[SubjectAnchor],
     ) -> RecordExtractionReport: ...
 
 
@@ -267,6 +275,8 @@ class EventType(str, Enum):
     unblocked = "unblocked"
     decision_adopted = "decision_adopted"
     value_corrected = "value_corrected"
+    subject_merged = "subject_merged"
+    subject_unmerged = "subject_unmerged"
 
 
 class SubjectDefinition(StrictModel):
@@ -443,6 +453,21 @@ class Correction(StrictModel):
         return value
 
 
+class SubjectMerge(StrictModel):
+    scope_id: str
+    source_subject_key: str
+    target_subject_key: str
+    source_refs: list[SourceRef]
+    valid_from: datetime
+
+    @field_validator("source_refs")
+    @classmethod
+    def merge_sources_must_not_be_empty(cls, value: list[SourceRef]) -> list[SourceRef]:
+        if not value:
+            raise ValueError("subject merges MUST have source_refs")
+        return value
+
+
 class ProjectionStats(StrictModel):
     scope_id: str
     predicate: str
@@ -559,6 +584,7 @@ class ExportEnvelope(StrictModel):
     assertions: list[Assertion]
     source_states: list[ExportSourceState]
     events: list[ChangeEvent]
+    merges: list[SubjectMerge] = Field(default_factory=list)
 
 
 class ImportReport(StrictModel):

@@ -276,6 +276,9 @@
     }
     .predicate { color: var(--faint); font: 700 9.5px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
     .correct-value { cursor: pointer; border: 0; background: none; color: var(--muted); text-decoration: underline dotted; font: italic 12px var(--serif); }
+    .detail-aliases { margin: .2rem 0 .7rem; color: var(--muted); font: italic 12px var(--serif); }
+    .merge-panel { margin-top: .85rem; padding-top: .75rem; border-top: 2px double var(--rule); }
+    .merge-panel h3 { margin: 0 0 .45rem; font-size: 14px; }
     .evidence { color: var(--muted); font: 10.5px var(--mono); }
     .evidence-chip { cursor: pointer; border: 0; border-bottom: 1px solid var(--green); background: none; color: var(--green); padding: 0; font: 10.5px var(--mono); }
     .hub-strip { display: grid; grid-template-columns: minmax(15rem, .8fr) minmax(20rem, 1.4fr); gap: .7rem; }
@@ -635,8 +638,27 @@
             <button type="button" class="correct-value" data-predicate="${escapeHtml(value.predicate)}" data-value="${escapeHtml(JSON.stringify(value.value))}">correct</button>
           </li>`).join("")
         : '<li class="empty">No current values.</li>';
+      const aliases = detail.aliases?.length
+        ? `<p class="detail-aliases"><strong>又名</strong> · ${escapeHtml(detail.aliases.join(" · "))}</p>`
+        : "";
+      const mergeTargets = state.matters.filter((matter) =>
+        matter.scope_id === detail.scope_id && matter.subject_key !== detail.subject_key
+      );
+      const mergeControl = mergeTargets.length
+        ? `<section class="merge-panel"><h3>Merge into…</h3>
+            <form class="form-stack" id="merge-form">
+              <div><label for="merge-target">Canonical matter</label><select id="merge-target" required>${mergeTargets.map((matter) =>
+                `<option value="${escapeHtml(matter.subject_key)}">${escapeHtml(matter.title)} · ${escapeHtml(matter.subject_key)}</option>`
+              ).join("")}</select></div>
+              <div><label for="merge-reason">Reason</label><textarea id="merge-reason" required></textarea></div>
+              <div><label for="merge-sender">Your name</label><input id="merge-sender" required autocomplete="name" value="${escapeHtml(localStorage.getItem("matterhorn.console.sender") || "")}"></div>
+              <div id="merge-error"></div>
+              <div class="buttons"><button class="button danger" type="submit">Merge matter</button></div>
+            </form>
+          </section>`
+        : '<section class="merge-panel"><h3>Merge into…</h3><p class="empty">No other matters in this scope are currently on the wall.</p></section>';
       return `<div class="detail-head"><div><p class="eyebrow">${escapeHtml(detail.scope_id)} · ${escapeHtml(detail.subject_key)}</p><h2>${escapeHtml(detail.title)}</h2></div><button type="button" class="detail-close">Close</button></div>
-        <ul class="detail-values">${values}</ul>`;
+        ${aliases}<ul class="detail-values">${values}</ul>${mergeControl}`;
     }
 
     function renderMatters() {
@@ -710,6 +732,36 @@
         byId("detail-dialog-body").innerHTML = detailHtml(state.detail);
       } catch (error) {
         byId("correction-error").innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    async function submitMerge(event) {
+      event.preventDefault();
+      const sender = byId("merge-sender").value.trim();
+      const reason = byId("merge-reason").value.trim();
+      const target = byId("merge-target").value;
+      const now = new Date().toISOString();
+      localStorage.setItem("matterhorn.console.sender", sender);
+      try {
+        await api(`/v1/scopes/${encodeURIComponent(state.detail.scope_id)}/merges`, {
+          method: "POST",
+          body: JSON.stringify({
+            source_subject_key: state.detail.subject_key,
+            target_subject_key: target,
+            source_refs: [{
+              source_id: `console:${crypto.randomUUID()}`,
+              sent_at: now,
+              sender,
+              excerpt: `Console subject merge. Reason: ${reason}`
+            }]
+          })
+        });
+        byId("detail-dialog").close();
+        state.detail = null;
+        state.selected = "";
+        await Promise.all([loadMatters(), loadActivity()]);
+      } catch (error) {
+        byId("merge-error").innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
       }
     }
 
@@ -1034,6 +1086,9 @@
       if (event.target.closest(".detail-close") || event.target === byId("detail-dialog")) {
         byId("detail-dialog").close();
       }
+    });
+    byId("detail-dialog").addEventListener("submit", (event) => {
+      if (event.target.closest("#merge-form")) submitMerge(event);
     });
     byId("mail-account-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-mail-action]");

@@ -1,0 +1,49 @@
+case_id: mail-stamp-beats-anchor
+title: A deterministic mail conversation key overrides a cited anchor
+invariants: [P2, P5, P9, INV-5, INV-12]
+schema_profile: org-matters/v1
+scope_id: anchor-mail
+clock:
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T10:01:00Z"
+cards:
+  - card_id: known-card
+    scope_id: anchor-mail
+    subject_key: known-release
+    date: 2026-07-31
+    title: Known release
+    status: open
+    occurred_at: "2026-07-31T09:00:00Z"
+    source_refs:
+      - {source_id: known-evidence, sent_at: "2026-07-31T09:00:00Z", sender: Ada}
+record_batches:
+  - records:
+      - record_id: "imap:mail:ada/INBOX:m1"
+        native_id: m1
+        container_id: "imap:mail:ada/INBOX"
+        thread_id: "imap:mail:ada/INBOX:subject:release readiness"
+        sent_at: "2026-07-31T10:00:00Z"
+        author: {id: ada@example.test, display_name: Ada, kind: human}
+        content: "Release readiness mail conversation update."
+        kind: message
+        subtype: email
+record_model_responses:
+  - cards:
+      - date: "2026-07-31"
+        title: Release readiness
+        status: in_progress
+        occurred_at: "2026-07-31T10:00:00Z"
+        source_ids: ["imap:mail:ada/INBOX:m1"]
+        subject_key: known-release
+expect:
+  assertions:
+    - {subject_key: known-release, predicate: status, object_value: open}
+    - {subject_key: "mail:bc76e3393adb1d459623", predicate: status, object_value: in_progress}
+  intervals:
+    - {subject_key: known-release, predicate: status, object_value: open}
+    - {subject_key: "mail:bc76e3393adb1d459623", predicate: status, object_value: in_progress}
+  subject_count: 2
+  matters:
+    - {subject_key: known-release, title: Known release}
+    - {subject_key: "mail:bc76e3393adb1d459623", title: Release readiness}
+  queries: []

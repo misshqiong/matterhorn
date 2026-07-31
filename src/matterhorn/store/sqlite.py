@@ -13,6 +13,7 @@ from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
     EpisodeCard,
+    EventType,
     EvidenceRef,
     EvidenceStatus,
     GateStatistics,
@@ -20,6 +21,7 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectMerge,
     SubjectRecord,
     SyncPosition,
     TaskGate,
@@ -80,6 +82,14 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 CREATE INDEX IF NOT EXISTS idx_subjects_title
     ON subjects(scope_id, subject_type, normalized_title);
+CREATE TABLE IF NOT EXISTS subject_merges (
+    scope_id TEXT NOT NULL,
+    source_subject_key TEXT NOT NULL,
+    target_subject_key TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    source_refs_json TEXT NOT NULL,
+    PRIMARY KEY (scope_id, source_subject_key)
+);
 CREATE TABLE IF NOT EXISTS assertions (
     assertion_id TEXT PRIMARY KEY,
     scope_id TEXT NOT NULL,
@@ -311,6 +321,7 @@ class SQLiteStore:
                 "memory_cards",
                 "intervals",
                 "assertions",
+                "subject_merges",
                 "subjects",
                 "sync_positions",
                 "evidence_sources",
@@ -325,6 +336,7 @@ class SQLiteStore:
         tables = (
             "subjects",
             "assertions",
+            "subject_merges",
             "tasks",
             "events",
             "ingested_cards",
@@ -347,6 +359,7 @@ class SQLiteStore:
                 UNION ALL SELECT scope_id FROM evidence_sources
                 UNION ALL SELECT scope_id FROM sync_positions
                 UNION ALL SELECT scope_id FROM subjects
+                UNION ALL SELECT scope_id FROM subject_merges
                 UNION ALL SELECT scope_id FROM assertions
                 UNION ALL SELECT scope_id FROM intervals
                 UNION ALL SELECT scope_id FROM memory_cards
@@ -634,6 +647,59 @@ class SQLiteStore:
             ),
         )
 
+    def subject_merges(self, scope_id: str) -> list[SubjectMerge]:
+        rows = self.connection.execute(
+            """
+            SELECT * FROM subject_merges
+            WHERE scope_id=?
+            ORDER BY source_subject_key COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return [
+            SubjectMerge.model_validate(
+                {
+                    "scope_id": row["scope_id"],
+                    "source_subject_key": row["source_subject_key"],
+                    "target_subject_key": row["target_subject_key"],
+                    "valid_from": row["valid_from"],
+                    "source_refs": json.loads(row["source_refs_json"]),
+                }
+            )
+            for row in rows
+        ]
+
+    def add_subject_merge(self, merge: SubjectMerge) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO subject_merges(
+              scope_id,source_subject_key,target_subject_key,valid_from,
+              source_refs_json
+            ) VALUES(?,?,?,?,?)
+            """,
+            (
+                merge.scope_id,
+                merge.source_subject_key,
+                merge.target_subject_key,
+                instant_text(merge.valid_from),
+                canonical_json(
+                    [ref.model_dump(mode="json") for ref in merge.source_refs]
+                ),
+            ),
+        )
+
+    def remove_subject_merge(
+        self, scope_id: str, source_subject_key: str
+    ) -> bool:
+        cursor = self.connection.execute(
+            """
+            DELETE FROM subject_merges
+            WHERE scope_id=? AND source_subject_key=?
+            """,
+            (scope_id, source_subject_key),
+        )
+        return cursor.rowcount == 1
+
     def add_assertion(self, assertion: Assertion) -> bool:
         payload = self._assertion_tuple(assertion)
         existing = self.connection.execute(
@@ -920,20 +986,26 @@ class SQLiteStore:
         return [row["scope_id"] for row in rows]
 
     def add_event(self, event: ChangeEvent) -> bool:
-        expected_id = derive_event_id(
-            event.event_type,
-            event.scope_id,
-            event.subject_key,
-            event.predicate,
-            event.old_value,
-            event.new_value,
-            event.valid_from,
-            event.recorded_at,
-            event.origin,
-            event.source_ids,
-        )
-        if event.event_id != expected_id:
-            raise ValueError("event_id does not match the deterministic payload hash")
+        if event.event_type not in {
+            EventType.subject_merged,
+            EventType.subject_unmerged,
+        }:
+            expected_id = derive_event_id(
+                event.event_type,
+                event.scope_id,
+                event.subject_key,
+                event.predicate,
+                event.old_value,
+                event.new_value,
+                event.valid_from,
+                event.recorded_at,
+                event.origin,
+                event.source_ids,
+            )
+            if event.event_id != expected_id:
+                raise ValueError(
+                    "event_id does not match the deterministic payload hash"
+                )
         existing = self.connection.execute(
             "SELECT * FROM events WHERE event_id=?", (event.event_id,)
         ).fetchone()

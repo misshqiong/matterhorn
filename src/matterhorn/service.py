@@ -11,6 +11,7 @@ from matterhorn.contracts import (
     EpisodeCard,
     Message,
     Record,
+    SourceRef,
     TaskResult,
 )
 
@@ -62,6 +63,7 @@ class MatterhornService:
         self, *, scope_id: str, subject_key: str, predicate: str
     ) -> list[dict[str, Any]]:
         self._require_subject(scope_id, subject_key)
+        subject_key = self.engine.canonical_subject_key(scope_id, subject_key)
         return [
             item.to_dict()
             for item in self.engine.query.current(scope_id, subject_key, predicate)
@@ -71,6 +73,7 @@ class MatterhornService:
         self, *, scope_id: str, subject_key: str, predicate: str
     ) -> list[dict[str, Any]]:
         self._require_subject(scope_id, subject_key)
+        subject_key = self.engine.canonical_subject_key(scope_id, subject_key)
         return [
             item.to_dict()
             for item in self.engine.query.timeline(scope_id, subject_key, predicate)
@@ -85,6 +88,7 @@ class MatterhornService:
         instant: datetime,
     ) -> list[dict[str, Any]]:
         self._require_subject(scope_id, subject_key)
+        subject_key = self.engine.canonical_subject_key(scope_id, subject_key)
         return [
             item.to_dict()
             for item in self.engine.query.at(
@@ -124,6 +128,7 @@ class MatterhornService:
         self, *, scope_id: str, subject_key: str
     ) -> dict[str, Any]:
         self._require_subject(scope_id, subject_key)
+        subject_key = self.engine.canonical_subject_key(scope_id, subject_key)
         subject = next(
             item
             for item in self.engine.query.list_matters(scope_id)
@@ -154,6 +159,7 @@ class MatterhornService:
             "subject_key": subject.subject_key,
             "subject_type": subject.subject_type,
             "title": subject.title,
+            "aliases": self.engine._subject_aliases(scope_id).get(subject_key, []),
             "current": current,
             "timeline": {
                 predicate: values
@@ -289,6 +295,48 @@ class MatterhornService:
         )
         self._require_subject(selected_scope, selected_subject)
         return self.engine.correct(correction).model_dump(mode="json")
+
+    def merge_subjects(
+        self,
+        *,
+        scope_id: str,
+        source_subject_key: str,
+        target_subject_key: str,
+        source_refs: list[SourceRef | dict[str, Any]],
+        valid_from: datetime | None = None,
+    ) -> dict[str, Any]:
+        return self.engine.merge_subjects(
+            scope_id,
+            source_subject_key,
+            target_subject_key,
+            source_refs=[
+                ref
+                if isinstance(ref, SourceRef)
+                else SourceRef.model_validate(ref)
+                for ref in source_refs
+            ],
+            valid_from=valid_from or self.engine.now(),
+        ).model_dump(mode="json")
+
+    def unmerge_subjects(
+        self,
+        *,
+        scope_id: str,
+        source_subject_key: str,
+        source_refs: list[SourceRef | dict[str, Any]],
+        valid_from: datetime | None = None,
+    ) -> dict[str, Any]:
+        return self.engine.unmerge_subjects(
+            scope_id,
+            source_subject_key,
+            source_refs=[
+                ref
+                if isinstance(ref, SourceRef)
+                else SourceRef.model_validate(ref)
+                for ref in source_refs
+            ],
+            valid_from=valid_from or self.engine.now(),
+        ).model_dump(mode="json")
 
     def events(
         self, *, scope_id: str, since: datetime | None = None

@@ -15,6 +15,7 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectMerge,
     SubjectRecord,
     SyncPosition,
     TaskResult,
@@ -154,6 +155,14 @@ class Store(Protocol):
     def subjects(self, scope_id: str) -> list[SubjectRecord]: ...
 
     def upsert_subject(self, subject: SubjectRecord) -> None: ...
+
+    def subject_merges(self, scope_id: str) -> list[SubjectMerge]: ...
+
+    def add_subject_merge(self, merge: SubjectMerge) -> None: ...
+
+    def remove_subject_merge(
+        self, scope_id: str, source_subject_key: str
+    ) -> bool: ...
 
     def add_assertion(self, assertion: Assertion) -> bool: ...
 

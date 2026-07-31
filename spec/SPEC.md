@@ -109,6 +109,15 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   are revoked, `partially_revoked` when some are revoked, and `revoked` when
   all are revoked. A conclusion supported only by revoked evidence therefore
   remains queryable but is visibly flagged.
+- **INV-12 — Reversible canonical subject merge.** An active subject merge
+  MUST be an acyclic, provenance-bearing `source_subject_key →
+  target_subject_key` edge. Projection and every subsequent write resolution
+  MUST follow the complete edge chain to its canonical target without mutating
+  or deleting subjects or assertions. Merged-away primary subjects MUST be
+  hidden from matter reads and extraction anchors; unmerge MUST remove only the
+  active edge and MUST restore the independently projected subjects. Replay
+  MUST preserve the active edge set and produce byte-identical canonical
+  projection state.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -213,6 +222,17 @@ Card assertion `valid_from` MUST be `occurred_at` when non-null, otherwise
 MUST be injectable; conformance cases provide a sequence consumed once for
 each newly processed card or correction.
 
+### 3.4 SubjectAnchor
+
+`SubjectAnchor` is write-path context supplied to Record extraction. Its closed
+contract contains required `subject_key` and `title`, plus nullable `status` and
+`last_active_at`. Before each extractor call, the Engine MUST derive anchors
+from every currently materialized primary subject that is not merged away,
+order them by newest projected activity first with UTF-8 bytewise ascending
+`subject_key` as the tie-break, and retain at most the first 40. `status` and
+`last_active_at` MUST be copied from the projected matter when available.
+Anchor construction MUST NOT call a model.
+
 ## 4. SchemaProfile contract
 
 A profile is a YAML or JSON object. Unknown fields MUST be rejected.
@@ -300,13 +320,44 @@ registered `predicate`, `operation`, JSON `object_value`, optional
 `object_key`, `valid_from`, and non-empty `source_refs`. It always emits origin
 `human`. APPEND retraction MUST be rejected.
 
+A SubjectMerge contains `scope_id`, `source_subject_key`,
+`target_subject_key`, `valid_from`, and non-empty `source_refs`. It is an active
+correction edge, not an assertion and not a destructive rewrite. Both subjects
+MUST already exist in the scope, source and target MUST differ, and a source
+that already has an active merge MUST be rejected until it is unmerged.
+Following the target's active merge chain MUST NOT reach the source; an
+operation that would create a cycle MUST be rejected atomically. A target MAY
+itself be merged, in which case resolution follows the complete chain.
+
+Unmerge MUST require non-empty `source_refs`, MUST reject a source without an
+active merge, and MUST remove only that active edge. It MUST NOT delete or
+rewrite either subject, any assertion, or any evidence. Card identity,
+correction, semantic-write, and query paths that receive a merged subject key
+MUST redirect to the canonical target.
+
 A ChangeEvent contains required deterministic `event_id`, `event_type`,
 `scope_id`, `subject_key`, registered `predicate`, nullable JSON `old_value`
 and `new_value`, `valid_from`, `recorded_at`, `origin`, and ordered unique
 `source_ids`. Its traceability fields MUST come from the assertion that caused
 the projected change. Event types are `matter_created`, `status_changed`,
 `matter_completed`, `blocked`, `unblocked`, `decision_adopted`, and
-`value_corrected`.
+`value_corrected`, plus `subject_merged` and `subject_unmerged`. Merge events
+use the reserved predicate `subject_merge`; `subject_key` is the merged-away
+source, and `old_value`/`new_value` are null/target for merge and target/null
+for unmerge. Their ordered unique `source_ids` MUST come from the mandatory
+operation `source_refs`.
+
+For merge and unmerge events, `event_id` is lowercase hexadecimal SHA-256 over
+canonical JSON for:
+
+```text
+[event_type, scope_id, source_subject_key, target_subject_key,
+ valid_from_iso, source_refs]
+```
+
+`source_refs` retain request order and use the canonical datetime rules.
+`recorded_at` does not participate in this correction-operation ID. Inserting
+an equal derived event MUST remain idempotent.
 
 ## 6. Exact assertion_id derivation
 
@@ -404,6 +455,16 @@ MUST remain side-effect free; subject creation and source accumulation MUST
 occur only in the successful `dream()` transaction. `replay()` retains subjects
 and their parent links and MUST rebuild identical projection state.
 
+### 7.2 Canonical resolution after explicit merge
+
+After the ordinary identity algorithm resolves a subject, the Engine MUST
+follow active SubjectMerge edges until it reaches a subject without an outgoing
+edge. The resulting key is canonical. New cards, corrections, and accepted
+semantic assertions MUST write against that canonical key. This redirect MUST
+preserve the canonical target's own title while accumulating the incoming
+sources and thread boundaries. Active edges are acyclic by section 5, so
+resolution MUST terminate deterministically.
+
 ## 8. Exact extraction and retract guards
 
 For each deterministic predicate applicable to the resolved primary subject,
@@ -437,6 +498,15 @@ value, including an absent field, explicit null, or empty list. The same
 emission and projection/materialization update.
 
 ## 9. Exact projection algorithm
+
+Before grouping, projection MUST resolve every assertion's persisted
+`subject_key` through the active merge graph and project a transient copy under
+the canonical key. The persisted assertion and its `assertion_id` MUST remain
+unchanged. Assertions from every merged-away source then participate together
+in the ordinary deterministic rank and conflict rules below. The canonical
+materialized subject MUST union subject sources, assertion evidence, and thread
+boundaries from the complete chain, while retaining the canonical target's
+title.
 
 Projection first rejects assertions whose predicate/subject pair is not in the
 profile. It groups by `(scope_id, subject_key, predicate)`. All ordering is
@@ -520,7 +590,10 @@ equivalent. A database or operating-system locale MUST NOT change any result.
 - `list_matters(scope)`: despite its compatibility name, return every
   materialized subject whose type equals `SchemaProfile.primary_subject.type`
   in the scope, ordered by `subject_key`. It MUST exclude all non-primary child
-  types and MUST NOT assume a concrete type or status name.
+  types and every merged-away primary subject, and MUST NOT assume a concrete
+  type or status name. Each ergonomic Matter MUST expose `aliases`, the
+  UTF-8-bytewise sorted, deduplicated titles of subjects that currently resolve
+  to it, excluding a title equal to the canonical title.
 - `completion(scope)`: if no completion config or no subjects, return
   `{completed: 0, total, ratio: 0.0}`. Otherwise count distinct subjects whose
   current configured predicate value is in canonical `completed_values`, and
@@ -541,10 +614,11 @@ already in the ledger MUST be filtered before gateway access and MUST be a
 complete no-op. The same `record_id` with a changed canonical payload is a new
 observation, as required by INV-11.
 
-`replay(scope_id)` MUST retain assertions and subjects, delete/replace all
-intervals, projection statistics, and memory cards for the scope, and rebuild
-them using sections 9 and 10. Canonical JSON snapshots before and after MUST be
-byte-identical. It MUST compare the retained prior interval set with the
+`replay(scope_id)` MUST retain assertions, subjects, active SubjectMerge edges,
+and merge/unmerge events; delete/replace all intervals, projection statistics,
+and memory cards for the scope; and rebuild them using sections 9 and 10.
+Canonical JSON snapshots before and after, including the active merge set, MUST
+be byte-identical. It MUST compare the retained prior interval set with the
 replacement before committing the replacement, so an identical rebuild emits
 zero new events.
 
@@ -662,7 +736,8 @@ The ownership envelope is one JSON document with this closed top-level shape:
   "subjects": [ExportSubject, ...],
   "assertions": [Assertion, ...],
   "source_states": [ExportSourceState, ...],
-  "events": [ChangeEvent, ...]
+  "events": [ChangeEvent, ...],
+  "merges": [SubjectMerge, ...]
 }
 ```
 
@@ -673,16 +748,19 @@ state. Source states retain URI and revocation time. Assertions retain their
 original `origin`, so human corrections survive without reinterpretation.
 Events are included as append-only derived delivery history. Intervals,
 projection statistics, and MemoryCards MUST NOT be exported because they are
-disposable projections.
+disposable projections. `merges` is additive to the version-1 envelope; an
+older version-1 envelope with no `merges` member MUST be read as an empty list.
 
 Import MUST accept only an empty target scope. It MUST resolve the named schema
 profile locally and require the same version hash; it MUST refuse an
 unavailable or mismatched profile with a clear error rather than using the
 envelope as an untrusted schema definition. Import MUST atomically restore
-subjects, assertions, source state, rebuild projection without event emission,
-and restore the deterministic event log. A following replay MUST produce
-byte-identical intervals, MemoryCards, and query answers and emit zero new
-events.
+subjects, assertions, source state, active merges, rebuild projection without
+event emission, and restore the deterministic event log. It MUST reject a
+merge referencing an absent subject, a duplicate active source edge, or a
+cyclic graph. A following replay MUST produce byte-identical intervals,
+MemoryCards, query answers, active merges, and ownership export and emit zero
+new events.
 
 ## 12. Golden conformance YAML format
 
@@ -692,7 +770,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-11`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-12`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, new cards, accepted semantic assertions, and corrections. |
@@ -702,6 +780,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `record_batches` | Optional ordered `{records,cursors?,backfill?}` batches passed to `add_records`. |
 | `record_model_responses` | Optional ordered closed Record-to-card responses, one for each batch containing unseen non-revoked Records. |
 | `corrections` | Ordered Correction mappings, default `[]`. |
+| `merge_operations` | Optional ordered merge/unmerge mappings. Each contains `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional `expect_error` for an operation-level rejection. |
 | `model_responses` | Optional ordered list of closed response objects returned once per queued card during `dream()`. Absence means the semantic path is not run. |
 | `expect_error` | Optional validation/error substring. If present, the case succeeds only on that rejection. |
 | `expect.assertions` | Expected assertion mappings. |
@@ -717,6 +796,9 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.task_results` | Optional ordered partial task-result mappings for first-pass message batches. |
 | `expect.second_task_results` | Optional ordered partial task-result mappings after exact message re-add. |
 | `expect.events` | Optional expected ChangeEvent mappings, compared as a partial-field exact multiset. |
+| `expect.merge_count` | Optional exact active SubjectMerge count. |
+| `expect.matters` | Optional partial-field exact multiset of ergonomic canonical Matters, including aliases. |
+| `expect.export_replay_identity` | When true, the ownership export immediately before and after replay MUST be byte-identical. |
 | `expect.replay_events_emitted` | Optional exact replay new-event count; event cases use zero. |
 
 For assertions, intervals, and events, each expected mapping declares its compared
@@ -725,10 +807,12 @@ compares **order-insensitive exact multisets**: neither an extra nor a missing
 projected mapping is allowed. Nested `supporting_assertion_ids` and query
 `source_ids` lists remain order-sensitive. Datetimes use canonical UTC form.
 Query results are order-sensitive according to section 10. Every case runner
-MUST also re-add the same Message, card, and Record batches and compare a canonical
-whole-store snapshot including observation ledger, source lifecycle, and sync
-positions, then invoke replay and compare it again. Error cases MUST verify the
-transaction left the scope empty.
+MUST also re-add the same Message, card, and Record batches and compare a
+canonical whole-store snapshot including observation ledger, source lifecycle,
+sync positions, and active merges, then invoke replay and compare it again.
+Merge operations are applied once because an already-active source is
+normatively rejected; their persisted state participates in both snapshot
+comparisons. Error cases MUST verify the transaction left the scope empty.
 
 ## 13. Distillation, prompt, and gateway contract
 
@@ -876,10 +960,11 @@ missing, importing the MCP server MUST raise an actionable `ImportError` that
 names the `matterhorn[mcp]` extra.
 
 The Python facade MUST expose `add`, `matters`, `flush`, `task`, `add_cards`,
-`query.*`, `correct`, and advanced/internal `add_records`. `matters(scope_id)`
-MUST return projection-derived objects with at least `title`, `status`,
-`owners`, `participants`, `blocked_by`, `next_step`, `due`, and `subject_key`.
-It MUST NOT call a gateway.
+`query.*`, `correct`, `merge_subjects`, `unmerge_subjects`, and
+advanced/internal `add_records`. `matters(scope_id)` MUST return
+projection-derived objects with at least `title`, `status`, `owners`,
+`participants`, `blocked_by`, `next_step`, `due`, `subject_key`, and
+`aliases`. It MUST NOT call a gateway.
 
 `mh dream` MUST treat `--api-key` and `--base-url` as explicit overrides.
 Without an API-key override it MUST read `MATTERHORN_API_KEY` first, then
@@ -896,9 +981,13 @@ The same command MUST expose the pure ReMe and OpenViking digest adapters as
 validated EpisodeCard and MUST NOT configure or call a gateway.
 
 The CLI MUST additionally expose `mh init`, `mh add`, `mh matters`, `mh flush`,
-`mh task`, `mh events`, `mh export`, and `mh import`. `mh add` MUST accept
-YAML/JSON from a file or stdin. `mh export SCOPE [--out FILE]` MUST write the
-section 11.3 envelope; `mh import FILE` MUST import it into an empty store.
+`mh task`, `mh events`, `mh export`, `mh import`, `mh merge`, and
+`mh unmerge`. `mh merge SCOPE SOURCE TARGET --reason TEXT --sender NAME` and
+`mh unmerge SCOPE SOURCE --reason TEXT --sender NAME` MUST create
+`console:<uuid>` provenance and invoke the same Engine operations as REST.
+`mh add` MUST accept YAML/JSON from a file or stdin. `mh export SCOPE
+[--out FILE]` MUST write the section 11.3 envelope; `mh import FILE` MUST
+import it into an empty store.
 `mh init
 [--schema ID] [--db PATH]` MUST idempotently create the SQLite database and a
 small `matterhorn.toml` containing default database, schema, scope, and
@@ -920,8 +1009,16 @@ GET  /v1/scopes/{scope_id}/query/by-person
 GET  /v1/scopes/{scope_id}/events
 GET  /v1/scopes/{scope_id}/export
 POST /v1/scopes/{scope_id}/corrections
+POST /v1/scopes/{scope_id}/merges
+POST /v1/scopes/{scope_id}/merges/{source_subject_key}/unmerge
 GET  /v1/tasks/{task_id}
 ```
+
+The merge request contains `source_subject_key`, `target_subject_key`, and
+non-empty `source_refs`; the unmerge request contains non-empty `source_refs`.
+Request-shape failures MUST return 422, merge-state conflicts MUST return 409,
+and missing subjects MUST return 404 through the normal structured error
+envelope. Merge and unmerge events MUST appear in the ordinary events feed.
 
 The old `/v1/add_episode_cards`-style RPC endpoints MUST NOT be exposed, and
 wire protocols MUST NOT retain legacy aliases. Each request and response MUST
@@ -946,15 +1043,38 @@ The built-in Record extractor is a P1 write-path component and MUST use the
 same `LlmGateway.complete(system, user, response_schema)` SPI as semantic
 distillation. Its input is the closed section 3.2 Record contract.
 `ChatMessage{message_id,sent_at,sender,content}` is a deprecated Python alias
-only and is not a protocol input.
+only and is not a protocol input. The RecordExtractor operation is
+`extract(*, scope_id, records, batch_size, anchors)`; all Engine calls MUST
+supply the section 3.4 anchor list. A legacy direct ChatMessage call MAY omit
+the keyword and retains its permissive subject-key behavior.
 
 The response schema and prompt MUST be derived from the active
 `SchemaProfile`. In addition to required card `date`, `title`, and
 `source_ids`, the extractor MUST expose only EpisodeCard fields named by the
 profile's deterministic `source_field` values plus temporal metadata,
-and `cleared_fields`. A model MUST NOT supply `subject_key` or `thread_id` for
-Record input. When a profile predicate declares a non-null `value_domain`, an
-extracted field value for that predicate MUST equal one domain member.
+`cleared_fields`, and optional `subject_key` when anchors are offered. A model
+MUST NOT supply `thread_id` for Record input. When a profile predicate declares
+a non-null `value_domain`, an extracted field value for that predicate MUST
+equal one domain member.
+
+When anchors are non-empty, the prompt MUST contain a “Known open matters”
+section listing each offered `subject_key`, `title`, and nullable `status`. It
+MUST instruct the model to prefer an exact offered key when Records progress,
+investigate, verify, fix, or accept that matter; investigation, verification,
+and acceptance of a known matter are progress on that matter and MUST NOT be
+framed as new matters. It MUST instruct the model to omit `subject_key` only
+when no known matter fits and to emit separate cards with their own
+`source_ids` when a batch touches several known matters. The closed-envelope
+instruction MUST include a literal card example containing `subject_key`.
+
+After decoding and before EpisodeCard validation, a modern Record extractor
+MUST keep a model-supplied `subject_key` if and only if it exactly equals one
+of the offered anchor keys. It MUST silently replace every other supplied key
+with null so the card falls back to section 7 identity; it MUST NOT reject an
+otherwise valid card for that fabrication. A deterministic connector-stamped
+key, including the server-derived mail conversation key, MUST override any
+model-supplied anchor key. Legacy non-Record ChatMessage extraction retains its
+existing permissive behavior.
 
 Every proposed card MUST pass the ordinary closed EpisodeCard validation.
 Rejection of one card MUST NOT abort other valid cards from the response. A
@@ -1072,7 +1192,10 @@ store's connection or execute handwritten SQL. In particular, the query
 service owns query semantics but delegates every physical read to the Store
 SPI. Each backend MUST normalize returned JSON values, booleans, and instants
 to the same language-level values and canonical UTC representation before
-returning them across that boundary.
+returning them across that boundary. Both backends MUST persist active
+SubjectMerge edges with their complete ordered `source_refs` and `valid_from`;
+enumeration MUST use UTF-8 bytewise source-key order (`COLLATE "C"` on
+PostgreSQL and `BINARY` or equivalent on SQLite).
 
 The connection MUST target one writable primary for the lifetime of an Engine.
 The store MUST fail during initialization when
@@ -1112,4 +1235,7 @@ Java 实现共同的验收资产。M4 增加通用 Record 合同、Slack 纯适�
 身份、增量游标，以及编辑追加/删除撤销证据的 INV-11；查询保留结论但明确标出
 证据是否已撤销。M6 增加完全由投影差异派生、确定 ID 且重放不重复的变更事件，
 以及包含 schema 指纹、subjects、全量断言、证据状态和派生事件的 scope 所有权
-导出；导入只接受空 scope 与本地可用的同版本 profile。
+导出；导入只接受空 scope 与本地可用的同版本 profile。INV-12 增加带来源、无环、
+可撤销的主语归并：提取前把 canonical 事项作为 anchors 给模型，模型只能引用实际
+提供的 key，connector 确定性 key 优先；归并后的投影与写入沿链落到 canonical
+target，被合并标题作为别名显示，unmerge 与 replay 不丢失原断言。

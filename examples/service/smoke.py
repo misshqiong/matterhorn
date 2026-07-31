@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import urllib.request
 
-
 with urllib.request.urlopen("http://127.0.0.1:8000/healthz") as response:
     health = json.load(response)
 request = urllib.request.Request(

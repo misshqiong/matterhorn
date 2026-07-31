@@ -199,6 +199,12 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid message_model_responses"
         )
+    if "merge_operations" in case and not isinstance(
+        case["merge_operations"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid merge_operations"
+        )
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -280,6 +286,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         first_dream = engine.dream(case["scope_id"])
     for correction in case.get("corrections", []):
         engine.correct(correction)
+    _run_merge_operations(engine, case)
 
     expect = case["expect"]
     if "record_reports" in expect:
@@ -342,6 +349,18 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             len(engine.store.subjects(case["scope_id"])),
             expect["subject_count"],
             "subject_count",
+        )
+    if "merge_count" in expect:
+        _equal(
+            len(engine.store.subject_merges(case["scope_id"])),
+            expect["merge_count"],
+            "merge_count",
+        )
+    if "matters" in expect:
+        _assert_partial_exact(
+            engine.matters(case["scope_id"]),
+            expect["matters"],
+            "matters",
         )
     if "conflicts_resolved" in expect:
         actual_stats = {
@@ -433,6 +452,11 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         engine.correct(correction)
     _equal(_snapshot(engine, case["scope_id"]), initial, "idempotent re-ingest")
 
+    export_before_replay = (
+        canonical_json(engine.export(case["scope_id"]).model_dump(mode="json"))
+        if expect.get("export_replay_identity")
+        else None
+    )
     replay_report = engine.replay(case["scope_id"])
     if "replay_events_emitted" in expect:
         _equal(
@@ -441,6 +465,14 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             "replay events emitted",
         )
     _equal(_snapshot(engine, case["scope_id"]), initial, "replay snapshot")
+    if export_before_replay is not None:
+        _equal(
+            canonical_json(
+                engine.export(case["scope_id"]).model_dump(mode="json")
+            ),
+            export_before_replay,
+            "replay export",
+        )
 
 
 def _run_message_batches(
@@ -455,6 +487,51 @@ def _run_message_batches(
         engine.flush(case["scope_id"])
         results.append(engine.task(receipt.task_id))
     return results
+
+
+def _run_merge_operations(engine: Engine, case: dict[str, Any]) -> None:
+    scope_id = case["scope_id"]
+    for operation in case.get("merge_operations", []):
+        kind = operation.get("operation")
+
+        def invoke(
+            current_operation: dict[str, Any] = operation,
+            current_kind: Any = kind,
+        ) -> Any:
+            if current_kind == "merge":
+                return engine.merge_subjects(
+                    scope_id,
+                    current_operation["source_subject_key"],
+                    current_operation["target_subject_key"],
+                    source_refs=current_operation["source_refs"],
+                    valid_from=current_operation["valid_from"],
+                )
+            if current_kind == "unmerge":
+                return engine.unmerge_subjects(
+                    scope_id,
+                    current_operation["source_subject_key"],
+                    source_refs=current_operation["source_refs"],
+                    valid_from=current_operation["valid_from"],
+                )
+            raise ConformanceFailure(
+                f"unknown merge operation {current_kind!r}"
+            )
+
+        expected_error = operation.get("expect_error")
+        if expected_error is None:
+            invoke()
+            continue
+        try:
+            invoke()
+        except Exception as error:
+            if not re.search(expected_error, str(error)):
+                raise ConformanceFailure(
+                    f"merge error {error!r} did not match {expected_error!r}"
+                ) from error
+        else:
+            raise ConformanceFailure(
+                f"expected merge error matching {expected_error!r}"
+            )
 
 
 def _plain(value: Any) -> Any:
@@ -498,10 +575,16 @@ def _assert_partial_exact(
 
 def _snapshot(engine: Engine, scope_id: str) -> str:
     assertions = engine.store.assertions(scope_id)
+    merges = engine.store.subject_merges(scope_id)
     source_refs = []
     seen_sources: set[str] = set()
     for assertion in assertions:
         for source_ref in assertion.source_refs:
+            if source_ref.source_id not in seen_sources:
+                source_refs.append(source_ref)
+                seen_sources.add(source_ref.source_id)
+    for merge in merges:
+        for source_ref in merge.source_refs:
             if source_ref.source_id not in seen_sources:
                 source_refs.append(source_ref)
                 seen_sources.add(source_ref.source_id)
@@ -518,6 +601,7 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             "subjects": [
                 _plain(item.__dict__) for item in engine.store.subjects(scope_id)
             ],
+            "merges": [_plain(item) for item in merges],
             "record_observations": [
                 _plain(item)
                 for item in engine.store.record_observations(scope_id)

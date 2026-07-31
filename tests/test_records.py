@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -85,10 +86,73 @@ def test_add_records_uses_injected_extractor(tmp_path) -> None:
             "scope_id": "team",
             "records": [Record.model_validate(_record())],
             "batch_size": 3,
+            "anchors": [],
         }
     ]
     assert report.records_processed == 1
     assert report.cards_accepted == 0
+
+
+def test_engine_offers_only_newest_canonical_anchors_with_bytewise_ties(
+    tmp_path,
+) -> None:
+    class RecordingExtractor:
+        def __init__(self):
+            self.anchors = None
+
+        def extract(self, **kwargs):
+            self.anchors = kwargs["anchors"]
+            return SimpleNamespace(cards=[], rejection_counts={})
+
+    extractor = RecordingExtractor()
+    engine = Engine(
+        tmp_path / "anchors.db",
+        extractor=extractor,
+        clock=lambda: datetime(2026, 7, 31, 12, tzinfo=UTC),
+    )
+    engine._ingest_cards_sync(
+        [
+            {
+                "card_id": f"card-{index:02d}",
+                "scope_id": "team",
+                "subject_key": f"matter-{index:02d}",
+                "date": "2026-07-31",
+                "title": f"Matter {index:02d}",
+                "status": "open",
+                "occurred_at": f"2026-07-31T09:{index:02d}:00Z",
+                "source_refs": [
+                    {
+                        "source_id": f"evidence-{index:02d}",
+                        "sent_at": f"2026-07-31T09:{index:02d}:00Z",
+                        "sender": "Ada",
+                    }
+                ],
+            }
+            for index in range(42)
+        ]
+    )
+    engine.merge_subjects(
+        "team",
+        "matter-41",
+        "matter-40",
+        source_refs=[
+            {
+                "source_id": "anchor-merge",
+                "sent_at": "2026-07-31T10:00:00Z",
+                "sender": "Ada",
+            }
+        ],
+        valid_from="2026-07-31T10:00:00Z",
+    )
+    engine.add_records([_record()], scope_id="team")
+
+    assert extractor.anchors is not None
+    assert len(extractor.anchors) == 40
+    assert extractor.anchors[0].subject_key == "matter-40"
+    assert extractor.anchors[-1].subject_key == "matter-01"
+    assert "matter-41" not in {
+        anchor.subject_key for anchor in extractor.anchors
+    }
 
 
 def test_record_edit_appends_and_delete_revokes_without_removing(tmp_path) -> None:

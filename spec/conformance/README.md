@@ -10,7 +10,7 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-11`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-12`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each newly processed card, accepted semantic assertion, or correction. |
@@ -20,6 +20,7 @@ store view for the case's `scope_id`.
 | `record_batches` | no | Ordered `{records, cursors?, backfill?}` mappings passed to `add_records`. |
 | `record_model_responses` | no | Ordered Record-to-card response fixtures; one is consumed for every batch containing unseen, non-revoked Records. |
 | `corrections` | no | Ordered Correction mappings; default empty list. |
+| `merge_operations` | no | Ordered merge/unmerge mappings with `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional operation-level `expect_error`. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
 | `expect` | for success | Expected partial-field multisets, queries, counters, and reports. |
@@ -64,7 +65,9 @@ fixture list is exhausted.
 `record_model_responses` uses the closed `{cards: [...]}` response from SPEC
 section 16. Its `source_ids` must cite `record_id` values in the corresponding
 batch. Record fixtures use the closed section 3.2 contract. A revocation-only
-batch consumes no model response.
+batch consumes no model response. The runner supplies the current canonical
+matter anchors to each extraction call, so a response may cite an exactly
+offered `subject_key`; a non-offered value is silently stripped.
 
 `message_model_responses` uses the same closed `{cards: [...]}` shape, but its
 sources must be section 3.1 namespaced Message-derived Record IDs.
@@ -86,6 +89,9 @@ sources must be section 3.1 namespaced Message-derived Record IDs.
 | `task_results` | Ordered partial task results for first-pass Message batches. |
 | `second_task_results` | Ordered partial results after exact Message re-add. |
 | `events` | Partial ChangeEvent mappings compared as an exact multiset. |
+| `merge_count` | Exact active SubjectMerge count. |
+| `matters` | Partial-field exact multiset of canonical ergonomic Matters, including aliases. |
+| `export_replay_identity` | Boolean requiring byte-identical ownership exports immediately before and after replay. |
 | `replay_events_emitted` | Exact number of new events returned by replay. |
 
 For assertions and intervals, project each actual item onto exactly the keys in
@@ -109,8 +115,8 @@ Datetime comparison uses canonical UTC RFC 3339 with six fractional digits and
 Every successful case must additionally:
 
 1. snapshot assertions, intervals, memory cards, projection statistics, events,
-   subjects, Record observations, source lifecycle, and sync positions in
-   canonical JSON;
+   subjects, active merges, Record observations, source lifecycle, and sync
+   positions in canonical JSON;
 2. add the identical Message, card, and Record batches again;
 3. if `model_responses` was present, call `dream()` again;
 4. apply the same corrections again;
@@ -119,7 +125,9 @@ Every successful case must additionally:
 7. require another byte-identical snapshot.
 
 This proves idempotent retry and projection rebuild for every golden case, not
-only cases whose title mentions replay.
+only cases whose title mentions replay. Merge operations run once because
+repeating an already-active source merge is normatively an error; their stored
+state participates in both snapshots.
 
 ## Reference runner
 

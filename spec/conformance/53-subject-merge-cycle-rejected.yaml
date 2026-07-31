@@ -1,0 +1,69 @@
+case_id: subject-merge-cycle-rejected
+title: A merge whose target chain reaches its source is rejected
+invariants: [P8, P9, INV-12]
+schema_profile: org-matters/v1
+scope_id: merge-cycle
+clock:
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T09:02:00Z"
+  - "2026-07-31T09:03:00Z"
+  - "2026-07-31T10:01:00Z"
+  - "2026-07-31T10:02:00Z"
+  - "2026-07-31T10:03:00Z"
+cards:
+  - card_id: card-a
+    scope_id: merge-cycle
+    subject_key: a
+    date: 2026-07-31
+    title: Matter A
+    status: open
+    source_refs:
+      - {source_id: evidence-a, sent_at: "2026-07-31T09:00:00Z", sender: Ada}
+  - card_id: card-b
+    scope_id: merge-cycle
+    subject_key: b
+    date: 2026-07-31
+    title: Matter B
+    status: open
+    source_refs:
+      - {source_id: evidence-b, sent_at: "2026-07-31T09:00:00Z", sender: Bob}
+  - card_id: card-c
+    scope_id: merge-cycle
+    subject_key: c
+    date: 2026-07-31
+    title: Matter C
+    status: open
+    source_refs:
+      - {source_id: evidence-c, sent_at: "2026-07-31T09:00:00Z", sender: Cy}
+merge_operations:
+  - operation: merge
+    source_subject_key: a
+    target_subject_key: b
+    valid_from: "2026-07-31T10:00:00Z"
+    source_refs:
+      - {source_id: merge-a-b, sent_at: "2026-07-31T10:00:00Z", sender: Dana}
+  - operation: merge
+    source_subject_key: b
+    target_subject_key: c
+    valid_from: "2026-07-31T10:01:00Z"
+    source_refs:
+      - {source_id: merge-b-c, sent_at: "2026-07-31T10:01:00Z", sender: Dana}
+  - operation: merge
+    source_subject_key: c
+    target_subject_key: a
+    valid_from: "2026-07-31T10:02:00Z"
+    source_refs:
+      - {source_id: merge-c-a, sent_at: "2026-07-31T10:02:00Z", sender: Dana}
+    expect_error: cycle
+expect:
+  assertions:
+    - {subject_key: a, predicate: status, object_value: open}
+    - {subject_key: b, predicate: status, object_value: open}
+    - {subject_key: c, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: c, predicate: status, object_value: open}
+  subject_count: 3
+  merge_count: 2
+  matters:
+    - {subject_key: c, title: Matter C, aliases: [Matter A, Matter B]}
+  queries: []

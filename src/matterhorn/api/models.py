@@ -81,6 +81,16 @@ class CorrectionInput(StrictModel):
     source_refs: list[SourceRef] = Field(min_length=1)
 
 
+class SubjectMergeInput(StrictModel):
+    source_subject_key: str
+    target_subject_key: str
+    source_refs: list[SourceRef] = Field(min_length=1)
+
+
+class SubjectUnmergeInput(StrictModel):
+    source_refs: list[SourceRef] = Field(min_length=1)
+
+
 class ValueResponse(StrictModel):
     subject_key: str
     predicate: str
@@ -120,6 +130,7 @@ class MatterResponse(StrictModel):
     next_step: Any = None
     due: Any = None
     subject_key: str
+    aliases: list[str] = Field(default_factory=list)
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
@@ -142,6 +153,7 @@ class MatterDetailResponse(StrictModel):
     subject_key: str
     subject_type: str
     title: str
+    aliases: list[str] = Field(default_factory=list)
     current: list[ValueResponse]
     timeline: dict[str, list[ValueResponse]]
 

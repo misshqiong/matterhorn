@@ -21,7 +21,9 @@ no external requests.
 
 Matterhorn ships a mature three-column personal Console: configure multiple
 mailboxes, AI, and Feed on the left; see one all-scope matter-card wall in the
-center; use scoped chat and deterministic queries on the right.
+center; use scoped chat and deterministic queries on the right. The detail
+modal can merge duplicate cards into a canonical matter with human provenance;
+merged titles remain visible as aliases and the correction is reversible.
 
 The Console also configures and runs the memory-only-credential
 [IMAP mail connector](docs/mail.md), accepts file uploads, and provides a quick
@@ -42,8 +44,8 @@ needs no key.
 <!-- screenshot: console-wall -->
 ![Matterhorn Console — unified matter wall](docs/images/console-wall.png)
 > **Screenshot placeholder:** multiple mailbox and AI configuration, unified
-> matter-card wall, modal scope-aware detail/correction, and evidence-bearing
-> chat.
+> matter-card wall, modal scope-aware detail/correction/merge, and
+> evidence-bearing chat.
 
 See the [Console guide](docs/console.md).
 
@@ -171,7 +173,8 @@ projection.
 ## Current CLI
 
 - Write and project: `mh init`, `mh add`, `mh ingest`, `mh extract`,
-  `mh flush`, `mh dream`, `mh replay`, and `mh correct`.
+  `mh flush`, `mh dream`, `mh replay`, `mh correct`, `mh merge`, and
+  `mh unmerge`.
 - Read and move data: `mh matters`, `mh task`, `mh events`, `mh export`,
   `mh import`, `mh sync-status`, and `mh query` (`current`, `timeline`, `at`,
   `by-person`, `list`).
@@ -228,9 +231,10 @@ restart and expose accepted/rejected gate counts. Reads, including
 - `mh serve --webhook-url URL` delivers event batches at least once with
   bounded retry. Consumers deduplicate by deterministic `event_id`.
 - `mh export SCOPE` is the data-ownership handoff: one versioned JSON document
-  containing the assertions, subjects, evidence lifecycle, and derived event
-  history. `mh import` accepts it into an empty store and reproduces the same
-  projections and query answers without changing human correction origin.
+  containing the assertions, subjects, active subject merges, evidence
+  lifecycle, and derived event history. `mh import` accepts it into an empty
+  store and reproduces the same projections and query answers without changing
+  human correction origin.
 
 Assertions remain the asset and the only source of truth. Events are generated
 from projection diffs, while intervals and MemoryCards are rebuildable views.
@@ -248,7 +252,7 @@ Public door: add(messages)
 ════════╪════ Engine promise boundary ═══════════════════════════════════
         ▼
    EpisodeCard ──► validation ──► assertions ──► intervals ──► answers
-        ▲          deterministic, idempotent, replayable (INV-1…INV-11)
+        ▲          deterministic, idempotent, replayable (INV-1…INV-12)
         │
 Advanced door: add_cards(episode_cards)
 ```
@@ -280,7 +284,7 @@ collision protection, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=47 failed=0 total=47
+SUMMARY passed=54 failed=0 total=54
 ```
 
 ## Guides

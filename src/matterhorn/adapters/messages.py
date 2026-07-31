@@ -8,7 +8,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, field_validator
 
 from matterhorn.canonical import canonical_json, stable_hash
 from matterhorn.contracts import (
@@ -18,6 +18,7 @@ from matterhorn.contracts import (
     Record,
     SchemaProfile,
     SourceRef,
+    SubjectAnchor,
 )
 from matterhorn.contracts.models import StrictModel
 from matterhorn.contracts.schema import resolve_schema
@@ -77,6 +78,20 @@ class MessageCardCandidate(StrictModel):
     source_ids: list[str]
     cleared_fields: list[str] = Field(default_factory=list)
     subject_key: str | None = None
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def date_accepts_model_datetime_drift(cls, value: Any) -> Any:
+        # Models occasionally emit the record timestamp ("2026-07-30T10:00:00Z")
+        # for the date field; keep the calendar date instead of dropping the
+        # whole batch as UNPARSEABLE.
+        if isinstance(value, str) and "T" in value:
+            candidate = value.split("T", 1)[0]
+            try:
+                return date.fromisoformat(candidate)
+            except ValueError:
+                return value
+        return value
 
 
 class MessageCardResponse(StrictModel):
@@ -152,6 +167,7 @@ class MessageCardExtractor:
         records: list[Record | ChatMessage | dict[str, Any]] | None = None,
         messages: list[ChatMessage | dict[str, Any]] | None = None,
         batch_size: int = DEFAULT_EXTRACTION_BATCH_SIZE,
+        anchors: list[SubjectAnchor] | None = None,
     ) -> MessageExtractionReport:
         if records is not None and messages is not None:
             raise ValueError("pass records or deprecated messages, not both")
@@ -161,12 +177,17 @@ class MessageCardExtractor:
         if batch_size < 1:
             raise ValueError("batch_size MUST be positive")
         inputs = _validate_inputs(supplied)
+        offered_anchors = list(anchors or [])
         if not inputs:
             return MessageExtractionReport()
         cards: list[EpisodeCard] = []
         rejections: list[MessageCardRejection] = []
         for batch in _thread_batches(inputs, batch_size):
-            report = self._extract_batch(scope_id=scope_id, inputs=batch)
+            report = self._extract_batch(
+                scope_id=scope_id,
+                inputs=batch,
+                anchors=offered_anchors,
+            )
             cards.extend(report.cards)
             rejections.extend(report.rejections)
         return MessageExtractionReport(cards=cards, rejections=rejections)
@@ -176,13 +197,15 @@ class MessageCardExtractor:
         *,
         scope_id: str,
         inputs: list[_ExtractionRecord],
+        anchors: list[SubjectAnchor],
     ) -> MessageExtractionReport:
         modern = any(not item.legacy for item in inputs)
         prompt = build_message_prompt(
             self.profile,
             scope_id,
             inputs,
-            allow_subject_key=not modern,
+            anchors=anchors,
+            allow_subject_key=not modern or bool(anchors),
         )
         raw = self.gateway.complete(
             system=prompt["system"],
@@ -214,8 +237,11 @@ class MessageCardExtractor:
         rejected: list[MessageCardRejection] = []
         allowed_fields = _profile_card_fields(
             self.profile,
-            allow_subject_key=not modern,
+            # Modern subject keys are decoded so the deterministic anchor gate
+            # can silently discard fabricated values.
+            allow_subject_key=True,
         )
+        anchor_keys = {anchor.subject_key for anchor in anchors}
 
         for index, candidate in enumerate(response.cards):
             dumped = candidate.model_dump(mode="json")
@@ -258,7 +284,11 @@ class MessageCardExtractor:
                 continue
             dumped.pop("source_ids")
             if modern:
-                dumped.pop("subject_key", None)
+                dumped["subject_key"] = (
+                    candidate.subject_key
+                    if candidate.subject_key in anchor_keys
+                    else None
+                )
                 boundaries = sorted(
                     {
                         by_source[source_id].record.matter_boundary
@@ -324,6 +354,7 @@ def build_message_prompt(
     scope_id: str,
     records: list[_ExtractionRecord] | list[Record] | list[ChatMessage],
     *,
+    anchors: list[SubjectAnchor] | None = None,
     allow_subject_key: bool = True,
 ) -> dict[str, Any]:
     normalized = (
@@ -357,6 +388,10 @@ def build_message_prompt(
         "never cite a scope, container, thread, native id, or URI. "
         "Omit fields not listed in active_card_fields. "
         "Empty source_ids are invalid. Thread identity is assigned by the engine. "
+        "A card describes one underlying matter end to end: Records that "
+        "investigate, decide, progress, verify, or accept the SAME task belong "
+        "on ONE card citing all their source_ids — phases are never separate "
+        "matters. Emit separate cards only for genuinely different tasks. "
         f"schema={profile.schema_id}; "
         f"active_card_fields={canonical_json(fields)}"
     )
@@ -369,6 +404,30 @@ def build_message_prompt(
             "or 回复: MUST NOT be repeated in the title. Derive status only "
             "when the aggregated conversation supports it; do not default "
             "status to done."
+        )
+    offered_anchors = list(anchors or [])
+    if offered_anchors:
+        system += (
+            " Known open matters: "
+            f"{canonical_json([anchor.model_dump(mode='json') for anchor in offered_anchors])}. "
+            "Attach a card to a known matter by copying its exact subject_key "
+            "ONLY when the Records clearly continue that same underlying "
+            "matter — progressing, investigating, verifying, fixing, or "
+            "accepting it. Investigation, verification, and acceptance phases "
+            "of a known matter are progress ON that matter, NOT new matters. "
+            "Records about a different task MUST NOT carry any subject_key "
+            "even though known matters are listed: omit subject_key so a new "
+            "matter is created. Never force-fit; when unsure whether it is the "
+            "same matter, omit subject_key. When one batch touches several "
+            "known matters, emit several cards and make each card cite only "
+            "its own source_ids. Keep the closed envelope exactly like this "
+            "literal example, where the first card continues a known matter "
+            "and the second is a new unrelated matter: "
+            '{"cards":[{"date":"2026-01-31","title":"Release readiness",'
+            '"status":"in_progress","subject_key":"sub_known_release",'
+            '"source_ids":["m1"]},{"date":"2026-01-31",'
+            '"title":"Gateway H2 research","status":"open",'
+            '"source_ids":["m2"]}]}.'
         )
     aliases = source_aliases(item.source_id for item in normalized)
     user = canonical_json(
@@ -391,7 +450,7 @@ def build_message_prompt(
     properties = schema["$defs"]["MessageCardCandidate"]["properties"]
     allowed = {"date", "title", "source_ids"} | _profile_card_fields(
         profile,
-        allow_subject_key=allow_subject_key,
+        allow_subject_key=allow_subject_key or bool(offered_anchors),
     )
     schema["$defs"]["MessageCardCandidate"]["properties"] = {
         key: value for key, value in properties.items() if key in allowed

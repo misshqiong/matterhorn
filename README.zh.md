@@ -16,7 +16,8 @@
 ## Console
 
 Matterhorn 自带成熟的三栏个人 Console：左栏配置多邮箱、AI 与 Feed；中心统一展示
-全部 scope 的事项卡片墙；右栏提供带 scope 的 Chat 与确定性查询。
+全部 scope 的事项卡片墙；右栏提供带 scope 的 Chat 与确定性查询。详情 modal 可用
+带人工来源的方式把重复卡归并到 canonical 事项；被归并标题保留为「又名」，且可撤销。
 
 Console 也能配置并运行凭证仅驻留内存的 [IMAP 邮件连接器](docs/mail.zh.md)，支持
 文件上传和 quick single-message jot。
@@ -33,7 +34,7 @@ Dana Reyes / octo-org 样例使用随包 fixture，零 key 即可完整运行。
 
 <!-- screenshot: console-wall -->
 ![Matterhorn Console — unified matter wall](docs/images/console-wall.png)
-> **截图占位：** 多邮箱与 AI 配置、统一事项墙、scope-aware 详情/纠错和带证据
+> **截图占位：** 多邮箱与 AI 配置、统一事项墙、scope-aware 详情/纠错/归并和带证据
 > Chat；事项详情与纠错在 modal 中打开。详见
 > [Console 指南](docs/console.zh.md)。
 
@@ -150,7 +151,7 @@ Hub URL type：
 ## 当前 CLI
 
 - 写入与投影：`mh init`、`mh add`、`mh ingest`、`mh extract`、`mh flush`、
-  `mh dream`、`mh replay`、`mh correct`；
+  `mh dream`、`mh replay`、`mh correct`、`mh merge`、`mh unmerge`；
 - 读取与搬运：`mh matters`、`mh task`、`mh events`、`mh export`、
   `mh import`、`mh sync-status`、`mh query`（`current`、`timeline`、`at`、
   `by-person`、`list`）；
@@ -197,8 +198,8 @@ print(engine.task(receipt.task_id).gate)
 - `mh serve --webhook-url URL` 以至少一次语义推送事件批次，并做有界重试；
   消费方按确定性的 `event_id` 去重；
 - `mh export SCOPE` 是数据所有权的交付形式：一个版本化 JSON 文档，包含断言、
-  subjects、证据生命周期与派生事件历史；`mh import` 只导入空 store，并复现相同
-  投影和查询答案，人工纠错的 `origin=human` 原样保留。
+  subjects、active subject merges、证据生命周期与派生事件历史；`mh import`
+  只导入空 store，并复现相同投影和查询答案，人工纠错的 `origin=human` 原样保留。
 
 断言始终是唯一事实资产；事件来自投影差异，区间与 MemoryCard 都可重建。这个可携带
 的所有权边界，是开源记忆引擎承载团队长期知识时最重要的信任基础之一。
@@ -214,7 +215,7 @@ print(engine.task(receipt.task_id).gate)
 ════════╪════ 引擎承诺边界 ═════════════════════════════════════════════
         ▼
    EpisodeCard ──► 校验 ──► 断言 ──► 区间 ──► 答案
-        ▲          确定、幂等、可重放（INV-1…INV-11）
+        ▲          确定、幂等、可重放（INV-1…INV-12）
         │
 高级入口: add_cards(episode_cards)
 ```
@@ -241,7 +242,7 @@ webhook。嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
 
 ```console
 $ mh conformance run
-SUMMARY passed=47 failed=0 total=47
+SUMMARY passed=54 failed=0 total=54
 ```
 
 ## 文档

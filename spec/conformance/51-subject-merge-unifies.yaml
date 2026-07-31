@@ -1,0 +1,52 @@
+case_id: subject-merge-unifies
+title: A subject merge projects both evidence streams onto the canonical target
+invariants: [P5, P7, P8, P9, INV-3, INV-9, INV-12]
+schema_profile: org-matters/v1
+scope_id: merge-unifies
+clock:
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T10:01:00Z"
+  - "2026-07-31T11:01:00Z"
+cards:
+  - card_id: target-card
+    scope_id: merge-unifies
+    subject_key: target
+    date: 2026-07-31
+    title: Canonical release
+    status: open
+    occurred_at: "2026-07-31T09:00:00Z"
+    source_refs:
+      - {source_id: target-evidence, sent_at: "2026-07-31T09:00:00Z", sender: Ada}
+  - card_id: source-card
+    scope_id: merge-unifies
+    subject_key: source
+    date: 2026-07-31
+    title: Release QA
+    status: blocked
+    occurred_at: "2026-07-31T10:00:00Z"
+    source_refs:
+      - {source_id: source-evidence, sent_at: "2026-07-31T10:00:00Z", sender: Bob}
+merge_operations:
+  - operation: merge
+    source_subject_key: source
+    target_subject_key: target
+    valid_from: "2026-07-31T11:00:00Z"
+    source_refs:
+      - {source_id: merge-reason, sent_at: "2026-07-31T11:00:00Z", sender: Dana}
+expect:
+  assertions:
+    - {subject_key: source, predicate: status, object_value: blocked}
+    - {subject_key: target, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: target, predicate: status, object_value: open}
+    - {subject_key: target, predicate: status, object_value: blocked}
+  subject_count: 2
+  merge_count: 1
+  matters:
+    - {subject_key: target, title: Canonical release, status: blocked, aliases: [Release QA]}
+  queries:
+    - name: timeline
+      args: {subject_key: target, predicate: status}
+      result:
+        - {value: open, source_ids: [target-evidence]}
+        - {value: blocked, source_ids: [source-evidence]}

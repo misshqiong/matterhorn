@@ -121,7 +121,7 @@ env COLUMNS=60 LINES=24 NO_COLOR=1 .venv/bin/python -m pytest -q
 ./.venv/bin/mh conformance run
 ```
 
-**期望**：最后一行 `SUMMARY passed=47 failed=0 total=47`。
+**期望**：最后一行 `SUMMARY passed=54 failed=0 total=54`。
 
 ---
 
@@ -725,7 +725,7 @@ MATTERHORN_TEST_POSTGRES_DSN="postgresql://matterhorn@127.0.0.1:55432/matterhorn
 ```
 
 **期望**：`302 passed`、零失败、零 skip，
-`SUMMARY passed=47 failed=0 total=47`。这是 §1 的 254 个本地通过项
+`SUMMARY passed=54 failed=0 total=54`。这是 §1 的本地 conformance 通过项
 加上 48 个 PostgreSQL 用例；本轮沙箱没有把它观察成实跑结果。
 
 若仍看到 `48 skipped`，说明 DSN 没生效，PG 根本没被验证。

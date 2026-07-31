@@ -1,0 +1,55 @@
+case_id: anchor-attaches-known-subject
+title: A valid offered anchor attaches extracted progress to the known subject
+invariants: [P2, P5, P9, INV-5, INV-12]
+schema_profile: org-matters/v1
+scope_id: anchor-valid
+clock:
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T10:01:00Z"
+cards:
+  - card_id: known-release
+    scope_id: anchor-valid
+    subject_key: release-main
+    date: 2026-07-31
+    title: Release readiness
+    status: open
+    occurred_at: "2026-07-31T09:00:00Z"
+    source_refs:
+      - {source_id: existing-1, sent_at: "2026-07-31T09:00:00Z", sender: Ada}
+record_batches:
+  - records:
+      - record_id: "CCODE:session-2"
+        native_id: session-2
+        container_id: CCODE
+        thread_id: "CCODE:session-2"
+        sent_at: "2026-07-31T10:00:00Z"
+        author: {id: claude, display_name: Claude Code, kind: app}
+        content: "Investigated and verified the release readiness fix."
+        kind: message
+record_model_responses:
+  - cards:
+      - date: "2026-07-31"
+        title: Verify the release fix
+        status: in_progress
+        occurred_at: "2026-07-31T10:00:00Z"
+        source_ids: ["CCODE:session-2"]
+        subject_key: release-main
+expect:
+  record_reports:
+    - {records_processed: 1, cards_accepted: 1, assertions_emitted: 1}
+  second_record_reports:
+    - {records_processed: 0, records_skipped: 1, assertions_emitted: 0}
+  assertions:
+    - {subject_key: release-main, predicate: status, object_value: open}
+    - {subject_key: release-main, predicate: status, object_value: in_progress}
+  intervals:
+    - {subject_key: release-main, predicate: status, object_value: open}
+    - {subject_key: release-main, predicate: status, object_value: in_progress}
+  subject_count: 1
+  matters:
+    - {subject_key: release-main, title: Release readiness, status: in_progress}
+  queries:
+    - name: current
+      args: {subject_key: release-main, predicate: status}
+      result:
+        - {value: in_progress, source_ids: ["CCODE:session-2"]}

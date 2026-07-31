@@ -24,6 +24,7 @@ from matterhorn.contracts import (
     Correction,
     DreamReport,
     EpisodeCard,
+    EventType,
     EvidenceRef,
     EvidenceStatus,
     ExportEnvelope,
@@ -39,6 +40,9 @@ from matterhorn.contracts import (
     RecordExtractor,
     ReplayReport,
     SchemaProfile,
+    SourceRef,
+    SubjectAnchor,
+    SubjectMerge,
     SubjectRecord,
     TaskReceipt,
     TaskResult,
@@ -51,12 +55,18 @@ from matterhorn.engine.events import derive_change_events
 from matterhorn.engine.extractor import extract_card
 from matterhorn.engine.identity import resolve_subject
 from matterhorn.engine.materializer import materialize
-from matterhorn.errors import ImportRefusedError, ResourceNotFoundError
+from matterhorn.errors import (
+    ImportRefusedError,
+    ResourceNotFoundError,
+    SubjectMergeConflictError,
+)
 from matterhorn.projection import project_assertions
 from matterhorn.query import QueryService
 from matterhorn.store import SQLiteStore, Store
 
 Clock = Callable[[], datetime]
+DEFAULT_MAX_ANCHORS = 40
+SUBJECT_MERGE_PREDICATE = "subject_merge"
 
 
 @dataclass(frozen=True)
@@ -69,6 +79,7 @@ class Matter:
     next_step: Any
     due: Any
     subject_key: str
+    aliases: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,6 +91,7 @@ class Matter:
             "next_step": self.next_step,
             "due": self.due,
             "subject_key": self.subject_key,
+            "aliases": self.aliases,
         }
 
 
@@ -101,7 +113,11 @@ class Engine:
             raise ValueError("pass either llm or gateway, not both")
         self._write_gateway: LlmGateway = gateway or llm or NullGateway()
         self._extractor = extractor
-        self.query = QueryService(self.store, self.profile)
+        self.query = QueryService(
+            self.store,
+            self.profile,
+            subject_resolver=self.canonical_subject_key,
+        )
 
     def add(
         self,
@@ -222,6 +238,11 @@ class Engine:
                     continue
                 existing = self.store.subjects(card.scope_id)
                 subject, _ = resolve_subject(card, self.profile, existing)
+                subject = _canonicalized_subject(
+                    subject,
+                    existing,
+                    self.store.subject_merges(card.scope_id),
+                )
                 self.store.upsert_subject(subject)
                 assertions = extract_card(
                     card,
@@ -289,6 +310,7 @@ class Engine:
                 scope_id=scope_id,
                 records=active,
                 batch_size=batch_size,
+                anchors=self._subject_anchors(scope_id),
             )
             if active
             else None
@@ -344,10 +366,46 @@ class Engine:
             sync_positions=self.store.sync_positions(scope_id),
         )
 
+    def _subject_anchors(self, scope_id: str) -> list[SubjectAnchor]:
+        activity: dict[str, datetime] = {}
+        merges = self.store.subject_merges(scope_id)
+        for assertion in _canonicalized_assertions(
+            self.store.assertions(scope_id),
+            merges,
+        ):
+            previous = activity.get(assertion.subject_key)
+            if previous is None or assertion.valid_from > previous:
+                activity[assertion.subject_key] = assertion.valid_from
+        cards = sorted(
+            self.store.memory_cards(scope_id),
+            key=lambda item: (
+                (
+                    -as_utc(activity[item.subject_key]).timestamp()
+                    if item.subject_key in activity
+                    else float("inf")
+                ),
+                item.subject_key.encode("utf-8"),
+            ),
+        )
+        anchors = []
+        for card in cards[:DEFAULT_MAX_ANCHORS]:
+            status = card.current.get("status")
+            last_active_at = activity.get(card.subject_key, card.updated_at)
+            anchors.append(
+                SubjectAnchor(
+                    subject_key=card.subject_key,
+                    title=card.title,
+                    status=status if isinstance(status, str) else None,
+                    last_active_at=last_active_at,
+                )
+            )
+        return anchors
+
     def matters(self, scope_id: str) -> list[Matter]:
         """Return ergonomic projected matters without touching the LLM."""
 
         result = []
+        aliases = self._subject_aliases(scope_id)
         for subject in self.query.list_matters(scope_id):
             current = subject.current
             result.append(
@@ -360,6 +418,7 @@ class Engine:
                     next_step=current.get("next_step"),
                     due=current.get("due_at"),
                     subject_key=subject.subject_key,
+                    aliases=aliases.get(subject.subject_key, []),
                 )
             )
         return result
@@ -518,6 +577,16 @@ class Engine:
             raise ValueError("predicate is not registered for correction subject type")
         if definition.cardinality.value == "APPEND" and item.operation == Operation.RETRACT:
             raise ValueError("APPEND predicates cannot be retracted")
+        subjects = {
+            subject.subject_key: subject
+            for subject in self.store.subjects(item.scope_id)
+        }
+        if item.subject_key not in subjects:
+            raise ValueError("correction subject does not exist")
+        canonical_subject_key = self.canonical_subject_key(
+            item.scope_id,
+            item.subject_key,
+        )
         value_key = item.object_key
         if value_key is None:
             value_key = (
@@ -528,7 +597,7 @@ class Engine:
         assertion = Assertion(
             assertion_id=derive_assertion_id(
                 item.scope_id,
-                item.subject_key,
+                canonical_subject_key,
                 item.predicate,
                 item.operation,
                 value_key,
@@ -536,7 +605,7 @@ class Engine:
                 item.source_refs,
             ),
             scope_id=item.scope_id,
-            subject_key=item.subject_key,
+            subject_key=canonical_subject_key,
             subject_type=item.subject_type,
             predicate=item.predicate,
             operation=item.operation,
@@ -548,16 +617,149 @@ class Engine:
             origin=Origin.human,
         )
         with self.store.transaction():
-            if not any(
-                subject.subject_key == item.subject_key
-                for subject in self.store.subjects(item.scope_id)
-            ):
-                raise ValueError("correction subject does not exist")
             for source_ref in item.source_refs:
                 self.store.observe_source(item.scope_id, source_ref)
             self.store.add_assertion(assertion)
             self._rebuild(item.scope_id)
         return assertion
+
+    def merge_subjects(
+        self,
+        scope_id: str,
+        source_subject_key: str,
+        target_subject_key: str,
+        *,
+        source_refs: list[SourceRef],
+        valid_from: datetime,
+    ) -> ChangeEvent:
+        refs = [
+            ref if isinstance(ref, SourceRef) else SourceRef.model_validate(ref)
+            for ref in source_refs
+        ]
+        merge = SubjectMerge(
+            scope_id=scope_id,
+            source_subject_key=source_subject_key,
+            target_subject_key=target_subject_key,
+            source_refs=refs,
+            valid_from=valid_from,
+        )
+        merge = merge.model_copy(
+            update={"valid_from": as_utc(merge.valid_from)}
+        )
+        with self.store.transaction():
+            subjects = {
+                subject.subject_key: subject
+                for subject in self.store.subjects(scope_id)
+            }
+            if source_subject_key not in subjects:
+                raise ResourceNotFoundError(
+                    "source subject does not exist in scope"
+                )
+            if target_subject_key not in subjects:
+                raise ResourceNotFoundError(
+                    "target subject does not exist in scope"
+                )
+            if source_subject_key == target_subject_key:
+                raise SubjectMergeConflictError(
+                    "source and target subjects MUST differ"
+                )
+            edges = _merge_edges(self.store.subject_merges(scope_id))
+            if source_subject_key in edges:
+                raise SubjectMergeConflictError(
+                    "source subject is already merged; unmerge it first"
+                )
+            if (
+                _canonical_subject_key(target_subject_key, edges)
+                == source_subject_key
+            ):
+                raise SubjectMergeConflictError(
+                    "subject merge would create a cycle"
+                )
+            for source_ref in refs:
+                self.store.observe_source(scope_id, source_ref)
+            recorded_at = self._clock()
+            self.store.add_subject_merge(merge)
+            self._rebuild(scope_id)
+            event = _subject_merge_event(
+                event_type=EventType.subject_merged,
+                merge=merge,
+                recorded_at=recorded_at,
+            )
+            self.store.add_event(event)
+        return event
+
+    def unmerge_subjects(
+        self,
+        scope_id: str,
+        source_subject_key: str,
+        *,
+        source_refs: list[SourceRef],
+        valid_from: datetime,
+    ) -> ChangeEvent:
+        refs = [
+            ref if isinstance(ref, SourceRef) else SourceRef.model_validate(ref)
+            for ref in source_refs
+        ]
+        if not refs:
+            raise ValueError("subject unmerges MUST have source_refs")
+        with self.store.transaction():
+            active = {
+                merge.source_subject_key: merge
+                for merge in self.store.subject_merges(scope_id)
+            }.get(source_subject_key)
+            if active is None:
+                raise SubjectMergeConflictError(
+                    "source subject is not actively merged"
+                )
+            for source_ref in refs:
+                self.store.observe_source(scope_id, source_ref)
+            recorded_at = self._clock()
+            if not self.store.remove_subject_merge(scope_id, source_subject_key):
+                raise SubjectMergeConflictError(
+                    "source subject is not actively merged"
+                )
+            self._rebuild(scope_id)
+            unmerge = SubjectMerge(
+                scope_id=scope_id,
+                source_subject_key=source_subject_key,
+                target_subject_key=active.target_subject_key,
+                source_refs=refs,
+                valid_from=valid_from,
+            )
+            unmerge = unmerge.model_copy(
+                update={"valid_from": as_utc(unmerge.valid_from)}
+            )
+            event = _subject_merge_event(
+                event_type=EventType.subject_unmerged,
+                merge=unmerge,
+                recorded_at=recorded_at,
+            )
+            self.store.add_event(event)
+        return event
+
+    def canonical_subject_key(self, scope_id: str, subject_key: str) -> str:
+        return _canonical_subject_key(
+            subject_key,
+            _merge_edges(self.store.subject_merges(scope_id)),
+        )
+
+    def _subject_aliases(self, scope_id: str) -> dict[str, list[str]]:
+        subjects = {
+            subject.subject_key: subject
+            for subject in self.store.subjects(scope_id)
+        }
+        edges = _merge_edges(self.store.subject_merges(scope_id))
+        aliases: dict[str, set[str]] = {}
+        for source_key in edges:
+            target_key = _canonical_subject_key(source_key, edges)
+            source = subjects[source_key]
+            target = subjects[target_key]
+            if source.title != target.title:
+                aliases.setdefault(target_key, set()).add(source.title)
+        return {
+            key: sorted(values, key=lambda value: value.encode("utf-8"))
+            for key, values in aliases.items()
+        }
 
     def replay(self, scope_id: str) -> ReplayReport:
         with self.store.transaction():
@@ -620,6 +822,7 @@ class Engine:
                 for item in self.store.source_metadata(scope_id)
             ],
             events=self.store.events(scope_id),
+            merges=self.store.subject_merges(scope_id),
         )
 
     def import_snapshot(
@@ -684,6 +887,35 @@ class Engine:
                         revoked_at=source.revoked_at,
                     ),
                 )
+            subject_keys = {
+                subject.subject_key for subject in self.store.subjects(snapshot.scope_id)
+            }
+            merge_edges: dict[str, str] = {}
+            for merge in snapshot.merges:
+                if merge.scope_id != snapshot.scope_id:
+                    raise ImportRefusedError(
+                        "export merge scope_id does not match envelope scope_id"
+                    )
+                if (
+                    merge.source_subject_key not in subject_keys
+                    or merge.target_subject_key not in subject_keys
+                ):
+                    raise ImportRefusedError(
+                        "export merge references an unknown subject"
+                    )
+                if merge.source_subject_key in merge_edges:
+                    raise ImportRefusedError(
+                        "export contains duplicate active subject merges"
+                    )
+                merge_edges[merge.source_subject_key] = merge.target_subject_key
+                try:
+                    _canonical_subject_key(
+                        merge.source_subject_key,
+                        merge_edges,
+                    )
+                except ValueError as error:
+                    raise ImportRefusedError(str(error)) from error
+                self.store.add_subject_merge(merge)
             self._rebuild(snapshot.scope_id, emit_events=False)
             for event in snapshot.events:
                 if event.scope_id != snapshot.scope_id:
@@ -714,10 +946,14 @@ class Engine:
         processed = failed = accepted_count = rejected_count = new_assertions = 0
         new_subjects = 0
         for item in items:
+            prompt_subject_key = self.canonical_subject_key(
+                scope_id,
+                item.subject_key,
+            )
             prompt = build_prompt(
                 self.profile,
                 item.card,
-                subject_key=item.subject_key,
+                subject_key=prompt_subject_key,
                 subject_type=item.subject_type,
             )
             try:
@@ -753,6 +989,10 @@ class Engine:
                 with self.store.transaction():
                     for accepted in gate.accepted:
                         candidate = accepted.candidate
+                        assertion_subject_key = self.canonical_subject_key(
+                            scope_id,
+                            candidate.subject_key,
+                        )
                         if (
                             candidate.parent_subject_key is not None
                             and candidate.subject_title is not None
@@ -807,7 +1047,7 @@ class Engine:
                         assertion = Assertion(
                             assertion_id=derive_assertion_id(
                                 scope_id,
-                                candidate.subject_key,
+                                assertion_subject_key,
                                 candidate.predicate,
                                 candidate.operation,
                                 value_key,
@@ -815,7 +1055,7 @@ class Engine:
                                 accepted.source_refs,
                             ),
                             scope_id=scope_id,
-                            subject_key=candidate.subject_key,
+                            subject_key=assertion_subject_key,
                             subject_type=candidate.subject_type,
                             predicate=candidate.predicate,
                             operation=candidate.operation,
@@ -865,9 +1105,18 @@ class Engine:
         self, scope_id: str, *, emit_events: bool = True
     ) -> list[ChangeEvent]:
         previous = self.store.intervals(scope_id)
-        assertions = self.store.assertions(scope_id)
+        subjects = self.store.subjects(scope_id)
+        merges = self.store.subject_merges(scope_id)
+        assertions = _canonicalized_assertions(
+            self.store.assertions(scope_id),
+            merges,
+        )
         intervals, stats = project_assertions(assertions, self.profile)
-        cards = materialize(self.store.subjects(scope_id), intervals, self.profile)
+        cards = materialize(
+            _canonicalized_subjects(subjects, merges),
+            intervals,
+            self.profile,
+        )
         self.store.replace_projection(scope_id, intervals, cards, stats)
         if not emit_events:
             return []
@@ -878,6 +1127,153 @@ class Engine:
             self.profile,
         )
         return [event for event in candidates if self.store.add_event(event)]
+
+
+def _merge_edges(merges: Iterable[SubjectMerge]) -> dict[str, str]:
+    return {
+        merge.source_subject_key: merge.target_subject_key
+        for merge in merges
+    }
+
+
+def _canonical_subject_key(subject_key: str, edges: dict[str, str]) -> str:
+    current = subject_key
+    visited: set[str] = set()
+    while current in edges:
+        if current in visited:
+            raise ValueError("subject merge graph contains a cycle")
+        visited.add(current)
+        current = edges[current]
+    return current
+
+
+def _canonicalized_subject(
+    subject: SubjectRecord,
+    existing: list[SubjectRecord],
+    merges: list[SubjectMerge],
+) -> SubjectRecord:
+    edges = _merge_edges(merges)
+    target_key = _canonical_subject_key(subject.subject_key, edges)
+    if target_key == subject.subject_key:
+        return subject
+    target = next(item for item in existing if item.subject_key == target_key)
+    return SubjectRecord(
+        scope_id=target.scope_id,
+        subject_key=target.subject_key,
+        subject_type=target.subject_type,
+        title=target.title,
+        normalized_title=target.normalized_title,
+        source_ids=target.source_ids | subject.source_ids,
+        parent_subject_key=target.parent_subject_key,
+        thread_ids=target.thread_ids | subject.thread_ids,
+    )
+
+
+def _canonicalized_subjects(
+    subjects: list[SubjectRecord],
+    merges: list[SubjectMerge],
+) -> list[SubjectRecord]:
+    edges = _merge_edges(merges)
+    by_key = {subject.subject_key: subject for subject in subjects}
+    grouped: dict[str, list[SubjectRecord]] = {}
+    for subject in subjects:
+        canonical_key = _canonical_subject_key(subject.subject_key, edges)
+        grouped.setdefault(canonical_key, []).append(subject)
+
+    result = []
+    for canonical_key, merged_subjects in grouped.items():
+        canonical = by_key[canonical_key]
+        source_ids = frozenset(
+            source_id
+            for subject in merged_subjects
+            for source_id in subject.source_ids
+        )
+        thread_ids = frozenset(
+            thread_id
+            for subject in merged_subjects
+            for thread_id in subject.thread_ids
+        )
+        parent_subject_key = canonical.parent_subject_key
+        if parent_subject_key is not None:
+            parent_subject_key = _canonical_subject_key(
+                parent_subject_key,
+                edges,
+            )
+        result.append(
+            SubjectRecord(
+                scope_id=canonical.scope_id,
+                subject_key=canonical.subject_key,
+                subject_type=canonical.subject_type,
+                title=canonical.title,
+                normalized_title=canonical.normalized_title,
+                source_ids=source_ids,
+                parent_subject_key=parent_subject_key,
+                thread_ids=thread_ids,
+            )
+        )
+    return sorted(
+        result,
+        key=lambda item: (
+            item.scope_id.encode("utf-8"),
+            item.subject_key.encode("utf-8"),
+        ),
+    )
+
+
+def _canonicalized_assertions(
+    assertions: list[Assertion],
+    merges: list[SubjectMerge],
+) -> list[Assertion]:
+    edges = _merge_edges(merges)
+    return [
+        assertion.model_copy(
+            update={
+                "subject_key": _canonical_subject_key(
+                    assertion.subject_key,
+                    edges,
+                )
+            }
+        )
+        for assertion in assertions
+    ]
+
+
+def _subject_merge_event(
+    *,
+    event_type: EventType,
+    merge: SubjectMerge,
+    recorded_at: datetime,
+) -> ChangeEvent:
+    source_ids = list(
+        dict.fromkeys(ref.source_id for ref in merge.source_refs)
+    )
+    event_id = stable_hash(
+        [
+            event_type.value,
+            merge.scope_id,
+            merge.source_subject_key,
+            merge.target_subject_key,
+            instant_text(merge.valid_from),
+            [
+                ref.model_dump(mode="json")
+                for ref in merge.source_refs
+            ],
+        ]
+    )
+    merged = event_type == EventType.subject_merged
+    return ChangeEvent(
+        event_id=event_id,
+        event_type=event_type,
+        scope_id=merge.scope_id,
+        subject_key=merge.source_subject_key,
+        predicate=SUBJECT_MERGE_PREDICATE,
+        old_value=None if merged else merge.target_subject_key,
+        new_value=merge.target_subject_key if merged else None,
+        valid_from=merge.valid_from,
+        recorded_at=recorded_at,
+        origin=Origin.human,
+        source_ids=source_ids,
+    )
 
 
 def _db_path(store: str | Path) -> str | Path:

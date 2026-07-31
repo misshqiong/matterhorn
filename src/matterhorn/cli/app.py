@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import tomllib
+import uuid
 import webbrowser
 from datetime import datetime
 from enum import Enum
@@ -27,10 +28,10 @@ from matterhorn.connectors.mail import (
     reset_mail_sync_position,
     save_mail_config,
 )
-from matterhorn.contracts import Correction, ExportEnvelope
+from matterhorn.contracts import Correction, ExportEnvelope, SourceRef
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
 from matterhorn.defaults import Engine
-from matterhorn.errors import ResourceNotFoundError
+from matterhorn.errors import MatterhornError, ResourceNotFoundError
 
 app = typer.Typer(help="Matterhorn deterministic temporal memory engine.")
 query_app = typer.Typer(help="Read projected memory without an LLM.")
@@ -519,7 +520,7 @@ def add_messages(
     )
     try:
         result = engine.add(selected_scope, messages, wait=wait)
-    except (ValueError, TypeError) as error:
+    except (MatterhornError, ValueError, TypeError) as error:
         raise typer.BadParameter(str(error)) from error
     _print(result.model_dump(mode="json"))
 
@@ -1011,9 +1012,91 @@ def correct(
     try:
         correction = Correction.model_validate(payload)
         assertion = _engine(db, schema, schema_dir).correct(correction)
-    except (ValueError, TypeError) as error:
+    except (MatterhornError, ValueError, TypeError) as error:
         raise typer.BadParameter(str(error)) from error
     _print(assertion.model_dump(mode="json"))
+
+
+@app.command("merge")
+def merge_subjects(
+    scope_id: str = typer.Argument(..., help="Scope containing both subjects."),
+    source_subject_key: str = typer.Argument(
+        ..., help="Subject to merge away."
+    ),
+    target_subject_key: str = typer.Argument(
+        ..., help="Canonical subject that remains."
+    ),
+    reason: str = typer.Option(
+        ..., help="Human reason retained in merge provenance."
+    ),
+    sender: str = typer.Option(
+        ..., help="Name of the human authorizing the merge."
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Merge SOURCE into TARGET as a reversible human correction."""
+
+    engine = _engine(db, schema, schema_dir)
+    instant = engine.now()
+    try:
+        event = engine.merge_subjects(
+            scope_id,
+            source_subject_key,
+            target_subject_key,
+            source_refs=[
+                SourceRef(
+                    source_id=f"console:{uuid.uuid4()}",
+                    sent_at=instant,
+                    sender=sender,
+                    excerpt=f"CLI subject merge. Reason: {reason}",
+                )
+            ],
+            valid_from=instant,
+        )
+    except (MatterhornError, ValueError, TypeError) as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(event.model_dump(mode="json"))
+
+
+@app.command("unmerge")
+def unmerge_subject(
+    scope_id: str = typer.Argument(..., help="Scope containing the merge."),
+    source_subject_key: str = typer.Argument(
+        ..., help="Merged-away subject to restore."
+    ),
+    reason: str = typer.Option(
+        ..., help="Human reason retained in unmerge provenance."
+    ),
+    sender: str = typer.Option(
+        ..., help="Name of the human authorizing the unmerge."
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Reverse the active merge for SOURCE."""
+
+    engine = _engine(db, schema, schema_dir)
+    instant = engine.now()
+    try:
+        event = engine.unmerge_subjects(
+            scope_id,
+            source_subject_key,
+            source_refs=[
+                SourceRef(
+                    source_id=f"console:{uuid.uuid4()}",
+                    sent_at=instant,
+                    sender=sender,
+                    excerpt=f"CLI subject unmerge. Reason: {reason}",
+                )
+            ],
+            valid_from=instant,
+        )
+    except (MatterhornError, ValueError, TypeError) as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(event.model_dump(mode="json"))
 
 
 @query_app.command("current")

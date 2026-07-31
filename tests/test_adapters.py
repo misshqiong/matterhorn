@@ -13,6 +13,7 @@ from matterhorn.adapters import (
 )
 from matterhorn.adapters.email_mbox import map_email_message
 from matterhorn.canonical import stable_hash
+from matterhorn.contracts import SubjectAnchor
 from matterhorn.engine import Engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -259,6 +260,110 @@ def test_email_subject_key_stamp_is_server_derived_and_deterministic() -> None:
     assert "subject_key" not in gateway.calls[0]["response_schema"]["$defs"][
         "MessageCardCandidate"
     ]["properties"]
+
+
+def test_record_extractor_keeps_only_offered_anchor_subject_keys() -> None:
+    anchors = [
+        SubjectAnchor(
+            subject_key="known-release",
+            title="Release readiness",
+            status="in_progress",
+        )
+    ]
+    valid_gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Verify release candidate",
+                    "progress": "QA verification started.",
+                    "source_ids": ["m1"],
+                    "subject_key": "known-release",
+                }
+            ]
+        }
+    )
+    valid = MessageCardExtractor(valid_gateway, "org-matters/v1").extract(
+        scope_id="dev",
+        records=[_modern_record("verify-1")],
+        anchors=anchors,
+    )
+    assert valid.cards[0].subject_key == "known-release"
+    assert "Known open matters" in valid_gateway.calls[0]["system"]
+    assert '"subject_key":"sub_known_release"' in valid_gateway.calls[0]["system"]
+
+    fabricated_gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Unrelated work",
+                    "source_ids": ["m1"],
+                    "subject_key": "fabricated",
+                }
+            ]
+        }
+    )
+    fabricated = MessageCardExtractor(
+        fabricated_gateway, "org-matters/v1"
+    ).extract(
+        scope_id="dev",
+        records=[_modern_record("other-1")],
+        anchors=anchors,
+    )
+    assert fabricated.rejection_counts == {}
+    assert fabricated.cards[0].subject_key is None
+
+
+def test_mail_subject_key_stamp_overrides_anchor_citation() -> None:
+    record = _email_record("anchor-mail@example.test", "Release readiness")
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Release readiness",
+                    "source_ids": ["m1"],
+                    "subject_key": "known-release",
+                }
+            ]
+        }
+    )
+    report = MessageCardExtractor(gateway, "org-matters/v1").extract(
+        scope_id="mail",
+        records=[record],
+        anchors=[
+            SubjectAnchor(
+                subject_key="known-release",
+                title="Release readiness",
+            )
+        ],
+    )
+    expected = "mail:" + stable_hash(
+        ["imap:ada@example.test/INBOX", "subject:release readiness"]
+    )[:20]
+    assert report.cards[0].subject_key == expected
+
+
+def test_datetime_drift_in_card_date_is_truncated_not_unparseable() -> None:
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-30T10:00:00Z",
+                    "title": "Gateway H2 research",
+                    "progress": "Research started.",
+                    "source_ids": ["m1"],
+                }
+            ]
+        }
+    )
+    report = MessageCardExtractor(gateway, "org-matters/v1").extract(
+        scope_id="dev",
+        records=[_modern_record("h2-1")],
+    )
+    assert report.rejection_counts == {}
+    assert report.cards[0].date.isoformat() == "2026-07-30"
 
 
 def test_email_subject_fallback_groups_reply_and_chinese_prefixes(tmp_path) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -50,14 +51,21 @@ class SubjectResult:
 
 
 class QueryService:
-    def __init__(self, store: Store, profile: SchemaProfile):
+    def __init__(
+        self,
+        store: Store,
+        profile: SchemaProfile,
+        subject_resolver: Callable[[str, str], str] | None = None,
+    ):
         self._store = store
         self._profile = profile
+        self._subject_resolver = subject_resolver or (lambda _scope, key: key)
 
     def current(
         self, scope_id: str, subject_key: str, predicate: str
     ) -> list[ValueResult]:
         definition = self._profile.predicate(predicate)
+        subject_key = self._subject_resolver(scope_id, subject_key)
         rows = self._store.query_current_values(
             scope_id,
             subject_key,
@@ -70,6 +78,7 @@ class QueryService:
         self, scope_id: str, subject_key: str, predicate: str
     ) -> list[ValueResult]:
         self._profile.predicate(predicate)
+        subject_key = self._subject_resolver(scope_id, subject_key)
         rows = self._store.query_timeline_values(
             scope_id, subject_key, predicate
         )
@@ -79,6 +88,7 @@ class QueryService:
         self, scope_id: str, subject_key: str, predicate: str, instant: datetime
     ) -> list[ValueResult]:
         definition = self._profile.predicate(predicate)
+        subject_key = self._subject_resolver(scope_id, subject_key)
         rows = self._store.query_values_at(
             scope_id,
             subject_key,

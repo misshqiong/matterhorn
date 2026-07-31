@@ -1,0 +1,48 @@
+case_id: anchor-fabrication-stripped
+title: A fabricated model subject key is stripped before normal identity resolution
+invariants: [P2, P3, P9, INV-5, INV-12]
+schema_profile: org-matters/v1
+scope_id: anchor-fabricated
+clock:
+  - "2026-07-31T09:01:00Z"
+  - "2026-07-31T10:01:00Z"
+cards:
+  - card_id: known-card
+    scope_id: anchor-fabricated
+    subject_key: known
+    date: 2026-07-31
+    title: Known release
+    status: open
+    occurred_at: "2026-07-31T09:00:00Z"
+    source_refs:
+      - {source_id: known-evidence, sent_at: "2026-07-31T09:00:00Z", sender: Ada}
+record_batches:
+  - records:
+      - record_id: "CCODE:unrelated-session"
+        native_id: unrelated-session
+        container_id: CCODE
+        thread_id: "CCODE:unrelated-session"
+        sent_at: "2026-07-31T10:00:00Z"
+        author: {id: claude, display_name: Claude Code, kind: app}
+        content: "Office relocation is blocked on landlord approval."
+        kind: message
+record_model_responses:
+  - cards:
+      - date: "2026-07-31"
+        title: Office relocation
+        status: blocked
+        occurred_at: "2026-07-31T10:00:00Z"
+        source_ids: ["CCODE:unrelated-session"]
+        subject_key: fabricated-key
+expect:
+  assertions:
+    - {subject_key: known, predicate: status, object_value: open}
+    - {predicate: status, object_value: blocked}
+  intervals:
+    - {subject_key: known, predicate: status, object_value: open}
+    - {predicate: status, object_value: blocked}
+  subject_count: 2
+  matters:
+    - {subject_key: known, title: Known release}
+    - {title: Office relocation, status: blocked}
+  queries: []

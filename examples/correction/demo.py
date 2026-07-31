@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from matterhorn import Engine
@@ -14,9 +14,9 @@ class EmptySemanticGateway:
 
 clock = iter(
     [
-        datetime(2026, 7, 29, 9, 5, tzinfo=timezone.utc),
-        datetime(2026, 7, 29, 9, 10, tzinfo=timezone.utc),
-        datetime(2026, 7, 29, 9, 15, tzinfo=timezone.utc),
+        datetime(2026, 7, 29, 9, 5, tzinfo=UTC),
+        datetime(2026, 7, 29, 9, 10, tzinfo=UTC),
+        datetime(2026, 7, 29, 9, 15, tzinfo=UTC),
     ]
 )
 with tempfile.TemporaryDirectory(prefix="matterhorn-correction-") as directory:

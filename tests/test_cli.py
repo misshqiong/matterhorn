@@ -451,6 +451,75 @@ def test_correct_cli_accepts_yaml_file(tmp_path) -> None:
     assert after[0]["source_ids"] == ["human-file-1"]
 
 
+def test_merge_and_unmerge_cli_use_human_provenance(tmp_path) -> None:
+    db = tmp_path / "merge-cli.db"
+    cards = tmp_path / "merge-cards.yaml"
+    cards.write_text(
+        yaml.safe_dump(
+            {
+                "cards": [
+                    {
+                        "card_id": key,
+                        "scope_id": "demo",
+                        "subject_key": key,
+                        "date": "2026-07-29",
+                        "title": title,
+                        "status": "open",
+                        "source_refs": [
+                            {
+                                "source_id": f"model-{key}",
+                                "sent_at": "2026-07-29T09:00:00Z",
+                                "sender": "bot",
+                            }
+                        ],
+                    }
+                    for key, title in [
+                        ("source", "Release QA"),
+                        ("target", "Release"),
+                    ]
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    _run("ingest", str(cards), "--db", str(db))
+    merged = json.loads(
+        _run(
+            "merge",
+            "demo",
+            "source",
+            "target",
+            "--reason",
+            "same real-world release",
+            "--sender",
+            "Ada",
+            "--db",
+            str(db),
+        ).stdout
+    )
+    matters = json.loads(_run("matters", "demo", "--db", str(db)).stdout)
+    assert merged["event_type"] == "subject_merged"
+    assert merged["source_ids"][0].startswith("console:")
+    assert matters[0]["aliases"] == ["Release QA"]
+
+    unmerged = json.loads(
+        _run(
+            "unmerge",
+            "demo",
+            "source",
+            "--reason",
+            "separate work after all",
+            "--sender",
+            "Ada",
+            "--db",
+            str(db),
+        ).stdout
+    )
+    restored = json.loads(_run("matters", "demo", "--db", str(db)).stdout)
+    assert unmerged["event_type"] == "subject_unmerged"
+    assert {item["subject_key"] for item in restored} == {"source", "target"}
+
+
 def test_dream_help_documents_environment_credentials() -> None:
     command = _cli_metadata("dream")
     help_text = " ".join(
@@ -469,7 +538,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=47 failed=0 total=47" in completed.stdout
+    assert "SUMMARY passed=54 failed=0 total=54" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

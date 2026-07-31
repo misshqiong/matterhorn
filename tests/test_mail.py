@@ -50,8 +50,8 @@ class EmptySemanticGateway:
 
 
 class DeterministicMailExtractor:
-    def extract(self, *, scope_id, records, batch_size):
-        del batch_size
+    def extract(self, *, scope_id, records, batch_size, anchors):
+        del batch_size, anchors
         return SimpleNamespace(
             cards=[
                 EpisodeCard.model_validate(

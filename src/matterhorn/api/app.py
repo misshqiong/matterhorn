@@ -43,6 +43,8 @@ from matterhorn.api.models import (
     RawIngestRequest,
     ScopeListResponse,
     SubjectListResponse,
+    SubjectMergeInput,
+    SubjectUnmergeInput,
     UnifiedMatterListResponse,
     ValueListResponse,
 )
@@ -457,6 +459,35 @@ def create_app(
         return service.correct(
             scope_id=scope_id,
             correction=correction.model_dump(mode="python"),
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/merges",
+        response_model=ChangeEvent,
+        summary="Merge one subject into another with human provenance",
+    )
+    def merge_subjects(scope_id: str, payload: SubjectMergeInput):
+        return service.merge_subjects(
+            scope_id=scope_id,
+            source_subject_key=payload.source_subject_key,
+            target_subject_key=payload.target_subject_key,
+            source_refs=payload.source_refs,
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/merges/{source_subject_key}/unmerge",
+        response_model=ChangeEvent,
+        summary="Reverse an active subject merge with human provenance",
+    )
+    def unmerge_subject(
+        scope_id: str,
+        source_subject_key: str,
+        payload: SubjectUnmergeInput,
+    ):
+        return service.unmerge_subjects(
+            scope_id=scope_id,
+            source_subject_key=source_subject_key,
+            source_refs=payload.source_refs,
         )
 
     @app.get("/v1/tasks/{task_id}", response_model=TaskResult)

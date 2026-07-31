@@ -631,6 +631,11 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             'api(`/v1/matters${query}`)',
             "scope_id",
             "last-opened card",
+            'id="merge-form"',
+            'id="merge-target"',
+            "matterhorn.console.sender",
+            "/merges`",
+            "又名",
         ]:
             assert marker in page.text
 
@@ -658,6 +663,8 @@ def test_ingest_rate_limit_and_openapi_paths(tmp_path) -> None:
                 "/v1/scopes",
                 "/v1/scopes/{scope_id}/ingest",
                 "/v1/scopes/{scope_id}/matters/{subject_key}",
+                "/v1/scopes/{scope_id}/merges",
+                "/v1/scopes/{scope_id}/merges/{source_subject_key}/unmerge",
                 "/v1/scopes/{scope_id}/chat",
                 "/v1/console/config",
             ]:

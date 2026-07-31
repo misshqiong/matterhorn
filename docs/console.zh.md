@@ -20,8 +20,8 @@ mh console
 鉴权，因此默认仍只绑定 loopback。
 
 浏览器只调用公共接口：`GET /v1/matters` 与 `?scope=`、scope-aware 详情/纠错/
-查询/摄入/Chat、`GET /v1/events`、`GET /v1/connections`、mail collection API
-以及 AI 配置/脱敏状态/Test API。
+可撤销主语归并/查询/摄入/Chat、`GET /v1/events`、`GET /v1/connections`、mail
+collection API 以及 AI 配置/脱敏状态/Test API。
 
 ## 三栏产品布局
 
@@ -75,11 +75,15 @@ timeout = 60.0
 默认调用 `GET /v1/matters` 展示全部 scope。每张 ledger-paper 卡显示 scope tag、
 status stamp、owner、due（逾期红色）与 next step。顶部 chips 可切 All 或单 scope。
 点击卡片会打开 modal，展示 scope-aware 当前值、evidence 状态/source ID 以及每个值
-的人工纠错入口。纠错使用第二个 modal，提交后会刷新仍打开的详情 modal 与事项墙。
+的人工纠错入口；被归并标题会以「又名」显示。同一个详情 modal 内还有
+**Merge into…** 表单，候选只来自当前事项墙同 scope 的其他事项，并要求填写原因与
+姓名（复用纠错 sender 偏好）。它只调用公共
+`POST /v1/scopes/{scope}/merges`，成功后关闭 modal 并刷新事项墙。纠错使用第二个
+modal，提交后会刷新仍打开的详情 modal 与事项墙。
 
 <!-- screenshot: console-detail-modal -->
 > **截图占位：** 统一事项墙上方的详情 modal，含 predicate value、origin、evidence
-> 状态/source ID 与 Correct 操作。
+> 状态/source ID、「又名」、Correct 与 Merge into 操作。
 
 Activity 与 Connections 保留在墙下方的可折叠 strip，约每五秒刷新。
 
@@ -104,7 +108,10 @@ scope，只有 `list_matters`、`query_current`、`query_timeline`、`query_at`�
    精确匹配的虚构文本走随包 fixture，不需要 AI key。
 2. 保持 **All** scope chip，点击新事项卡；带证据详情会以 modal 覆盖在统一墙上。
 3. 点击某个值旁的 **correct** 打开纠错 modal；只读演示可直接关闭而不提交。
-4. 在 **Working scope** 选 `personal` 并跑一次确定性查询。配置真实 AI key 前，
+4. 同一 scope 有两个事项时，打开重复项，在 **Merge into…** 选择 canonical target
+   并填写原因；重复卡会从墙上消失，标题成为 target 的「又名」。可用 `mh unmerge`
+   或公共 unmerge REST 资源撤销。
+5. 在 **Working scope** 选 `personal` 并跑一次确定性查询。配置真实 AI key 前，
    Chat 保持隐藏。
 
 ## 安全

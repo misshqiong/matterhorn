@@ -4,7 +4,6 @@ import json
 import shlex
 from pathlib import Path
 
-
 root = Path(__file__).parent
 repository = root.parents[1]
 
