@@ -1,4 +1,4 @@
 {
   "format": "%H%x00%aN%x00%aE%x00%aI%x00%s%x00%b%x00",
-  "output": "1111111111111111111111111111111111111111\u0000Ada Lovelace\u0000ada@example.com\u00002026-07-28T09:10:11+00:00\u0000Add temporal ledger\u0000First paragraph.\n\nSecond paragraph with 中文 and café.\n\u0000222222222222222222222222222222222222222222\u0000Ada Lovelace\u0000ada@example.com\u00002026-07-29T10:11:12+08:00\u0000Document zero-model reads\u0000\u0000"
+  "output": "1111111111111111111111111111111111111111\u0000Ada Lovelace\u0000ada@example.com\u00002026-07-28T09:10:11+00:00\u0000Add temporal ledger\u0000First paragraph.\n\nSecond paragraph with 中文 and café.\n\u0000222222222222222222222222222222222222222222\u0000Ada Lovelace\u0000ada@octo-dev.example\u00002026-07-29T10:11:12+08:00\u0000Document zero-model reads\u0000\u00003333333333333333333333333333333333333333\u0000张伟\u0000zhang.wei@octo-dev.example\u00002026-07-30T11:12:13+08:00\u0000Verify Unicode identities\u0000Keep person ids readable without transliteration.\u0000"
 }

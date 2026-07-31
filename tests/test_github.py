@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -29,8 +30,8 @@ def test_map_git_log_preserves_bodies_unicode_urls_and_author_identity() -> None
         repo="sample-repo",
     )
 
-    assert len(records) == 2
-    first, second = records
+    assert len(records) == 3
+    first, second, unicode_author = records
     assert first.native_id == "commit:" + "1" * 40
     assert first.record_id == "github:octo-org/sample-repo:" + first.native_id
     assert first.uri == (
@@ -41,9 +42,44 @@ def test_map_git_log_preserves_bodies_unicode_urls_and_author_identity() -> None
         "First paragraph.\n\nSecond paragraph with 中文 and café."
     )
     assert second.content == "Document zero-model reads"
-    assert first.author.id == second.author.id
-    assert first.author.display_name == "Ada Lovelace <ada@example.com>"
+    assert first.author.id == second.author.id == "git:ada-lovelace"
+    assert first.author.display_name == second.author.display_name == "Ada Lovelace"
+    assert unicode_author.author.id == "git:张伟"
+    assert unicode_author.author.display_name == "张伟"
+    author_output = json.dumps(
+        [record.author.model_dump() for record in records],
+        ensure_ascii=False,
+    )
+    assert "@" not in author_output
     assert first.sent_at.isoformat() == "2026-07-28T09:10:11+00:00"
+
+
+def test_map_git_log_slugifies_ascii_and_hashes_only_empty_slugs() -> None:
+    payload = (
+        "\0".join(
+            [
+                "4" * 40,
+                "Octo__ Dev -- Team!",
+                "octo@dev.example",
+                "2026-07-30T12:00:00Z",
+                "Readable identity",
+                "",
+                "5" * 40,
+                "!!!",
+                "symbols@octo-dev.example",
+                "2026-07-30T12:01:00Z",
+                "Fallback identity",
+                "",
+            ]
+        )
+        + "\0"
+    )
+
+    records = map_git_log(payload, owner="octo-org", repo="sample-repo")
+
+    assert records[0].author.id == "git:octo-dev-team"
+    assert re.fullmatch(r"git:author-[0-9a-f]{12}", records[1].author.id)
+    assert all("@" not in record.author.id for record in records)
 
 
 def test_map_git_log_fails_loudly_on_wrong_delimiter_shape() -> None:

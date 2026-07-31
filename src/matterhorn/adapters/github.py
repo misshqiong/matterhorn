@@ -8,6 +8,13 @@ NUL is the field and record delimiter because Git commit messages cannot
 contain NUL bytes. Newlines and other Unicode in commit bodies are therefore
 preserved without relying on a line-oriented parser.
 
+Git author identities use the email-free, readable ``git:<name-slug>`` form.
+The slug is derived only from the case-folded display name; the raw name stays
+available as ``display_name``. Consequently, two people who commit under the
+same display name but different email addresses intentionally merge into one
+person id. That collision trade-off is accepted for a readable development
+ledger, and no email address is included in either mapped identity field.
+
 The issue adapter accepts the JSON arrays returned by GitHub's repository
 issues and issue-comments REST endpoints. ``gh api --paginate --slurp`` output
 (an array of page arrays) is accepted as well. The module performs no network
@@ -62,7 +69,7 @@ def map_git_log(
         if _COMMIT_SHA.fullmatch(sha) is None:
             raise ValueError(f"invalid commit SHA in git log payload: {sha!r}")
         name = _required_text(author_name, "git author name")
-        email = _required_text(author_email, "git author email")
+        _required_text(author_email, "git author email")
         subject = _required_text(subject, "git commit subject")
         native_id = f"commit:{sha}"
         records.append(
@@ -73,8 +80,8 @@ def map_git_log(
                     "container_id": container_id,
                     "sent_at": _required_instant(author_date, "git author date"),
                     "author": {
-                        "id": _git_author_id(name, email),
-                        "display_name": f"{name} <{email}>",
+                        "id": _git_author_id(name),
+                        "display_name": name,
                         "kind": "human",
                     },
                     "content": _join_title_body(subject, body),
@@ -278,9 +285,19 @@ def _repo_container(owner: str, repo: str) -> str:
     )
 
 
-def _git_author_id(name: str, email: str) -> str:
-    identity = f"{name.strip()}\0{email.strip().casefold()}".encode()
-    return "git-author:" + hashlib.sha256(identity).hexdigest()
+def _git_author_id(name: str) -> str:
+    folded = name.casefold()
+    slug_chars = []
+    for char in folded:
+        if char.isspace():
+            slug_chars.append("-")
+        elif char == "-" or (char != "_" and re.fullmatch(r"\w", char)):
+            slug_chars.append(char)
+    slug = re.sub(r"-+", "-", "".join(slug_chars)).strip("-")
+    if not slug:
+        suffix = hashlib.sha256(folded.encode("utf-8")).hexdigest()[:12]
+        slug = f"author-{suffix}"
+    return f"git:{slug}"
 
 
 def _github_author(value: Any, field: str) -> dict[str, str]:

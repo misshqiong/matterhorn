@@ -9,8 +9,10 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from matterhorn import Engine
-from matterhorn.canonical import canonical_json
+from matterhorn.canonical import canonical_json, object_key
+from matterhorn.contracts.schema import resolve_schema
 from matterhorn.errors import ImportRefusedError
+from matterhorn.render import render_scope_html
 from matterhorn.scheduler import ServiceScheduler, parse_daily_flush_at
 from matterhorn.webhooks import WebhookDispatcher
 
@@ -60,7 +62,11 @@ def _card(
     }
 
 
-def _projection_snapshot(engine: Engine, scope_id: str) -> str:
+def _projection_snapshot(
+    engine: Engine,
+    scope_id: str,
+    person_id: str = "u1",
+) -> str:
     return canonical_json(
         {
             "intervals": [
@@ -95,7 +101,7 @@ def _projection_snapshot(engine: Engine, scope_id: str) -> str:
             ],
             "by_person": [
                 item.to_dict()
-                for item in engine.query.by_person(scope_id, "u1")
+                for item in engine.query.by_person(scope_id, person_id)
             ],
             "completion": engine.query.completion(scope_id),
         }
@@ -221,6 +227,7 @@ def test_blocking_and_semantic_projection_events_are_emitted(tmp_path) -> None:
 def test_export_import_round_trip_preserves_projection_queries_and_origin(
     tmp_path,
 ) -> None:
+    person_id = "git:张伟"
     source = Engine(
         tmp_path / "source.db",
         clock=iter(
@@ -230,7 +237,22 @@ def test_export_import_round_trip_preserves_projection_queries_and_origin(
             ]
         ),
     )
-    source._ingest_cards_sync([_card()])
+    card = _card()
+    card["participants"] = [{"id": person_id, "role": "owner"}]
+    source._ingest_cards_sync([card])
+    participant = next(
+        item
+        for item in source.store.intervals("team")
+        if item.predicate == "participated_by"
+    )
+    assert participant.object_key == object_key(person_id)
+    assert source.query.by_person("team", person_id)
+    rendered = render_scope_html(
+        source.export("team"),
+        resolve_schema("org-matters/v1"),
+        as_of="2026-07-29T12:00:00Z",
+    )
+    assert f'<li class="person"><strong>{person_id}</strong>' in rendered
     source.correct(
         {
             "scope_id": "team",
@@ -248,7 +270,7 @@ def test_export_import_round_trip_preserves_projection_queries_and_origin(
             ],
         }
     )
-    expected = _projection_snapshot(source, "team")
+    expected = _projection_snapshot(source, "team", person_id)
     envelope = source.export("team")
 
     target = Engine(tmp_path / "target.db")
@@ -256,13 +278,14 @@ def test_export_import_round_trip_preserves_projection_queries_and_origin(
         json.loads(envelope.model_dump_json())
     )
     assert report.assertions == len(envelope.assertions)
-    assert _projection_snapshot(target, "team") == expected
+    assert _projection_snapshot(target, "team", person_id) == expected
+    assert target.query.by_person("team", person_id)
     assert any(
         item.origin.value == "human"
         for item in target.store.assertions("team")
     )
     assert target.replay("team").events_emitted == 0
-    assert _projection_snapshot(target, "team") == expected
+    assert _projection_snapshot(target, "team", person_id) == expected
 
 
 def test_import_refuses_unavailable_profile_and_nonempty_scope(tmp_path) -> None:
