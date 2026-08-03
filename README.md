@@ -183,8 +183,8 @@ projection.
 - Operate and integrate: `mh console`, `mh serve`, `mh mcp`, `mh mail`
   (`setup`, `sync`, `reset`), `mh setup` (`claude-code`), and `mh hook`
   (`session-start`, `session-end`, `turn-end`).
-- Inspect and verify: `mh schema` (`list`, `show`) and `mh conformance`
-  (`run`).
+- Inspect and verify: `mh schema` (`list`, `show`), `mh conformance` (`run`),
+  and `mh eval` (`run`).
 
 ## Two-verb SDK
 
@@ -293,6 +293,21 @@ rolling extraction, boundary chunk determinism, and receipt/flush replay:
 ```console
 $ mh conformance run
 SUMMARY passed=57 failed=0 total=57
+```
+
+### Extraction quality evaluation
+
+`mh eval run` measures the current message-to-matter extraction path against
+the fictional cases in [`spec/eval`](spec/eval/README.md). With no
+`MATTERHORN_PROVIDER`, it auto-detects the sibling offline response fixtures;
+configure a production provider to capture a live baseline instead. The plain
+table and optional `--json report.json` include over-splitting, wrong merges,
+wrong/missed attachment, field accuracy, evidence validity, and fuzzy title
+matching. Scores are measurements, so a completed run exits zero even when a
+score is poor; fixture, dataset, gateway, and output errors remain failures.
+
+```console
+$ mh eval run --provider fixture-file --json eval-report.json
 ```
 
 ## Guides

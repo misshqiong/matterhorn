@@ -1,0 +1,25 @@
+case_id: cross-conversation-purchase
+title: One purchase linked by order number spans three conversations
+scope_id: eval-purchase
+rounds:
+  - - id: p1
+      sender: {id: dana, name: Dana Reyes}
+      text: "Opened purchase order PO-7301 for the octo-org lab monitors."
+      sent_at: "2026-03-03T09:00:00Z"
+      conversation_id: procurement
+  - - id: p2
+      sender: {id: sol, name: Sol Kim}
+      text: "Vendor accepted PO-7301 and scheduled shipment."
+      sent_at: "2026-03-04T11:00:00Z"
+      conversation_id: vendor-updates
+  - - id: p3
+      sender: {id: dana, name: Dana Reyes}
+      text: "PO-7301 reached the warehouse; receipt confirmation is pending."
+      sent_at: "2026-03-06T16:00:00Z"
+      conversation_id: warehouse
+expected:
+  - title: PO-7301 lab monitor purchase
+    status: in_progress
+    owner: dana
+    next_step: Confirm warehouse receipt
+    evidence: [p1, p2, p3]

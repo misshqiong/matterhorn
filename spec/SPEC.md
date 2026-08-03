@@ -1269,6 +1269,15 @@ The distributed wheel and sdist MUST contain `SPEC.md`, the conformance README,
 and every golden YAML file so another implementation can use the installed
 artifact as a language-neutral contract.
 
+## 21. Message-to-matter evaluation
+
+Message-to-matter extraction quality MUST be measured by the additive Phase 0
+contract in `spec/eval/README.md`. The reference `mh eval run` harness executes
+the current production write path against fresh stores and scores only
+read-side results. Evaluation scores are measurements and MUST NOT be treated
+as conformance gates. Distributed artifacts MUST include the eval README, case
+YAML, and sibling scripted-response YAML.
+
 ## 中文摘要
 
 Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Record 经受控

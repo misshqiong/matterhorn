@@ -1,0 +1,25 @@
+case_id: recurring-order-weeks
+title: The same order recurs across several weeks without becoming a new matter
+scope_id: eval-recurring
+rounds:
+  - - id: w1
+      sender: {id: dana, name: Dana Reyes}
+      text: "Order OR-881 is open for the octo-org studio chairs; I own follow-up."
+      sent_at: "2026-05-01T09:00:00Z"
+      conversation_id: orders-week-1
+  - - id: w2
+      sender: {id: sol, name: Sol Kim}
+      text: "Two weeks later, OR-881 is in transit with the carrier."
+      sent_at: "2026-05-15T09:00:00Z"
+      conversation_id: orders-week-3
+  - - id: w3
+      sender: {id: dana, name: Dana Reyes}
+      text: "OR-881 was delivered after another two weeks; archive the receipt."
+      sent_at: "2026-05-29T09:00:00Z"
+      conversation_id: orders-week-5
+expected:
+  - title: OR-881 studio chair order
+    status: completed
+    owner: dana
+    next_step: Archive the receipt
+    evidence: [w1, w2, w3]

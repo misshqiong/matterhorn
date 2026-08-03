@@ -1,0 +1,25 @@
+responses:
+  - cards:
+      - date: "2026-06-02"
+        title: Juniper launch
+        status: open
+        participants:
+          - {id: dana, display_name: Dana Reyes, role: owner}
+        next_step: Complete the release checklist
+        source_ids: ["eval-rename:release-old:r1"]
+  - cards:
+      - date: "2026-06-03"
+        title: Cypress release
+        status: in_progress
+        progress: Matter renamed and packaging started
+        next_step: Ship the package
+        source_ids: ["eval-rename:release-rename:r2"]
+        subject_key: sub_395f98f30ca5fb66aa06
+  - cards:
+      - date: "2026-06-04"
+        title: Cypress release
+        status: completed
+        progress: Release shipped
+        next_step: Publish the release notes
+        source_ids: ["eval-rename:release-new:r3"]
+        subject_key: sub_395f98f30ca5fb66aa06

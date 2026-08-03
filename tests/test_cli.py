@@ -606,6 +606,77 @@ def test_conformance_cli_malformed_case_exits_two(tmp_path) -> None:
     assert "Traceback" not in completed.stderr
 
 
+def test_eval_cli_contract_documents_measurement_flags() -> None:
+    command = _cli_metadata("eval", "run")
+
+    assert "--dataset" in _parameter(command, "dataset").opts
+    assert "--case" in _parameter(command, "case_id").opts
+    assert "--provider" in _parameter(command, "provider").opts
+    assert "--responses" in _parameter(command, "responses").opts
+    assert "--json" in _parameter(command, "json_path").opts
+    assert "--seed-note" in _parameter(command, "seed_note").opts
+    assert "metric values never determine exit status" in " ".join(
+        (command.help or "").split()
+    )
+
+
+def test_eval_cli_runs_fixture_case_and_writes_parseable_json(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.delenv("MATTERHORN_PROVIDER", raising=False)
+    report_path = tmp_path / "report.json"
+
+    completed = _run(
+        "eval",
+        "run",
+        "--case",
+        "simple-single-matter",
+        "--json",
+        str(report_path),
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert "case_id | matters_expected | matters_produced" in completed.stdout
+    assert "simple-single-matter | 1 | 1 | 1 | 0 | 0/1 (0.000)" in completed.stdout
+    assert report["provider"] == "fixture-file"
+    assert report["cases"][0]["metrics"]["over_split"]["count"] == 0
+    assert report["aggregate"]["metrics"]["zero_model_route_rate"] is None
+
+
+def test_eval_cli_metric_failures_still_exit_zero(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("MATTERHORN_PROVIDER", raising=False)
+    completed = subprocess.run(
+        _command(
+            "eval",
+            "run",
+            "--case",
+            "interleaved-three-matters",
+            "--json",
+            str(tmp_path / "report.json"),
+        ),
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0
+    assert (
+        "interleaved-three-matters | 3 | 1 | 1 | 1 | "
+        "0/3 (0.000) | 1/1 (1.000)"
+    ) in completed.stdout
+
+
+def test_eval_cli_unusable_dataset_exits_two(tmp_path) -> None:
+    completed = subprocess.run(
+        _command("eval", "run", "--dataset", str(tmp_path / "missing")),
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 2
+    assert "ERROR eval dataset directory not found" in completed.stderr
+    assert "Traceback" not in completed.stderr
+
+
 def test_dream_environment_defaults_and_explicit_overrides(monkeypatch, tmp_path) -> None:
     cli_app = import_module("matterhorn.cli.app")
     captured = []

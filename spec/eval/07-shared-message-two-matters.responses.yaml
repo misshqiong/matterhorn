@@ -1,0 +1,19 @@
+responses:
+  - cards:
+      - date: "2026-07-08"
+        title: Kestrel migration
+        status: in_progress
+        next_step: Run the cutover checklist
+        source_ids:
+          - "eval-shared:planning:shared"
+          - "eval-shared:planning:a1"
+          - "eval-shared:planning:a2"
+          - "eval-shared:planning:b3"
+      - date: "2026-07-08"
+        title: Lumen budget
+        status: open
+        next_step: Review the hosting estimate
+        source_ids:
+          - "eval-shared:planning:shared"
+          - "eval-shared:planning:b1"
+          - "eval-shared:planning:b2"

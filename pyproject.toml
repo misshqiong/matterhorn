@@ -81,6 +81,10 @@ matterhorn = ["schemas/*/*.yaml", "templates/*.j2", "fixtures/*.json"]
   "spec/conformance/*.yaml",
   "spec/conformance/README.md",
 ]
+"share/matterhorn/spec/eval" = [
+  "spec/eval/*.yaml",
+  "spec/eval/README.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

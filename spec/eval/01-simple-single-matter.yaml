@@ -1,0 +1,15 @@
+case_id: simple-single-matter
+title: One conversation produces one correctly attributed matter
+scope_id: eval-simple
+rounds:
+  - - id: s1
+      sender: {id: dana, name: Dana Reyes}
+      text: "I own the Atlas cache cleanup; implementation is underway and review is next."
+      sent_at: "2026-01-05T09:00:00Z"
+      conversation_id: atlas-room
+expected:
+  - title: Atlas cache cleanup
+    status: in_progress
+    owner: dana
+    next_step: Review the cleanup
+    evidence: [s1]

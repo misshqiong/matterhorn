@@ -59,6 +59,21 @@ ARCHITECTURE_RULES = (
         "forbid": set(),
         "scope": "all",
     },
+    # Evaluation is an orchestration/read-side measurement surface. It may
+    # compose the public engine and built-in extractor/gateway, but physical
+    # persistence remains behind the engine's Store SPI.
+    {
+        "sources": {"evalrunner"},
+        "allow_only": {
+            "adapters",
+            "contracts",
+            "defaults",
+            "evalrunner",
+            "gateway_config",
+        },
+        "forbid": set(),
+        "scope": "all",
+    },
 )
 
 # A future SDK-compatibility fallback that lazily imports an adapter must be

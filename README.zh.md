@@ -159,7 +159,8 @@ Hub URL type：
 - 运行与集成：`mh console`、`mh serve`、`mh mcp`、`mh mail`（`setup`、
   `sync`、`reset`）、`mh setup`（`claude-code`）、`mh hook`
   （`session-start`、`session-end`、`turn-end`）；
-- 检查与验收：`mh schema`（`list`、`show`）和 `mh conformance`（`run`）。
+- 检查与验收：`mh schema`（`list`、`show`）、`mh conformance`（`run`）和
+  `mh eval`（`run`）。
 
 ## 两个动词的 SDK
 
@@ -250,6 +251,19 @@ receipt/flush 幂等重放：
 ```console
 $ mh conformance run
 SUMMARY passed=57 failed=0 total=57
+```
+
+### 提取质量评测
+
+`mh eval run` 用 [`spec/eval`](spec/eval/README.md) 中的虚构用例测量当前
+message-to-matter 提取路径。未设置 `MATTERHORN_PROVIDER` 时会自动使用同名离线
+响应 fixture；配置生产 provider 后可记录真实基线。纯文本表格和可选的
+`--json report.json` 会报告过切分、误合并、误挂/漏挂、字段准确率、证据有效率和
+标题模糊匹配率。分数只是测量值，因此完整执行后即使分数很差也返回 0；数据集、
+fixture、gateway 或输出错误仍会失败。
+
+```console
+$ mh eval run --provider fixture-file --json eval-report.json
 ```
 
 ## 文档

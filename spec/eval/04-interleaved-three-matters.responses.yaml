@@ -1,0 +1,14 @@
+responses:
+  - cards:
+      - date: "2026-04-10"
+        title: Channel work roundup
+        status: in_progress
+        progress: Dashboard, renewal, and access work were discussed
+        source_ids:
+          - "eval-interleaved:channel-main:i1"
+          - "eval-interleaved:channel-main:i2"
+          - "eval-interleaved:channel-main:i3"
+      - date: "2026-04-10"
+        title: Untraceable extra card
+        status: open
+        source_ids: ["eval-interleaved:channel-main:missing"]

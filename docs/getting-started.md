@@ -68,8 +68,23 @@ Only service mode runs quiet-period scheduling. Embedded applications call
 - Operate and integrate: `mh console`, `mh serve`, `mh mcp`, `mh mail`
   (`setup`, `sync`, `reset`), `mh setup` (`claude-code`), and `mh hook`
   (`session-start`, `session-end`, `turn-end`).
-- Inspect and verify: `mh schema` (`list`, `show`) and `mh conformance`
-  (`run`).
+- Inspect and verify: `mh schema` (`list`, `show`), `mh conformance` (`run`),
+  and `mh eval` (`run`).
+
+## Measure extraction quality
+
+Run the shipped deterministic fixture baseline without network access:
+
+```console
+mh eval run --provider fixture-file --json eval-report.json
+```
+
+Omit `--provider` when `MATTERHORN_PROVIDER` is unset for the same automatic
+fixture selection. Configure `openai-compatible` or `anthropic` through the
+ordinary `MATTERHORN_*` environment variables to measure a live provider. The
+report measures identity-routing failures and projected field/evidence quality;
+it is not a pass/fail gate. The complete dataset and metric contract is
+[`spec/eval/README.md`](../spec/eval/README.md).
 
 Continue with [core concepts](core-concepts.md), the
 [Console guide](console.md), the [MCP guide](mcp-claude-code.md), and the

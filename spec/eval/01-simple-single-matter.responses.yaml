@@ -1,0 +1,10 @@
+responses:
+  - cards:
+      - date: "2026-01-05"
+        title: Atlas cache cleanup
+        status: in_progress
+        participants:
+          - {id: dana, display_name: Dana Reyes, role: owner}
+        progress: Cache cleanup implementation started
+        next_step: Review the cleanup
+        source_ids: ["eval-simple:atlas-room:s1"]

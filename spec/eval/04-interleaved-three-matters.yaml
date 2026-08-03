@@ -1,0 +1,29 @@
+case_id: interleaved-three-matters
+title: Three interleaved matters share one channel and one extraction round
+scope_id: eval-interleaved
+rounds:
+  - - id: i1
+      sender: {id: dana, name: Dana Reyes}
+      text: "Aurora dashboard review is ready; accessibility pass is next."
+      sent_at: "2026-04-10T09:00:00Z"
+      conversation_id: channel-main
+    - id: i2
+      sender: {id: theo, name: Theo Park}
+      text: "Cedar vendor renewal is blocked on the revised quote."
+      sent_at: "2026-04-10T09:02:00Z"
+      conversation_id: channel-main
+    - id: i3
+      sender: {id: mira, name: Mira Chen}
+      text: "Nimbus access audit found two stale service accounts."
+      sent_at: "2026-04-10T09:04:00Z"
+      conversation_id: channel-main
+expected:
+  - title: Aurora dashboard review
+    status: ready
+    evidence: [i1]
+  - title: Cedar vendor renewal
+    status: blocked
+    evidence: [i2]
+  - title: Nimbus access audit
+    status: in_progress
+    evidence: [i3]

@@ -1,0 +1,35 @@
+case_id: lifecycle-five-rounds
+title: One incident continues through five lifecycle phases and conversations
+scope_id: eval-lifecycle
+rounds:
+  - - id: l1
+      sender: {id: dana, name: Dana Reyes}
+      text: "Investigating checkout incident INC-204; I am the incident owner."
+      sent_at: "2026-02-01T08:00:00Z"
+      conversation_id: incident-investigate
+  - - id: l2
+      sender: {id: mira, name: Mira Chen}
+      text: "Developing the fix for INC-204 after isolating the stale quote cache."
+      sent_at: "2026-02-01T10:00:00Z"
+      conversation_id: incident-develop
+  - - id: l3
+      sender: {id: dana, name: Dana Reyes}
+      text: "Testing the INC-204 fix in the octo-org staging tenant."
+      sent_at: "2026-02-01T13:00:00Z"
+      conversation_id: incident-test
+  - - id: l4
+      sender: {id: mira, name: Mira Chen}
+      text: "Submitted the INC-204 change for final approval."
+      sent_at: "2026-02-01T15:00:00Z"
+      conversation_id: incident-submit
+  - - id: l5
+      sender: {id: dana, name: Dana Reyes}
+      text: "Deployed INC-204 successfully; monitor checkout metrics next."
+      sent_at: "2026-02-01T18:00:00Z"
+      conversation_id: incident-deploy
+expected:
+  - title: Aster checkout incident INC-204
+    status: done
+    owner: dana
+    next_step: Monitor checkout metrics
+    evidence: [l1, l2, l3, l4, l5]

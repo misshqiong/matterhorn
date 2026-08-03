@@ -1,0 +1,25 @@
+responses:
+  - cards:
+      - date: "2026-08-01"
+        title: Sequoia contract review
+        status: open
+        participants:
+          - {id: dana@octo-mail.test, display_name: Dana Reyes, role: owner}
+        next_step: Review renewal terms
+        source_ids: ["eval-email:email-thread-77:e1"]
+  - cards:
+      - date: "2026-08-01"
+        title: Sequoia renewal terms
+        status: ready
+        progress: Revised liability clause is ready
+        next_step: Accept or revise the terms
+        source_ids: ["eval-email:email-thread-77:e2"]
+        subject_key: sub_3435cd4d29bb5b2b9cbd
+  - cards:
+      - date: "2026-08-02"
+        title: Sequoia contract review
+        status: completed
+        progress: Renewal terms accepted
+        next_step: File the signed copy
+        source_ids: ["eval-email:email-thread-77:e3"]
+        subject_key: sub_3435cd4d29bb5b2b9cbd

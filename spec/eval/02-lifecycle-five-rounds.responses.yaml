@@ -1,0 +1,42 @@
+responses:
+  - cards:
+      - date: "2026-02-01"
+        title: Aster checkout incident INC-204
+        status: in_progress
+        participants:
+          - {id: dana, display_name: Dana Reyes, role: owner}
+        progress: Investigating checkout failures
+        next_step: Isolate the failure
+        source_ids: ["eval-lifecycle:incident-investigate:l1"]
+  - cards:
+      - date: "2026-02-01"
+        title: INC-204 fix development
+        status: in_progress
+        progress: Developing the stale quote cache fix
+        next_step: Test the fix
+        source_ids: ["eval-lifecycle:incident-develop:l2"]
+        subject_key: sub_33511601884f7f2936c9
+  - cards:
+      - date: "2026-02-01"
+        title: INC-204 staging test
+        status: in_progress
+        progress: Testing in the octo-org staging tenant
+        next_step: Submit the change
+        source_ids: ["eval-lifecycle:incident-test:l3"]
+        subject_key: sub_33511601884f7f2936c9
+  - cards:
+      - date: "2026-02-01"
+        title: INC-204 submission
+        status: ready
+        progress: Change submitted for approval
+        next_step: Deploy the approved change
+        source_ids: ["eval-lifecycle:incident-submit:l4"]
+        subject_key: sub_33511601884f7f2936c9
+  - cards:
+      - date: "2026-02-01"
+        title: INC-204 deployment
+        status: done
+        progress: Change deployed successfully
+        next_step: Monitor checkout metrics
+        source_ids: ["eval-lifecycle:incident-deploy:l5"]
+        subject_key: sub_33511601884f7f2936c9

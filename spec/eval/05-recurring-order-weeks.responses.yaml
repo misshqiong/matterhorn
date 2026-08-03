@@ -1,0 +1,25 @@
+responses:
+  - cards:
+      - date: "2026-05-01"
+        title: OR-881 studio chair order
+        status: open
+        participants:
+          - {id: dana, display_name: Dana Reyes, role: owner}
+        next_step: Track the carrier
+        source_ids: ["eval-recurring:orders-week-1:w1"]
+  - cards:
+      - date: "2026-05-15"
+        title: OR-881 carrier update
+        status: in_progress
+        progress: Order is in transit
+        next_step: Confirm delivery
+        source_ids: ["eval-recurring:orders-week-3:w2"]
+        subject_key: sub_bf55ac5aa46674c60b7b
+  - cards:
+      - date: "2026-05-29"
+        title: OR-881 delivered
+        status: completed
+        progress: Order was delivered
+        next_step: Archive the receipt
+        source_ids: ["eval-recurring:orders-week-5:w3"]
+        subject_key: sub_bf55ac5aa46674c60b7b

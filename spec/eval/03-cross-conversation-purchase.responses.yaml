@@ -1,0 +1,23 @@
+responses:
+  - cards:
+      - date: "2026-03-03"
+        title: PO-7301 lab monitor purchase
+        status: open
+        participants:
+          - {id: dana, display_name: Dana Reyes, role: owner}
+        next_step: Await vendor acceptance
+        source_ids: ["eval-purchase:procurement:p1"]
+  - cards:
+      - date: "2026-03-04"
+        title: Purchase order PO-7301 shipment
+        status: in_progress
+        progress: Vendor accepted the order
+        next_step: Confirm warehouse receipt
+        source_ids: ["eval-purchase:vendor-updates:p2"]
+        subject_key: sub_8bba96829a40ff6f2dd0
+  - cards:
+      - date: "2026-03-06"
+        title: Warehouse receipt for PO-7301
+        status: ready
+        next_step: Record the received equipment
+        source_ids: ["eval-purchase:warehouse:p3"]

@@ -1,0 +1,25 @@
+case_id: renamed-matter
+title: A matter renamed mid-history remains one identity
+scope_id: eval-rename
+rounds:
+  - - id: r1
+      sender: {id: dana, name: Dana Reyes}
+      text: "Juniper launch planning is open; I own the release checklist."
+      sent_at: "2026-06-02T08:00:00Z"
+      conversation_id: release-old
+  - - id: r2
+      sender: {id: theo, name: Theo Park}
+      text: "Juniper launch is now called Cypress release; packaging is underway."
+      sent_at: "2026-06-03T10:00:00Z"
+      conversation_id: release-rename
+  - - id: r3
+      sender: {id: dana, name: Dana Reyes}
+      text: "Cypress release shipped; publish the release notes next."
+      sent_at: "2026-06-04T14:00:00Z"
+      conversation_id: release-new
+expected:
+  - title: Cypress release
+    status: completed
+    owner: dana
+    next_step: Publish the release notes
+    evidence: [r1, r2, r3]

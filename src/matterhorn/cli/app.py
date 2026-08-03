@@ -37,12 +37,14 @@ app = typer.Typer(help="Matterhorn deterministic temporal memory engine.")
 query_app = typer.Typer(help="Read projected memory without an LLM.")
 schema_app = typer.Typer(help="Inspect schema profiles.")
 conformance_app = typer.Typer(help="Run the language-neutral golden contract.")
+eval_app = typer.Typer(help="Measure message-to-matter extraction quality.")
 mail_app = typer.Typer(help="Configure and pull an IMAP mailbox.")
 setup_app = typer.Typer(help="Configure agent clients for Matterhorn.")
 hook_app = typer.Typer(help="Fail-open agent lifecycle hooks.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
+app.add_typer(eval_app, name="eval")
 app.add_typer(mail_app, name="mail")
 app.add_typer(setup_app, name="setup")
 app.add_typer(hook_app, name="hook")
@@ -1618,6 +1620,84 @@ def conformance_run(
     typer.echo(f"SUMMARY passed={passed} failed={failed} total={len(results)}")
     if failed:
         raise typer.Exit(code=1)
+
+
+@eval_app.command("run")
+def eval_run(
+    dataset: Path | None = typer.Option(
+        None,
+        help="Eval dataset directory; defaults to the packaged spec/eval dataset.",
+    ),
+    case_id: str | None = typer.Option(
+        None,
+        "--case",
+        help="Run one stable case_id.",
+    ),
+    provider: str | None = typer.Option(
+        None,
+        help=(
+            "Write-side provider. Defaults to MATTERHORN_PROVIDER, or "
+            "fixture-file when that variable is unset."
+        ),
+    ),
+    responses: Path | None = typer.Option(
+        None,
+        help="Extractor response YAML override; requires one selected case.",
+    ),
+    base_url: str | None = typer.Option(
+        None,
+        help="Override MATTERHORN_BASE_URL for a live provider.",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        help=(
+            "Override MATTERHORN_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
+        ),
+    ),
+    model: str | None = typer.Option(
+        None,
+        help="Override MATTERHORN_MODEL for a live provider.",
+    ),
+    json_path: Path | None = typer.Option(
+        None,
+        "--json",
+        help="Write the full versioned JSON report.",
+    ),
+    seed_note: bool = typer.Option(
+        False,
+        "--seed-note",
+        help="Record that provider-side seed control is outside this harness.",
+    ),
+) -> None:
+    """Run quality measurement; metric values never determine exit status."""
+    from matterhorn.evalrunner import format_report_table, run_eval_dataset
+
+    try:
+        report = run_eval_dataset(
+            dataset,
+            case_id=case_id,
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            responses=responses,
+            seed_note=seed_note,
+        )
+        if json_path is not None:
+            json_path.write_text(
+                json.dumps(
+                    report,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+    except Exception as error:
+        typer.echo(f"ERROR {error}", err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(format_report_table(report))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+case_id: email-thread
+title: A fictional email thread remains one matter across replies
+scope_id: eval-email
+rounds:
+  - - id: e1
+      sender: {id: dana@octo-mail.test, name: Dana Reyes}
+      text: "Subject: Sequoia contract review\nMessage-ID: <e1@octo-mail.test>\nPlease review the renewal terms; I own the response."
+      sent_at: "2026-08-01T07:00:00Z"
+      conversation_id: email-thread-77
+  - - id: e2
+      sender: {id: legal@octo-mail.test, name: Octo Legal Bot}
+      text: "Subject: Re: Sequoia contract review\nReferences: <e1@octo-mail.test>\nThe revised liability clause is ready."
+      sent_at: "2026-08-01T12:00:00Z"
+      conversation_id: email-thread-77
+  - - id: e3
+      sender: {id: dana@octo-mail.test, name: Dana Reyes}
+      text: "Subject: Re: Sequoia contract review\nReferences: <e1@octo-mail.test> <e2@octo-mail.test>\nTerms accepted; file the signed copy."
+      sent_at: "2026-08-02T09:00:00Z"
+      conversation_id: email-thread-77
+expected:
+  - title: Sequoia contract review
+    status: completed
+    owner: dana@octo-mail.test
+    next_step: File the signed copy
+    evidence: [e1, e2, e3]

@@ -1,0 +1,43 @@
+case_id: shared-message-two-matters
+title: Two unrelated matters legitimately share one source message
+scope_id: eval-shared
+rounds:
+  - - id: shared
+      sender: {id: dana, name: Dana Reyes}
+      text: "Today I reviewed both the Kestrel migration and the Lumen budget."
+      sent_at: "2026-07-08T09:00:00Z"
+      conversation_id: planning
+    - id: a1
+      sender: {id: theo, name: Theo Park}
+      text: "Kestrel migration dry run completed."
+      sent_at: "2026-07-08T09:02:00Z"
+      conversation_id: planning
+    - id: a2
+      sender: {id: dana, name: Dana Reyes}
+      text: "Kestrel migration cutover checklist is next."
+      sent_at: "2026-07-08T09:04:00Z"
+      conversation_id: planning
+    - id: b1
+      sender: {id: mira, name: Mira Chen}
+      text: "Lumen budget draft is open for review."
+      sent_at: "2026-07-08T09:06:00Z"
+      conversation_id: planning
+    - id: b2
+      sender: {id: dana, name: Dana Reyes}
+      text: "Lumen budget needs the hosting estimate."
+      sent_at: "2026-07-08T09:08:00Z"
+      conversation_id: planning
+    - id: b3
+      sender: {id: mira, name: Mira Chen}
+      text: "Lumen budget estimate arrived from finance."
+      sent_at: "2026-07-08T09:10:00Z"
+      conversation_id: planning
+expected:
+  - title: Kestrel migration
+    status: in_progress
+    next_step: Run the cutover checklist
+    evidence: [shared, a1, a2]
+  - title: Lumen budget
+    status: open
+    next_step: Review the hosting estimate
+    evidence: [shared, b1, b2, b3]
