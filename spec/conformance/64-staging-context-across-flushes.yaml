@@ -1,0 +1,47 @@
+case_id: staging-context-across-flushes
+title: A later flush receives staged context from the same conversation
+invariants: [P1, P5, P9, INV-13]
+schema_profile: org-matters/v1
+scope_id: staged-flush
+clock:
+  - "2026-08-04T09:01:00Z"
+  - "2026-08-04T09:02:00Z"
+  - "2026-08-04T10:01:00Z"
+  - "2026-08-04T10:02:00Z"
+cards: []
+message_batches:
+  - messages:
+      - id: earlier
+        conversation_id: release
+        sender: {id: ada, name: Ada}
+        text: "Fictional release 204 is awaiting verification."
+        sent_at: "2026-08-04T09:00:00Z"
+  - messages:
+      - id: later
+        conversation_id: release
+        sender: {id: bert, name: Bert}
+        text: "Verification for fictional release 204 succeeded."
+        sent_at: "2026-08-04T10:00:00Z"
+message_model_responses:
+  - {cards: []}
+  - {cards: []}
+expect:
+  extraction_calls:
+    - context: []
+      records:
+        - {content: "Fictional release 204 is awaiting verification."}
+    - context:
+        - {content: "Fictional release 204 is awaiting verification."}
+      records:
+        - {content: "Verification for fictional release 204 succeeded."}
+  task_results:
+    - {status: completed, cards_produced: 0, new_assertions: 0}
+    - {status: completed, cards_produced: 0, new_assertions: 0}
+  second_task_results:
+    - {status: completed, cards_produced: 0, new_assertions: 0}
+    - {status: completed, cards_produced: 0, new_assertions: 0}
+  assertions: []
+  intervals: []
+  subject_count: 0
+  queries: []
+

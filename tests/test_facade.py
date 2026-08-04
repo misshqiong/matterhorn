@@ -118,6 +118,76 @@ def test_add_is_llm_free_and_task_survives_restart(tmp_path) -> None:
     assert third.task(receipt.task_id).status == TaskStatus.completed
 
 
+def test_add_stages_validated_records_when_task_is_enqueued(tmp_path) -> None:
+    engine = Engine(
+        tmp_path / "enqueue-staging.db",
+        llm=ExplodingGateway(),
+        clock=lambda: datetime(2026, 8, 4, 9, 1, tzinfo=UTC),
+    )
+
+    receipt = engine.add(
+        "fictional-team",
+        [
+            _message(
+                sent_at="2026-08-04T09:00:00Z",
+                text="Fictional raw content staged before extraction.",
+            )
+        ],
+    )
+    staged = engine.store.staged_records(
+        "fictional-team",
+        "fictional-team:launch",
+        sent_at_from=datetime(2026, 8, 3, tzinfo=UTC),
+        sent_at_before=datetime(2026, 8, 5, tzinfo=UTC),
+        thread_id=None,
+        exclude_record_ids=[],
+    )
+
+    assert engine.task(receipt.task_id).status == TaskStatus.pending
+    assert [(record.record_id, record.content) for record in staged] == [
+        (
+            "fictional-team:launch:m1",
+            "Fictional raw content staged before extraction.",
+        )
+    ]
+
+
+def test_flush_opportunistically_purges_expired_staging(tmp_path) -> None:
+    class EmptyExtractor:
+        def extract(self, **_kwargs):
+            return SimpleNamespace(cards=[], rejection_counts={})
+
+    now = datetime(2026, 8, 9, 9, tzinfo=UTC)
+    engine = Engine(
+        tmp_path / "flush-purge.db",
+        extractor=EmptyExtractor(),
+        clock=lambda: now,
+    )
+    engine.add(
+        "fictional-team",
+        [_message(sent_at="2026-08-01T09:00:00Z")],
+    )
+
+    engine.flush("fictional-team")
+
+    assert engine.store.staged_records(
+        "fictional-team",
+        "fictional-team:launch",
+        sent_at_from=datetime(2026, 8, 1, tzinfo=UTC),
+        sent_at_before=datetime(2026, 8, 10, tzinfo=UTC),
+        thread_id=None,
+        exclude_record_ids=[],
+    ) == []
+
+
+@pytest.mark.parametrize("retention", [0, -1, float("inf"), float("nan"), True])
+def test_staging_retention_must_be_positive_and_finite(
+    tmp_path, retention
+) -> None:
+    with pytest.raises((TypeError, ValueError), match="positive finite"):
+        Engine(tmp_path / "invalid-retention.db", staging_retention_days=retention)
+
+
 def test_wait_returns_completed_result_inline(tmp_path) -> None:
     result = Engine(
         tmp_path / "wait.db",

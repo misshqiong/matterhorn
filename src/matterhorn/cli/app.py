@@ -42,6 +42,7 @@ mail_app = typer.Typer(help="Configure and pull an IMAP mailbox.")
 setup_app = typer.Typer(help="Configure agent clients for Matterhorn.")
 hook_app = typer.Typer(help="Fail-open agent lifecycle hooks.")
 handles_app = typer.Typer(help="Maintain the subject handle registry.")
+staging_app = typer.Typer(help="Maintain raw extraction context staging.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
@@ -50,6 +51,7 @@ app.add_typer(mail_app, name="mail")
 app.add_typer(setup_app, name="setup")
 app.add_typer(hook_app, name="hook")
 app.add_typer(handles_app, name="handles")
+app.add_typer(staging_app, name="staging")
 
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
@@ -94,7 +96,30 @@ def _engine(
         profile = resolve_schema(schema, schema_dir=schema_dir)
     except FileNotFoundError as error:
         raise typer.BadParameter(str(error)) from error
-    return Engine(db, profile, gateway=gateway)
+    return Engine(
+        db,
+        profile,
+        gateway=gateway,
+        staging_retention_days=_staging_retention_days(),
+    )
+
+
+def _staging_retention_days() -> float:
+    from matterhorn.engine.engine import (
+        DEFAULT_STAGING_RETENTION_DAYS,
+        validate_staging_retention_days,
+    )
+
+    raw = os.environ.get(
+        "MATTERHORN_STAGING_RETENTION_DAYS",
+        str(DEFAULT_STAGING_RETENTION_DAYS),
+    )
+    try:
+        return validate_staging_retention_days(raw)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(
+            "MATTERHORN_STAGING_RETENTION_DAYS MUST be a positive finite number"
+        ) from error
 
 
 def _print(value: Any) -> None:
@@ -564,6 +589,20 @@ def handles_backfill(
     typer.echo("----------------- -----")
     for label, count in rows:
         typer.echo(f"{label:<17} {count:>5}")
+
+
+@staging_app.command("purge")
+def staging_purge(
+    scope_id: str | None = typer.Argument(None),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Delete expired raw context without touching retained evidence."""
+
+    selected_scope = _scope(scope_id)
+    deleted = _engine(db, schema, schema_dir).purge_staging(selected_scope)
+    _print({"scope_id": selected_scope, "deleted": deleted})
 
 
 @app.command("flush")

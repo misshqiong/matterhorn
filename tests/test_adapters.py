@@ -178,6 +178,82 @@ def test_record_extractor_accepts_aliases_and_full_source_ids(citation) -> None:
     assert [ref.source_id for ref in report.cards[0].source_refs] == [source_id]
 
 
+def test_context_uses_one_alias_namespace_and_context_only_citation() -> None:
+    gateway = StaticGateway(
+        {
+            "cards": [
+                {
+                    "date": "2026-07-29",
+                    "title": "Fictional incident 77",
+                    "status": "blocked",
+                    "source_ids": ["m1"],
+                }
+            ]
+        }
+    )
+    context = {
+        **_modern_record(
+            "context-old",
+            thread_id="C1:incident-77",
+            content="Incident 77 is blocked on a certificate.",
+        ),
+        "sent_at": "2026-07-29T08:00:00Z",
+        "uri": "https://example.test/incidents/77/context-old",
+    }
+    current = _modern_record(
+        "current-new",
+        thread_id="C1:incident-77",
+        content="Please capture the latest incident state.",
+    )
+    extractor = MessageCardExtractor(gateway, "org-matters/v1")
+
+    first = extractor.extract(
+        scope_id="dev",
+        records=[current],
+        context=[context],
+    )
+    second = extractor.extract(
+        scope_id="dev",
+        records=[current],
+        context=[context],
+    )
+
+    prompt = json.loads(gateway.calls[0]["user"])
+    assert prompt["context"][0]["source_alias"] == "m1"
+    assert prompt["records"][0]["source_alias"] == "m2"
+    assert "Prior conversation context, oldest first." in gateway.calls[0][
+        "system"
+    ]
+    assert first.rejection_counts == {}
+    assert first.cards == second.cards
+    assert [ref.source_id for ref in first.cards[0].source_refs] == [
+        "C1:context-old"
+    ]
+    assert first.cards[0].source_refs[0].uri == (
+        "https://example.test/incidents/77/context-old"
+    )
+    assert first.cards[0].thread_id == "C1:incident-77"
+
+
+def test_empty_context_keeps_the_legacy_prompt_shape() -> None:
+    without_context = StaticGateway({"cards": []})
+    explicit_empty = StaticGateway({"cards": []})
+    record = _modern_record("empty-context")
+
+    MessageCardExtractor(without_context, "org-matters/v1").extract(
+        scope_id="dev",
+        records=[record],
+    )
+    MessageCardExtractor(explicit_empty, "org-matters/v1").extract(
+        scope_id="dev",
+        records=[record],
+        context=[],
+    )
+
+    assert without_context.calls == explicit_empty.calls
+    assert "context" not in json.loads(without_context.calls[0]["user"])
+
+
 def test_unknown_source_alias_is_rejected_as_not_traceable() -> None:
     gateway = StaticGateway(
         {

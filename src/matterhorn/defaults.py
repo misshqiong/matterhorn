@@ -26,6 +26,7 @@ class Engine(CoreEngine):
         llm: LlmGateway | None = None,
         gateway: LlmGateway | None = None,
         extractor: RecordExtractor | None = None,
+        staging_retention_days: float = CoreEngine.DEFAULT_STAGING_RETENTION_DAYS,
     ):
         super().__init__(
             store,
@@ -34,6 +35,7 @@ class Engine(CoreEngine):
             llm=llm,
             gateway=gateway,
             extractor=extractor,
+            staging_retention_days=staging_retention_days,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(

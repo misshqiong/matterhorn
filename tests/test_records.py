@@ -86,12 +86,63 @@ def test_add_records_uses_injected_extractor(tmp_path) -> None:
         {
             "scope_id": "team",
             "records": [Record.model_validate(_record())],
+            "context": [],
             "batch_size": 3,
             "anchors": [],
         }
     ]
     assert report.records_processed == 1
     assert report.cards_accepted == 0
+
+
+def test_add_records_stages_before_extractor_and_latest_edit_wins(tmp_path) -> None:
+    class FailingExtractor:
+        def extract(self, **_kwargs):
+            raise RuntimeError("fictional extraction failure")
+
+    engine = Engine(tmp_path / "direct-staging.db", extractor=FailingExtractor())
+
+    with pytest.raises(RuntimeError, match="fictional extraction failure"):
+        engine.add_records([_record()], scope_id="team")
+    with pytest.raises(RuntimeError, match="fictional extraction failure"):
+        engine.add_records(
+            [_record(content="Edited raw content")],
+            scope_id="team",
+        )
+
+    staged = engine.store.staged_records(
+        "team",
+        "C1",
+        sent_at_from=datetime(2026, 7, 28, tzinfo=UTC),
+        sent_at_before=datetime(2026, 7, 30, tzinfo=UTC),
+        thread_id="C1:1699887654.123456",
+        exclude_record_ids=[],
+    )
+    assert [record.content for record in staged] == ["Edited raw content"]
+
+
+def test_revoked_add_records_is_staged_but_never_returned_as_context(tmp_path) -> None:
+    engine = Engine(tmp_path / "revoked-staging.db")
+    revoked_at = datetime(2026, 7, 29, 9, 10, tzinfo=UTC)
+
+    report = engine.add_records(
+        [_record(revoked_at=revoked_at.isoformat())],
+        scope_id="team",
+    )
+
+    assert report.records_revoked == 1
+    assert engine.store.staged_records(
+        "team",
+        "C1",
+        sent_at_from=datetime(2026, 7, 28, tzinfo=UTC),
+        sent_at_before=datetime(2026, 7, 30, tzinfo=UTC),
+        thread_id="C1:1699887654.123456",
+        exclude_record_ids=[],
+    ) == []
+    assert engine.purge_staging(
+        "team",
+        as_of=datetime(2026, 8, 6, 9, 1, tzinfo=UTC),
+    ) == 1
 
 
 def test_record_extractor_runs_without_store_lock_held(tmp_path) -> None:
@@ -302,6 +353,126 @@ def test_engine_rolls_new_anchor_between_conversations(tmp_path) -> None:
     assert [matter.subject_key for matter in engine.query.list_matters("team")] == [
         born_subject
     ]
+
+
+def test_context_thread_filter_prevents_mail_container_cross_thread_mix(
+    tmp_path,
+) -> None:
+    class RecordingExtractor:
+        def __init__(self):
+            self.calls = []
+
+        def extract(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(cards=[], rejection_counts={})
+
+    extractor = RecordingExtractor()
+    engine = Engine(tmp_path / "thread-context.db", extractor=extractor)
+    engine.add_records(
+        [
+            {
+                "record_id": "mail:old-a",
+                "native_id": "old-a",
+                "container_id": "mail",
+                "thread_id": "mail:thread-a",
+                "sent_at": "2026-08-04T09:00:00Z",
+                "author": {"id": "ada", "kind": "human"},
+                "content": "Thread A context.",
+            },
+            {
+                "record_id": "mail:old-b",
+                "native_id": "old-b",
+                "container_id": "mail",
+                "thread_id": "mail:thread-b",
+                "sent_at": "2026-08-04T09:01:00Z",
+                "author": {"id": "bert", "kind": "human"},
+                "content": "Thread B context.",
+            },
+        ],
+        scope_id="fictional-mail",
+    )
+    engine.add_records(
+        [
+            {
+                "record_id": "mail:new-a",
+                "native_id": "new-a",
+                "container_id": "mail",
+                "thread_id": "mail:thread-a",
+                "sent_at": "2026-08-04T10:00:00Z",
+                "author": {"id": "cara", "kind": "human"},
+                "content": "Thread A continuation.",
+            }
+        ],
+        scope_id="fictional-mail",
+    )
+
+    assert [record.record_id for record in extractor.calls[-1]["context"]] == [
+        "mail:old-a"
+    ]
+
+
+def test_context_only_card_ingests_and_recitation_deduplicates(tmp_path) -> None:
+    gateway = SequenceGateway(
+        [
+            {"cards": []},
+            {
+                "cards": [
+                    {
+                        "date": "2026-08-04",
+                        "title": "Fictional incident 77",
+                        "status": "blocked",
+                        "source_ids": ["m1"],
+                    }
+                ]
+            },
+            {
+                "cards": [
+                    {
+                        "date": "2026-08-04",
+                        "title": "Fictional incident 77",
+                        "status": "blocked",
+                        "source_ids": ["m1"],
+                    }
+                ]
+            },
+        ]
+    )
+    engine = Engine(
+        tmp_path / "context-recitation.db",
+        gateway=gateway,
+        clock=lambda: datetime(2026, 8, 4, 12, tzinfo=UTC),
+    )
+
+    def record(native_id: str, sent_at: str, content: str) -> dict:
+        return {
+            "record_id": f"C77:{native_id}",
+            "native_id": native_id,
+            "container_id": "C77",
+            "thread_id": "C77:incident",
+            "sent_at": sent_at,
+            "author": {"id": "ada", "kind": "human"},
+            "content": content,
+        }
+
+    engine.add_records(
+        [record("old", "2026-08-04T09:00:00Z", "Incident 77 is blocked.")],
+        scope_id="team",
+    )
+    first_citation = engine.add_records(
+        [record("new-1", "2026-08-04T10:00:00Z", "Capture the update.")],
+        scope_id="team",
+    )
+    second_citation = engine.add_records(
+        [record("new-2", "2026-08-04T11:00:00Z", "Capture it again.")],
+        scope_id="team",
+    )
+
+    assertions = engine.store.assertions("team")
+    assert first_citation.assertions_emitted == 1
+    assert second_citation.assertions_emitted == 0
+    assert len(assertions) == 1
+    assert [ref.source_id for ref in assertions[0].source_refs] == ["C77:old"]
+    assert len(engine.store.record_observations("team")) == 3
 
 
 def test_engine_offers_only_newest_canonical_anchors_with_bytewise_ties(

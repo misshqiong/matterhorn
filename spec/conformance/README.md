@@ -13,11 +13,11 @@ store view for the case's `scope_id`.
 | `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-14`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
-| `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each newly processed card, accepted semantic assertion, or correction. |
+| `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
 | `cards` | yes | Ordered EpisodeCard mappings, validated exactly as SPEC section 3.3. |
 | `message_batches` | no | Ordered `{messages}` batches passed to `add`, each followed by `flush`. |
 | `message_model_responses` | no | Ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
-| `record_batches` | no | Ordered `{records, cursors?, backfill?, batch_size?}` mappings passed to `add_records`. |
+| `record_batches` | no | Ordered `{records, cursors?, backfill?, batch_size?, purge_staging_at?}` mappings. A `purge_staging_at` RFC 3339 instant runs the configured retention purge immediately before that batch. |
 | `record_model_responses` | no | Ordered Record-to-card response fixtures, one per extractor call over unseen, non-revoked Records. |
 | `corrections` | no | Ordered Correction mappings; default empty list. |
 | `merge_operations` | no | Ordered merge/unmerge mappings with `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional operation-level `expect_error`. |
@@ -67,8 +67,9 @@ fixture list is exhausted.
 `record_model_responses` uses the closed `{cards: [...]}` response from SPEC
 section 16. Each item is consumed by one conversation-scoped, boundary-packed
 extractor call, not necessarily one input batch. Its `source_ids` must cite
-`record_id` values in that exact call. Record fixtures use the closed section
-3.2 contract. A revocation-only batch consumes no model response. The runner
+`record_id` values in that call's exact context-plus-new-Records union. Record
+fixtures use the closed section 3.2 contract. A revocation-only batch consumes
+no model response. The runner
 supplies fresh canonical matter anchors to each extraction call, so a response
 may cite an exactly offered `subject_key`; a non-offered value is silently
 stripped.
@@ -92,7 +93,8 @@ sources must be section 3.1 namespaced Message-derived Record IDs.
 | `second_record_reports` | Ordered partial reports after exact Record re-ingest. |
 | `task_results` | Ordered partial task results for first-pass Message batches. |
 | `second_task_results` | Ordered partial results after exact Message re-add. |
-| `extraction_calls` | Ordered calls, each with an exact ordered `records` list of partial Record mappings. |
+| `extraction_calls` | Ordered calls, each with exact ordered `context` and `records` lists of partial Record mappings. `context` may be omitted to assert the empty list. |
+| `staging_purge_counts` | Exact ordered deleted-row counts for `record_batches` that declare `purge_staging_at`. |
 | `events` | Partial ChangeEvent mappings compared as an exact multiset. |
 | `merge_count` | Exact active SubjectMerge count. |
 | `handle_bindings` | Partial-field exact multiset of all active and revoked SubjectHandle rows. |
@@ -137,6 +139,9 @@ only cases whose title mentions replay. Merge operations run once because
 repeating an already-active source merge is normatively an error; their stored
 state participates in both snapshots. Human handle operations also run once
 because bind/unbind are historical correction operations.
+Raw staging is deliberately outside these replay-identity snapshots: cases
+assert its contextual effects and purge counts directly, while replay remains
+independent of expiring staging state.
 
 ## Reference runner
 

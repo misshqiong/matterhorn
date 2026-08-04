@@ -1,6 +1,8 @@
 import json
+import os
 import subprocess
 import sys
+from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,8 @@ from typer.core import TyperGroup
 from typer.main import get_command
 
 from matterhorn.cli.app import app
+from matterhorn.contracts import Record
+from matterhorn.store import SQLiteStore
 
 
 def _command(*args: str) -> list[str]:
@@ -553,6 +557,55 @@ def test_handles_backfill_cli_is_idempotent(tmp_path) -> None:
     assert "already-bound         1" in second
 
 
+def test_staging_purge_cli_prints_deleted_count(tmp_path) -> None:
+    db = tmp_path / "staging.db"
+    store = SQLiteStore(db)
+    sent_at = datetime.fromisoformat("2000-01-01T09:00:00+00:00")
+    with store.transaction():
+        store.stage_records(
+            "fictional-team",
+            [
+                Record(
+                    record_id="room:old",
+                    native_id="old",
+                    container_id="room",
+                    sent_at=sent_at,
+                    author={"id": "ada", "kind": "human"},
+                    content="Fictional old staging row.",
+                )
+            ],
+            staged_at=sent_at,
+        )
+    store.close()
+
+    result = json.loads(
+        _run("staging", "purge", "fictional-team", "--db", str(db)).stdout
+    )
+
+    assert result == {"scope_id": "fictional-team", "deleted": 1}
+
+
+def test_cli_rejects_invalid_staging_retention_environment(tmp_path) -> None:
+    environment = dict(os.environ)
+    environment["MATTERHORN_STAGING_RETENTION_DAYS"] = "not-a-number"
+    completed = subprocess.run(
+        _command(
+            "staging",
+            "purge",
+            "fictional-team",
+            "--db",
+            str(tmp_path / "x.db"),
+        ),
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        env=environment,
+    )
+
+    assert completed.returncode == 2
+    assert "MATTERHORN_STAGING_RETENTION_DAYS" in completed.stderr
+
+
 def test_dream_help_documents_environment_credentials() -> None:
     command = _cli_metadata("dream")
     help_text = " ".join(
@@ -571,7 +624,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=63 failed=0 total=63" in completed.stdout
+    assert "SUMMARY passed=67 failed=0 total=67" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

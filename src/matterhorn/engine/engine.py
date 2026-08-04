@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator
@@ -77,6 +78,9 @@ from matterhorn.store.base import MAX_TASK_ATTEMPTS
 
 Clock = Callable[[], datetime]
 DEFAULT_MAX_ANCHORS = 40
+DEFAULT_STAGING_RETENTION_DAYS = 7
+DEFAULT_CONTEXT_MAX_RECORDS = 20
+DEFAULT_CONTEXT_MAX_CHARS = 4000
 SUBJECT_MERGE_PREDICATE = "subject_merge"
 _TASK_ERROR_SECRET_MARKER = re.compile(
     r"(?i)\b(?:authorization|proxy-authorization|x-api-key|api[ _-]?key|"
@@ -126,6 +130,10 @@ class _HandleCounts:
 
 
 class Engine:
+    DEFAULT_STAGING_RETENTION_DAYS = DEFAULT_STAGING_RETENTION_DAYS
+    DEFAULT_CONTEXT_MAX_RECORDS = DEFAULT_CONTEXT_MAX_RECORDS
+    DEFAULT_CONTEXT_MAX_CHARS = DEFAULT_CONTEXT_MAX_CHARS
+
     def __init__(
         self,
         store: str | Path | Store,
@@ -135,6 +143,7 @@ class Engine:
         llm: LlmGateway | None = None,
         gateway: LlmGateway | None = None,
         extractor: RecordExtractor | None = None,
+        staging_retention_days: float = DEFAULT_STAGING_RETENTION_DAYS,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -143,6 +152,9 @@ class Engine:
             raise ValueError("pass either llm or gateway, not both")
         self._write_gateway: LlmGateway = gateway or llm or NullGateway()
         self._extractor = extractor
+        self.staging_retention_days = validate_staging_retention_days(
+            staging_retention_days
+        )
         self.query = QueryService(
             self.store,
             self.profile,
@@ -180,6 +192,7 @@ class Engine:
                 (message.sent_at for message in validated),
                 default=None,
             ),
+            staged_records=records,
         )
         if wait:
             self.flush(scope_id)
@@ -315,6 +328,7 @@ class Engine:
         cursors: dict[str, str] | None = None,
         backfill: bool = False,
         batch_size: int = 8,
+        _stage: bool = True,
     ) -> AddRecordsReport:
         """Extract and ingest previously unseen communication observations."""
 
@@ -329,6 +343,13 @@ class Engine:
                 "one add_records batch MUST contain at most one observation "
                 "for each record_id"
             )
+        if _stage:
+            with self.store.transaction():
+                self.store.stage_records(
+                    scope_id,
+                    validated,
+                    staged_at=datetime.now(UTC),
+                )
         pending: list[tuple[Record, str]] = []
         seen_observations: set[tuple[str, str]] = set()
         skipped = 0
@@ -363,6 +384,7 @@ class Engine:
                 scope_id=scope_id,
                 observations=revoked,
                 cards=[],
+                context=[],
                 cursors=cursors,
                 backfill=backfill,
             )
@@ -370,9 +392,11 @@ class Engine:
             assert self._extractor is not None
             with self.store.transaction():
                 anchors = self._subject_anchors(scope_id)
+                context = self._staging_context(scope_id, chunk)
             extraction = self._extractor.extract(
                 scope_id=scope_id,
                 records=chunk,
+                context=context,
                 batch_size=batch_size,
                 anchors=anchors,
             )
@@ -384,6 +408,7 @@ class Engine:
                 scope_id=scope_id,
                 observations=chunk_observations,
                 cards=chunk_cards,
+                context=context,
                 cursors=cursors,
                 backfill=backfill,
             )
@@ -421,12 +446,20 @@ class Engine:
         scope_id: str,
         observations: list[tuple[Record, str]],
         cards: list[EpisodeCard],
+        context: list[Record],
         cursors: dict[str, str] | None,
         backfill: bool,
     ) -> tuple[list[Assertion], _HandleCounts]:
         emitted: list[Assertion] = []
         handle_counts = _HandleCounts()
         with self.store.transaction():
+            record_by_id = {
+                record.record_id: record
+                for record in [
+                    *context,
+                    *(record for record, _ in observations),
+                ]
+            }
             for record, observation_hash in observations:
                 self.store.observe_source(
                     scope_id,
@@ -440,15 +473,22 @@ class Engine:
                     record.container_id,
                     _record_observed_at(record),
                 )
+            for card in cards:
+                for source_ref in card.source_refs:
+                    record = record_by_id.get(source_ref.source_id)
+                    self.store.observe_source(
+                        scope_id,
+                        source_ref,
+                        revoked_at=(
+                            record.revoked_at if record is not None else None
+                        ),
+                    )
             if cards:
                 emitted.extend(
                     self._ingest_cards_sync(
                         cards,
                         scope_id=scope_id,
-                        record_by_id={
-                            record.record_id: record
-                            for record, _ in observations
-                        },
+                        record_by_id=record_by_id,
                         handle_counts=handle_counts,
                     )
                 )
@@ -871,6 +911,33 @@ class Engine:
             )
         return anchors
 
+    def _staging_context(
+        self,
+        scope_id: str,
+        chunk: list[Record],
+    ) -> list[Record]:
+        earliest = min(as_utc(record.sent_at) for record in chunk)
+        thread_ids = {record.thread_id for record in chunk}
+        thread_id = (
+            next(iter(thread_ids))
+            if len(thread_ids) == 1 and None not in thread_ids
+            else None
+        )
+        candidates = self.store.staged_records(
+            scope_id,
+            chunk[0].container_id,
+            sent_at_from=earliest - timedelta(days=self.staging_retention_days),
+            sent_at_before=earliest,
+            thread_id=thread_id,
+            exclude_record_ids=[record.record_id for record in chunk],
+        )
+        retained = candidates[-DEFAULT_CONTEXT_MAX_RECORDS:]
+        total_chars = sum(len(record.content or "") for record in retained)
+        while retained and total_chars > DEFAULT_CONTEXT_MAX_CHARS:
+            total_chars -= len(retained[0].content or "")
+            retained.pop(0)
+        return retained
+
     def matters(self, scope_id: str) -> list[Matter]:
         """Return ergonomic projected matters without touching the LLM."""
 
@@ -902,6 +969,7 @@ class Engine:
     def flush(self, scope_id: str) -> FlushReport:
         """Synchronously run all pending extraction and distillation for a scope."""
 
+        self.purge_staging(scope_id)
         pending = self.store.flushable_tasks(
             scope_id,
             max_attempts=MAX_TASK_ATTEMPTS,
@@ -923,6 +991,7 @@ class Engine:
                     record_report = self.add_records(
                         row.payload["records"],
                         scope_id=scope_id,
+                        _stage=False,
                     )
                     cards_produced = record_report.cards_accepted
                     gate_accepted += record_report.cards_accepted
@@ -1031,6 +1100,19 @@ class Engine:
     def now(self) -> datetime:
         return self._clock()
 
+    def purge_staging(
+        self,
+        scope_id: str,
+        *,
+        as_of: datetime | None = None,
+    ) -> int:
+        if not scope_id:
+            raise ValueError("scope_id is required")
+        reference = as_utc(as_of) if as_of is not None else self._clock()
+        cutoff = reference - timedelta(days=self.staging_retention_days)
+        with self.store.transaction():
+            return self.store.purge_staged_records(scope_id, before=cutoff)
+
     def _enqueue_task(
         self,
         *,
@@ -1039,6 +1121,7 @@ class Engine:
         payload: dict[str, Any],
         accepted: int,
         newest_message_at: datetime | None,
+        staged_records: list[Record] | None = None,
     ) -> TaskReceipt:
         created_at = self._clock()
         if newest_message_at is not None:
@@ -1058,6 +1141,12 @@ class Engine:
                 ]
             )
             with self.store.transaction():
+                if staged_records:
+                    self.store.stage_records(
+                        scope_id,
+                        staged_records,
+                        staged_at=created_at,
+                    )
                 inserted = self.store.create_task(
                     task_id=task_id,
                     scope_id=scope_id,
@@ -1812,6 +1901,20 @@ def _clock_callable(
         return lambda: as_utc(clock())
     iterator: Iterator[datetime] = iter(clock)
     return lambda: as_utc(next(iterator))
+
+
+def validate_staging_retention_days(value: object) -> float:
+    if isinstance(value, bool):
+        raise TypeError("staging retention days MUST be a positive finite number")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "staging retention days MUST be a positive finite number"
+        ) from error
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError("staging retention days MUST be a positive finite number")
+    return parsed
 
 
 def _record_observed_at(record: Record) -> datetime:

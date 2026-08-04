@@ -296,16 +296,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     engine._ingest_cards_sync(
         case.get("cards", []), scope_id=case["scope_id"]
     )
-    record_reports = [
-        engine.add_records(
-            batch.get("records", []),
-            scope_id=case["scope_id"],
-            cursors=batch.get("cursors"),
-            backfill=batch.get("backfill", False),
-            batch_size=batch.get("batch_size", 8),
-        )
-        for batch in case.get("record_batches", [])
-    ]
+    record_reports, staging_purge_counts = _run_record_batches(engine, case)
     message_tasks = _run_message_batches(engine, case)
     first_dream = None
     if (
@@ -334,6 +325,12 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             ],
             expect["record_reports"],
             "record_reports",
+        )
+    if "staging_purge_counts" in expect:
+        _equal(
+            staging_purge_counts,
+            expect["staging_purge_counts"],
+            "staging_purge_counts",
         )
     if "task_results" in expect:
         _equal(
@@ -433,16 +430,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     engine._ingest_cards_sync(
         case.get("cards", []), scope_id=case["scope_id"]
     )
-    second_record_reports = [
-        engine.add_records(
-            batch.get("records", []),
-            scope_id=case["scope_id"],
-            cursors=batch.get("cursors"),
-            backfill=batch.get("backfill", False),
-            batch_size=batch.get("batch_size", 8),
-        )
-        for batch in case.get("record_batches", [])
-    ]
+    second_record_reports, _ = _run_record_batches(engine, case)
     second_message_tasks = _run_message_batches(engine, case)
     second_dream = None
     if (
@@ -528,6 +516,37 @@ def _run_message_batches(
         engine.flush(case["scope_id"])
         results.append(engine.task(receipt.task_id))
     return results
+
+
+def _run_record_batches(
+    engine: Engine,
+    case: dict[str, Any],
+) -> tuple[list[Any], list[int]]:
+    reports = []
+    purge_counts = []
+    for batch in case.get("record_batches", []):
+        purge_at = batch.get("purge_staging_at")
+        if purge_at is not None:
+            purge_counts.append(
+                engine.purge_staging(
+                    case["scope_id"],
+                    as_of=(
+                        purge_at
+                        if isinstance(purge_at, datetime)
+                        else datetime.fromisoformat(purge_at)
+                    ),
+                )
+            )
+        reports.append(
+            engine.add_records(
+                batch.get("records", []),
+                scope_id=case["scope_id"],
+                cursors=batch.get("cursors"),
+                backfill=batch.get("backfill", False),
+                batch_size=batch.get("batch_size", 8),
+            )
+        )
+    return reports, purge_counts
 
 
 def _run_merge_operations(engine: Engine, case: dict[str, Any]) -> None:
@@ -694,6 +713,9 @@ def _assert_extraction_calls(
             continue
         actual.append(
             {
+                "context": [
+                    item["record"] for item in payload.get("context", [])
+                ],
                 "records": [item["record"] for item in payload["records"]]
             }
         )
@@ -702,6 +724,21 @@ def _assert_extraction_calls(
     for call_index, (actual_call, expected_call) in enumerate(
         zip(actual, expected, strict=True)
     ):
+        wanted_context = expected_call.get("context", [])
+        actual_context = actual_call["context"]
+        _equal(
+            len(actual_context),
+            len(wanted_context),
+            f"extraction_calls[{call_index}] context length",
+        )
+        for record_index, (record, wanted) in enumerate(
+            zip(actual_context, wanted_context, strict=True)
+        ):
+            _equal(
+                {key: record[key] for key in wanted},
+                wanted,
+                f"extraction_calls[{call_index}].context[{record_index}]",
+            )
         wanted_records = expected_call["records"]
         actual_records = actual_call["records"]
         _equal(

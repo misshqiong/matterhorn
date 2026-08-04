@@ -21,6 +21,7 @@ from matterhorn.contracts import (
     Interval,
     MemoryCard,
     ProjectionStats,
+    Record,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -58,6 +59,27 @@ CREATE TABLE IF NOT EXISTS record_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_record_observations_container
     ON record_observations(scope_id, container_id, observed_at);
+CREATE TABLE IF NOT EXISTS staged_records (
+    scope_id TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    container_id TEXT NOT NULL,
+    thread_id TEXT,
+    sent_at TEXT NOT NULL,
+    author_json TEXT NOT NULL,
+    content TEXT,
+    kind TEXT NOT NULL,
+    revoked_at TEXT,
+    record_json TEXT NOT NULL,
+    staged_at TEXT NOT NULL,
+    PRIMARY KEY (scope_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_staged_records_conversation
+    ON staged_records(
+        scope_id COLLATE BINARY,
+        container_id COLLATE BINARY,
+        sent_at,
+        record_id COLLATE BINARY
+    );
 CREATE TABLE IF NOT EXISTS evidence_sources (
     scope_id TEXT NOT NULL,
     source_id TEXT NOT NULL,
@@ -370,6 +392,7 @@ class SQLiteStore:
                 "subjects",
                 "sync_positions",
                 "evidence_sources",
+                "staged_records",
                 "record_observations",
                 "ingested_cards",
             ):
@@ -387,6 +410,7 @@ class SQLiteStore:
             "events",
             "ingested_cards",
             "record_observations",
+            "staged_records",
         )
         return any(
             self.connection.execute(
@@ -402,6 +426,7 @@ class SQLiteStore:
             SELECT DISTINCT scope_id FROM (
                 SELECT scope_id FROM ingested_cards
                 UNION ALL SELECT scope_id FROM record_observations
+                UNION ALL SELECT scope_id FROM staged_records
                 UNION ALL SELECT scope_id FROM evidence_sources
                 UNION ALL SELECT scope_id FROM sync_positions
                 UNION ALL SELECT scope_id FROM subjects
@@ -479,6 +504,100 @@ class SQLiteStore:
             (scope_id,),
         )
         return [RecordObservationRow(**dict(row)) for row in rows]
+
+    def stage_records(
+        self,
+        scope_id: str,
+        records: list[Record],
+        *,
+        staged_at: datetime,
+    ) -> None:
+        staged_text = instant_text(staged_at)
+        self.connection.executemany(
+            """
+            INSERT INTO staged_records(
+              scope_id,record_id,container_id,thread_id,sent_at,author_json,
+              content,kind,revoked_at,record_json,staged_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(scope_id,record_id) DO UPDATE SET
+              container_id=excluded.container_id,
+              thread_id=excluded.thread_id,
+              sent_at=excluded.sent_at,
+              author_json=excluded.author_json,
+              content=excluded.content,
+              kind=excluded.kind,
+              revoked_at=excluded.revoked_at,
+              record_json=excluded.record_json,
+              staged_at=excluded.staged_at
+            """,
+            [
+                (
+                    scope_id,
+                    record.record_id,
+                    record.container_id,
+                    record.thread_id,
+                    instant_text(record.sent_at),
+                    canonical_json(record.author.model_dump(mode="json")),
+                    record.content,
+                    record.kind,
+                    (
+                        instant_text(record.revoked_at)
+                        if record.revoked_at is not None
+                        else None
+                    ),
+                    canonical_json(record.model_dump(mode="json")),
+                    staged_text,
+                )
+                for record in records
+            ],
+        )
+
+    def staged_records(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        sent_at_from: datetime,
+        sent_at_before: datetime,
+        thread_id: str | None,
+        exclude_record_ids: list[str],
+    ) -> list[Record]:
+        clauses = [
+            "scope_id=?",
+            "container_id=?",
+            "sent_at>=?",
+            "sent_at<?",
+            "revoked_at IS NULL",
+        ]
+        parameters: list[object] = [
+            scope_id,
+            container_id,
+            instant_text(sent_at_from),
+            instant_text(sent_at_before),
+        ]
+        if thread_id is not None:
+            clauses.append("thread_id=?")
+            parameters.append(thread_id)
+        if exclude_record_ids:
+            placeholders = ",".join("?" for _ in exclude_record_ids)
+            clauses.append(f"record_id NOT IN ({placeholders})")
+            parameters.extend(exclude_record_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT record_json FROM staged_records
+            WHERE {' AND '.join(clauses)}
+            ORDER BY sent_at,record_id COLLATE BINARY
+            """,
+            parameters,
+        )
+        return [Record.model_validate(json.loads(row["record_json"])) for row in rows]
+
+    def purge_staged_records(self, scope_id: str, *, before: datetime) -> int:
+        cursor = self.connection.execute(
+            "DELETE FROM staged_records WHERE scope_id=? AND sent_at<?",
+            (scope_id, instant_text(before)),
+        )
+        return cursor.rowcount
 
     def observe_source(
         self,

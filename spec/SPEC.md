@@ -121,6 +121,9 @@ reject an input that cannot satisfy that rule rather than weakening P5.
 - **INV-13 — Conversation-scoped rolling extraction.** Record extraction units
   MUST contain exactly one `container_id` and MUST be processed in the
   deterministic order and boundary-preserving chunks defined by section 16.
+  Each extractor call MUST receive the deterministic, retention-bounded raw
+  context window defined by section 16.1; context complements and MUST NOT
+  replace the canonical SubjectAnchor snapshot.
   The Engine MUST recompute canonical SubjectAnchors before every extractor
   call and MUST make every card accepted from earlier calls in the same
   `add_records` operation visible to that snapshot. Consequently, later
@@ -836,11 +839,11 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-14`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
-| `clock` | Ordered RFC 3339 instants injected for task creation, new cards, accepted semantic assertions, and corrections. |
+| `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
 | `cards` | Ordered EpisodeCard mappings. |
 | `message_batches` | Optional ordered `{messages}` batches passed through `add`, each followed by `flush`. |
 | `message_model_responses` | Optional ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
-| `record_batches` | Optional ordered `{records,cursors?,backfill?,batch_size?}` batches passed to `add_records`. |
+| `record_batches` | Optional ordered `{records,cursors?,backfill?,batch_size?,purge_staging_at?}` batches passed to `add_records`; the optional RFC 3339 instant runs retention purge immediately before that batch. |
 | `record_model_responses` | Optional ordered closed Record-to-card responses, one per extractor call over unseen non-revoked Records. |
 | `corrections` | Ordered Correction mappings, default `[]`. |
 | `merge_operations` | Optional ordered merge/unmerge mappings. Each contains `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional `expect_error` for an operation-level rejection. |
@@ -860,7 +863,8 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.second_record_reports` | Optional ordered partial mappings checked after exact Record re-ingest. |
 | `expect.task_results` | Optional ordered partial task-result mappings for first-pass message batches. |
 | `expect.second_task_results` | Optional ordered partial task-result mappings after exact message re-add. |
-| `expect.extraction_calls` | Optional ordered extractor-call mappings. Each contains an exact ordered `records` list of partial Record mappings, proving unit and chunk boundaries. |
+| `expect.extraction_calls` | Optional ordered extractor-call mappings. Each contains exact ordered `context` and `records` lists of partial Record mappings, proving context, unit, and chunk boundaries; omitted `context` asserts an empty list. |
+| `expect.staging_purge_counts` | Optional exact ordered deleted-row counts for Record batches declaring `purge_staging_at`. |
 | `expect.events` | Optional expected ChangeEvent mappings, compared as a partial-field exact multiset. |
 | `expect.merge_count` | Optional exact active SubjectMerge count. |
 | `expect.handle_bindings` | Optional partial-field exact multiset of all active and revoked SubjectHandle rows. |
@@ -880,6 +884,8 @@ MUST also re-add the same Message, card, and Record batches and compare a
 canonical whole-store snapshot including observation ledger, source lifecycle,
 sync positions, active merges, and active and revoked SubjectHandle rows, then
 invoke replay and compare it again.
+Raw staging is intentionally excluded from replay-identity snapshots because
+section 16.1 makes it expiring context rather than retained provenance.
 Merge operations are applied once because an already-active source is
 normatively rejected; their persisted state participates in both snapshot
 comparisons. Human handle operations are also applied once because they are
@@ -1130,9 +1136,10 @@ same `LlmGateway.complete(system, user, response_schema)` SPI as semantic
 distillation. Its input is the closed section 3.2 Record contract.
 `ChatMessage{message_id,sent_at,sender,content}` is a deprecated Python alias
 only and is not a protocol input. The RecordExtractor operation is
-`extract(*, scope_id, records, batch_size, anchors)`; all Engine calls MUST
-supply the section 3.4 anchor list. A legacy direct ChatMessage call MAY omit
-the keyword and retains its permissive subject-key behavior.
+`extract(*, scope_id, records, context, batch_size, anchors)`; all Engine calls
+MUST supply the section 3.4 anchor list and the section 16.1 context list. A
+legacy direct ChatMessage call MAY omit those keywords and retains its
+permissive subject-key behavior.
 
 For each `add_records` operation, after exact-observation filtering and removal
 of revoked Records from extraction, the Engine MUST perform this orchestration:
@@ -1207,9 +1214,12 @@ reasons are `NO_SOURCES`, `SOURCE_NOT_TRACEABLE`, `FIELD_NOT_IN_PROFILE`,
 
 Source validation MUST call the same implementation used by section 14:
 `source_ids` MUST be non-empty and MUST be a subset of the `record_id` values
-in the exact input window. Accepted IDs are replaced by SourceRefs copied from
-the corresponding Records, including the readable content excerpt and URI;
-the extractor MUST NOT synthesize evidence.
+in the exact union of the context and new-Record windows. Accepted IDs are
+replaced by SourceRefs copied from the corresponding Records, including the
+readable content excerpt and URI; the extractor MUST NOT synthesize evidence.
+A card MAY cite only context Records. Such a card is legal evidence-backed
+output and follows the same identity, observation-hash idempotency, gate, and
+ingest rules as a card citing a new Record.
 
 For each accepted candidate, construct `card_payload` from the validated
 candidate, scope, copied SourceRefs, and deterministic thread boundary.
@@ -1234,6 +1244,67 @@ For cited Records, define each boundary as `thread_id` when non-null, otherwise
 boundaries become `threads:` plus SHA-256 of their sorted canonical JSON array.
 Section 7 then makes the thread the default matter boundary without model
 involvement.
+
+### 16.1 Raw staging and context windows
+
+Both Store backends MUST provide a raw staging table keyed by
+`(scope_id, record_id)`. It MUST retain at least `container_id`, nullable
+`thread_id`, `sent_at`, author JSON, nullable content, kind, revocation state,
+the complete validated Record payload, and `staged_at`. It MUST index
+`(scope_id, container_id, sent_at)` and use locale-independent UTF-8 bytewise
+text ordering, including `COLLATE "C"` on PostgreSQL ordering reads.
+
+`Engine.add()` MUST stage every validated Message-derived Record in the same
+short transaction that enqueues its task. `Engine.add_records()` MUST stage
+every validated Record in a short transaction before observation filtering or
+extractor work begins. Staging is an idempotent upsert by
+`(scope_id, record_id)`: the latest observation replaces the staged payload so
+edited content is visible to later windows. Revoked Records MUST also be
+staged, but context reads MUST exclude every staged row whose `revoked_at` is
+non-null. Implementations MUST NOT backfill staging from historical task
+payloads, observation rows, evidence, assertions, or other existing data;
+staging fills organically from newly admitted traffic.
+
+The default staging retention is seven days. The Engine MUST expose a
+positive finite retention-days setting, and service and CLI launch surfaces
+MUST resolve `MATTERHORN_STAGING_RETENTION_DAYS` as its override. At the start
+of every `flush`, the Engine MUST execute a real `DELETE` for staged rows whose
+`sent_at` is strictly earlier than `(flush reference instant - retention)`.
+`mh staging purge [SCOPE] [--db ...]` MUST perform the same deletion using its
+launch-time retention setting and print the deleted-row count. A staging purge
+MUST NOT delete or mutate `evidence_sources`, assertions, intervals, subjects,
+tasks, observations, or any other provenance or projection state.
+
+Immediately before extracting a chunk, the Engine MUST read context from the
+staging store under all of these rules:
+
+1. Select the same `scope_id` and `container_id` as the chunk. If every Record
+   in the chunk has one identical non-null `thread_id`, additionally require
+   that exact `thread_id`; otherwise do not apply a thread filter.
+2. Require `sent_at` to be strictly earlier than the chunk's earliest
+   `sent_at`, at or after `(earliest sent_at - retention)`, not revoked, and not
+   one of the chunk's `record_id` values.
+3. Order candidates by `(sent_at, UTF-8 bytewise record_id)` oldest first.
+4. Retain the newest tail while satisfying both default budgets: at most 20
+   Records and at most 4000 total content characters. Equivalently, drop the
+   oldest candidate until both limits hold. Nullable content contributes zero
+   characters. Return the retained Records oldest first.
+
+This selection is deterministic given staging state. An empty staging result
+MUST produce the same extraction behavior as before context windows existed.
+Anchors remain governed by sections 3.4 and 16 and MUST still be supplied.
+
+The prompt MUST render a clearly separated context section before the new
+Records and state exactly: "Prior conversation context, oldest first. Use it
+to understand what the new Records continue. You MAY cite a context Record's
+alias in source_ids when a card's claim rests on it." Context and new Records
+MUST share one alias namespace, assigned context-first and then new-Record
+order, so every accepted alias maps to one exact real Record. The traceability
+gate MUST resolve citations across that complete union.
+
+Replay MUST NOT rerun Record extraction. Consequently, staging contents and
+purge timing MUST NOT affect card, assertion, projection, event, export, or
+replay identity.
 
 ## 17. Slack adapter and incremental sync
 

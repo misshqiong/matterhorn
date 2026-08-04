@@ -53,6 +53,9 @@ expect:
     - records:
         - {content: single-1}
         - {content: single-2}
+      context:
+        - {content: thread-1}
+        - {content: thread-2}
   record_reports:
     - {records_processed: 5, cards_accepted: 0, assertions_emitted: 0}
   second_record_reports:

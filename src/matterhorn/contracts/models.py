@@ -233,6 +233,7 @@ class RecordExtractor(Protocol):
         *,
         scope_id: str,
         records: list[Record],
+        context: list[Record],
         batch_size: int,
         anchors: list[SubjectAnchor],
     ) -> RecordExtractionReport: ...

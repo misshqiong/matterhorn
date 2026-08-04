@@ -16,6 +16,7 @@ from matterhorn.contracts import (
     Interval,
     MemoryCard,
     ProjectionStats,
+    Record,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -134,6 +135,27 @@ class Store(Protocol):
     ) -> None: ...
 
     def record_observations(self, scope_id: str) -> list[RecordObservationRow]: ...
+
+    def stage_records(
+        self,
+        scope_id: str,
+        records: list[Record],
+        *,
+        staged_at: datetime,
+    ) -> None: ...
+
+    def staged_records(
+        self,
+        scope_id: str,
+        container_id: str,
+        *,
+        sent_at_from: datetime,
+        sent_at_before: datetime,
+        thread_id: str | None,
+        exclude_record_ids: list[str],
+    ) -> list[Record]: ...
+
+    def purge_staged_records(self, scope_id: str, *, before: datetime) -> int: ...
 
     def observe_source(
         self,

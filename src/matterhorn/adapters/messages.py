@@ -166,6 +166,7 @@ class MessageCardExtractor:
         scope_id: str,
         records: list[Record | ChatMessage | dict[str, Any]] | None = None,
         messages: list[ChatMessage | dict[str, Any]] | None = None,
+        context: list[Record | dict[str, Any]] | None = None,
         batch_size: int = DEFAULT_EXTRACTION_BATCH_SIZE,
         anchors: list[SubjectAnchor] | None = None,
     ) -> MessageExtractionReport:
@@ -177,6 +178,7 @@ class MessageCardExtractor:
         if batch_size < 1:
             raise ValueError("batch_size MUST be positive")
         inputs = _validate_inputs(supplied)
+        context_inputs = _validate_inputs(context or [])
         offered_anchors = list(anchors or [])
         if not inputs:
             return MessageExtractionReport()
@@ -186,6 +188,7 @@ class MessageCardExtractor:
             report = self._extract_batch(
                 scope_id=scope_id,
                 inputs=batch,
+                context=context_inputs,
                 anchors=offered_anchors,
             )
             cards.extend(report.cards)
@@ -197,13 +200,16 @@ class MessageCardExtractor:
         *,
         scope_id: str,
         inputs: list[_ExtractionRecord],
+        context: list[_ExtractionRecord],
         anchors: list[SubjectAnchor],
     ) -> MessageExtractionReport:
-        modern = any(not item.legacy for item in inputs)
+        all_inputs = [*context, *inputs]
+        modern = any(not item.legacy for item in all_inputs)
         prompt = build_message_prompt(
             self.profile,
             scope_id,
             inputs,
+            context=context,
             anchors=anchors,
             allow_subject_key=not modern or bool(anchors),
         )
@@ -218,7 +224,7 @@ class MessageCardExtractor:
                 decoded,
                 collection_key="cards",
                 aliases=prompt["source_aliases"],
-                available_source_ids=(item.source_id for item in inputs),
+                available_source_ids=(item.source_id for item in all_inputs),
             )
             response = MessageCardResponse.model_validate(restored)
         except (json.JSONDecodeError, ValidationError, TypeError) as error:
@@ -231,8 +237,8 @@ class MessageCardExtractor:
                 ]
             )
 
-        by_source = {item.source_id: item for item in inputs}
-        available_refs = [item.source_ref for item in inputs]
+        by_source = {item.source_id: item for item in all_inputs}
+        available_refs = [item.source_ref for item in all_inputs]
         accepted: list[EpisodeCard] = []
         rejected: list[MessageCardRejection] = []
         allowed_fields = _profile_card_fields(
@@ -354,6 +360,7 @@ def build_message_prompt(
     scope_id: str,
     records: list[_ExtractionRecord] | list[Record] | list[ChatMessage],
     *,
+    context: list[_ExtractionRecord] | list[Record] | None = None,
     anchors: list[SubjectAnchor] | None = None,
     allow_subject_key: bool = True,
 ) -> dict[str, Any]:
@@ -361,6 +368,11 @@ def build_message_prompt(
         records
         if not records or isinstance(records[0], _ExtractionRecord)
         else _validate_inputs(records)
+    )
+    normalized_context = (
+        context
+        if not context or isinstance(context[0], _ExtractionRecord)
+        else _validate_inputs(context)
     )
     fields: dict[str, Any] = {}
     for predicate in profile.predicates:
@@ -408,6 +420,12 @@ def build_message_prompt(
             "when the aggregated conversation supports it; do not default "
             "status to done."
         )
+    if normalized_context:
+        system += (
+            " Prior conversation context, oldest first. Use it to understand "
+            "what the new Records continue. You MAY cite a context Record's "
+            "alias in source_ids when a card's claim rests on it."
+        )
     offered_anchors = list(anchors or [])
     if offered_anchors:
         system += (
@@ -434,23 +452,21 @@ def build_message_prompt(
             '"title":"Gateway H2 research","status":"open",'
             '"source_ids":["m2"]}]}.'
         )
-    aliases = source_aliases(item.source_id for item in normalized)
-    user = canonical_json(
-        {
-            "scope_id": scope_id,
-            "records": [
-                {
-                    "source_alias": alias,
-                    "record": {
-                        key: value
-                        for key, value in item.record.model_dump(mode="json").items()
-                        if key not in {"record_id", "native_id"}
-                    },
-                }
-                for alias, item in zip(aliases, normalized, strict=True)
-            ],
-        }
-    )
+    all_inputs = [*normalized_context, *normalized]
+    aliases = source_aliases(item.source_id for item in all_inputs)
+    alias_names = list(aliases)
+    context_aliases = alias_names[: len(normalized_context)]
+    record_aliases = alias_names[len(normalized_context) :]
+    user_payload = {
+        "scope_id": scope_id,
+        "records": _prompt_records(record_aliases, normalized),
+    }
+    if normalized_context:
+        user_payload["context"] = _prompt_records(
+            context_aliases,
+            normalized_context,
+        )
+    user = canonical_json(user_payload)
     schema = MessageCardResponse.model_json_schema()
     properties = schema["$defs"]["MessageCardCandidate"]["properties"]
     allowed = {"date", "title", "source_ids"} | _profile_card_fields(
@@ -471,6 +487,23 @@ def build_message_prompt(
         "response_schema": schema,
         "source_aliases": aliases,
     }
+
+
+def _prompt_records(
+    aliases: list[str],
+    records: list[_ExtractionRecord],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "source_alias": alias,
+            "record": {
+                key: value
+                for key, value in item.record.model_dump(mode="json").items()
+                if key not in {"record_id", "native_id"}
+            },
+        }
+        for alias, item in zip(aliases, records, strict=True)
+    ]
 
 
 def _thread_batches(

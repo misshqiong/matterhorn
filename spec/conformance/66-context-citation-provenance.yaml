@@ -1,0 +1,62 @@
+case_id: context-citation-provenance
+title: A context-only card citation passes traceability with copied provenance
+invariants: [P3, P5, P9, INV-7, INV-13]
+schema_profile: org-matters/v1
+scope_id: context-citation
+clock: ["2026-08-04T10:01:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: "CITE:old"
+        native_id: old
+        container_id: CITE
+        thread_id: "CITE:thread"
+        sent_at: "2026-08-04T09:00:00Z"
+        author: {id: ada, display_name: Ada, kind: human}
+        content: "Fictional incident 77 is blocked on a certificate."
+        uri: "https://example.test/cite/old"
+  - records:
+      - record_id: "CITE:new"
+        native_id: new
+        container_id: CITE
+        thread_id: "CITE:thread"
+        sent_at: "2026-08-04T10:00:00Z"
+        author: {id: bert, display_name: Bert, kind: human}
+        content: "Please capture the incident update."
+record_model_responses:
+  - {cards: []}
+  - cards:
+      - date: "2026-08-04"
+        title: Fictional incident 77
+        status: blocked
+        source_ids: [m1]
+expect:
+  extraction_calls:
+    - context: []
+      records:
+        - {content: "Fictional incident 77 is blocked on a certificate."}
+    - context:
+        - {content: "Fictional incident 77 is blocked on a certificate."}
+      records:
+        - {content: "Please capture the incident update."}
+  record_reports:
+    - {records_processed: 1, cards_accepted: 0}
+    - {records_processed: 1, cards_accepted: 1, assertions_emitted: 1}
+  second_record_reports:
+    - {records_processed: 0, records_skipped: 1}
+    - {records_processed: 0, records_skipped: 1}
+  assertions:
+    - predicate: status
+      object_value: blocked
+      source_refs:
+        - source_id: "CITE:old"
+          sent_at: "2026-08-04T09:00:00.000000Z"
+          sender: Ada
+          excerpt: "Fictional incident 77 is blocked on a certificate."
+          uri: "https://example.test/cite/old"
+  intervals:
+    - {predicate: status, object_value: blocked}
+  subject_count: 1
+  gate_statistics: {scope_id: context-citation, accepted: 0, rejections: {}}
+  queries: []
+

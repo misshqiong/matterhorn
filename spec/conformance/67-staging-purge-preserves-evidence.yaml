@@ -1,0 +1,65 @@
+case_id: staging-purge-preserves-evidence
+title: Purge deletes raw staging without deleting assertion evidence
+invariants: [P5, P7, P9, INV-7, INV-13]
+schema_profile: org-matters/v1
+scope_id: staging-purge
+clock: ["2026-08-09T10:01:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: "PURGE:old"
+        native_id: old
+        container_id: PURGE
+        sent_at: "2026-08-01T09:00:00Z"
+        author: {id: ada, display_name: Ada, kind: human}
+        content: "Fictional migration 12 is open."
+        uri: "https://example.test/purge/old"
+  - purge_staging_at: "2026-08-09T09:00:00Z"
+    records:
+      - record_id: "PURGE:new"
+        native_id: new
+        container_id: PURGE
+        sent_at: "2026-08-09T10:00:00Z"
+        author: {id: bert, display_name: Bert, kind: human}
+        content: "Fictional migration 12 has a new update."
+record_model_responses:
+  - cards:
+      - date: "2026-08-01"
+        title: Fictional migration 12
+        status: open
+        source_ids: [m1]
+  - {cards: []}
+expect:
+  staging_purge_counts: [1]
+  extraction_calls:
+    - context: []
+      records:
+        - {content: "Fictional migration 12 is open."}
+    - context: []
+      records:
+        - {content: "Fictional migration 12 has a new update."}
+  record_reports:
+    - {records_processed: 1, cards_accepted: 1, assertions_emitted: 1}
+    - {records_processed: 1, cards_accepted: 0, assertions_emitted: 0}
+  second_record_reports:
+    - {records_processed: 0, records_skipped: 1}
+    - {records_processed: 0, records_skipped: 1}
+  assertions:
+    - predicate: status
+      object_value: open
+      source_refs:
+        - source_id: "PURGE:old"
+          sent_at: "2026-08-01T09:00:00.000000Z"
+          sender: Ada
+          excerpt: "Fictional migration 12 is open."
+          uri: "https://example.test/purge/old"
+  intervals:
+    - {predicate: status, object_value: open}
+  subject_count: 1
+  queries:
+    - name: current
+      args: {subject_key: sub_346ea589d9f67b18e3b8, predicate: status}
+      result:
+        - value: open
+          source_ids: ["PURGE:old"]
+          evidence_status: active

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from matterhorn.contracts import Record, SourceRef
 from matterhorn.store import SQLiteStore
 
 
@@ -27,6 +28,111 @@ def test_nested_transaction_uses_savepoint(tmp_path) -> None:
             raise RuntimeError("abort inner")
     assert store.card_payload_hash("s", "outer") == "hash"
     assert store.card_payload_hash("s", "inner") is None
+
+
+def test_staging_upserts_latest_record_and_reads_deterministic_context(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "staging.db")
+
+    def record(
+        native_id: str,
+        sent_at: datetime,
+        content: str,
+        *,
+        thread_id: str = "room:thread",
+        revoked_at: datetime | None = None,
+    ) -> Record:
+        return Record(
+            record_id=f"room:{native_id}",
+            native_id=native_id,
+            container_id="room",
+            thread_id=thread_id,
+            sent_at=sent_at,
+            author={"id": "ada", "kind": "human"},
+            content=content,
+            revoked_at=revoked_at,
+            kind="revocation" if revoked_at is not None else "message",
+        )
+
+    start = datetime(2026, 8, 4, 9, tzinfo=UTC)
+    original = record("same", start, "Original content")
+    edited = record("same", start, "Edited content")
+    older = record("older", start - timedelta(minutes=1), "Older content")
+    revoked = record(
+        "revoked",
+        start + timedelta(minutes=1),
+        "Revoked content",
+        revoked_at=start + timedelta(minutes=2),
+    )
+    other_thread = record(
+        "other",
+        start + timedelta(minutes=2),
+        "Other thread",
+        thread_id="room:other-thread",
+    )
+    with store.transaction():
+        store.stage_records(
+            "scope",
+            [original, older, revoked, other_thread],
+            staged_at=start,
+        )
+        store.stage_records(
+            "scope",
+            [edited],
+            staged_at=start + timedelta(minutes=3),
+        )
+
+    context = store.staged_records(
+        "scope",
+        "room",
+        sent_at_from=start - timedelta(days=7),
+        sent_at_before=start + timedelta(hours=1),
+        thread_id="room:thread",
+        exclude_record_ids=[],
+    )
+
+    assert [(item.record_id, item.content) for item in context] == [
+        ("room:older", "Older content"),
+        ("room:same", "Edited content"),
+    ]
+
+
+def test_staging_purge_deletes_only_raw_rows(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "staging-purge.db")
+    sent_at = datetime(2026, 8, 1, 9, tzinfo=UTC)
+    record = Record(
+        record_id="room:old",
+        native_id="old",
+        container_id="room",
+        sent_at=sent_at,
+        author={"id": "ada", "kind": "human"},
+        content="Fictional retained evidence.",
+    )
+    source_ref = SourceRef(
+        source_id=record.record_id,
+        sent_at=sent_at,
+        sender="Ada",
+        excerpt=record.content,
+    )
+    with store.transaction():
+        store.stage_records("scope", [record], staged_at=sent_at)
+        store.observe_source("scope", source_ref)
+
+    with store.transaction():
+        deleted = store.purge_staged_records(
+            "scope",
+            before=sent_at + timedelta(days=1),
+        )
+
+    assert deleted == 1
+    assert store.source_metadata("scope")[0].source_id == "room:old"
+    assert store.staged_records(
+        "scope",
+        "room",
+        sent_at_from=sent_at - timedelta(days=1),
+        sent_at_before=sent_at + timedelta(days=2),
+        thread_id=None,
+        exclude_record_ids=[],
+    ) == []
 
 
 def test_shared_sqlite_store_serializes_reads_and_write_transactions(
