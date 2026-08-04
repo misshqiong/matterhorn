@@ -90,6 +90,7 @@ def _engine(
     *,
     gateway: Any = None,
     max_batch_delay_minutes: float | None = None,
+    min_batch_messages: int | None = None,
 ) -> Engine:
     db = _setting(db, DEFAULT_DB, "db")
     schema = _setting(schema, DEFAULT_SCHEMA, "schema")
@@ -107,7 +108,25 @@ def _engine(
             if max_batch_delay_minutes is None
             else max_batch_delay_minutes
         ),
+        min_batch_messages=(
+            _min_batch_messages()
+            if min_batch_messages is None
+            else min_batch_messages
+        ),
     )
+
+
+def _min_batch_messages(value: object | None = None) -> int:
+    raw = value if value is not None else os.environ.get("MATTERHORN_MIN_BATCH", "1")
+    try:
+        parsed = int(str(raw))
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(
+            "MATTERHORN_MIN_BATCH MUST be a positive integer"
+        ) from error
+    if parsed < 1:
+        raise typer.BadParameter("MATTERHORN_MIN_BATCH MUST be a positive integer")
+    return parsed
 
 
 def _staging_retention_days() -> float:

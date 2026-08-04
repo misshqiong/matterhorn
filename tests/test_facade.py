@@ -505,3 +505,40 @@ def test_future_stamped_message_cannot_freeze_scope_quiet_period(tmp_path) -> No
     reports = engine.flush_quiet_at(10, now + timedelta(minutes=11))
     assert [report.scope_id for report in reports] == ["team"]
     assert engine.task(receipt.task_id).status == TaskStatus.completed
+
+
+def test_min_batch_messages_gates_quiet_flush_but_not_deadline(tmp_path) -> None:
+    now = datetime(2026, 8, 4, 12, tzinfo=UTC)
+    engine = Engine(
+        tmp_path / "minbatch.db",
+        llm=FacadeGateway(),
+        clock=lambda: now,
+        min_batch_messages=3,
+    )
+    engine.add("team", [_message()])
+
+    # Quiet but below the minimum batch: wait.
+    assert engine.flush_quiet_at(0.5, now + timedelta(minutes=1)) == []
+    # Deadline exceeded: flush regardless of count.
+    reports = engine.flush_quiet_at(
+        0.5, now + timedelta(minutes=6), max_batch_delay_minutes=5
+    )
+    assert [report.scope_id for report in reports] == ["team"]
+
+    # A second engine: three messages reach the minimum and flush on quiet.
+    other = Engine(
+        tmp_path / "minbatch2.db",
+        llm=FacadeGateway(),
+        clock=lambda: now,
+        min_batch_messages=3,
+    )
+    other.add(
+        "team",
+        [
+            _message(),
+            _message(id="m2"),
+            _message(id="m3"),
+        ],
+    )
+    reports = other.flush_quiet_at(0.5, now + timedelta(minutes=1))
+    assert [report.scope_id for report in reports] == ["team"]

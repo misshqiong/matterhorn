@@ -752,7 +752,7 @@ five attempts MUST remain failed and MUST NOT be selected again. A semantic
 retry policy.
 
 Service-mode batching MUST be bounded by a maximum delay so a continuously
-active conversation cannot starve. A scope is due when either the newest
+active conversation cannot starve. A quiet-triggered flush MAY additionally require a configured minimum number of accepted pending messages (default 1); the maximum-delay bound always overrides that minimum, so no message waits longer than the deadline. A scope is due when either the newest
 pending Message time is at or before the quiet cutoff, or the oldest pending
 or retryable Message task `created_at` is at or before the maximum-delay
 cutoff. The default maximum delay is five minutes. It MUST be positive and

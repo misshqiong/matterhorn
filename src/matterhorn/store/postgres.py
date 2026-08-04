@@ -1534,6 +1534,7 @@ class PostgresStore:
         quiet_cutoff: datetime,
         *,
         delay_cutoff: datetime | None = None,
+        min_accepted: int = 1,
         max_attempts: int = MAX_TASK_ATTEMPTS,
     ) -> list[str]:
         rows = self._execute(
@@ -1543,7 +1544,8 @@ class PostgresStore:
               status=%s OR (status=%s AND attempts < %s)
             ) AND kind='messages' AND newest_message_at IS NOT NULL
             GROUP BY scope_id
-            HAVING MAX(newest_message_at) <= %s OR MIN(created_at) <= %s
+            HAVING (MAX(newest_message_at) <= %s AND SUM(accepted) >= %s)
+              OR MIN(created_at) <= %s
             ORDER BY scope_id COLLATE "C"
             """,
             (
@@ -1551,6 +1553,7 @@ class PostgresStore:
                 TaskStatus.failed.value,
                 max_attempts,
                 as_utc(quiet_cutoff),
+                min_accepted,
                 as_utc(delay_cutoff) if delay_cutoff is not None else None,
             ),
         )

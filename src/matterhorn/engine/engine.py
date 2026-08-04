@@ -92,6 +92,7 @@ from matterhorn.store.base import MAX_TASK_ATTEMPTS, ROUTE_COUNTER_NAMES
 
 Clock = Callable[[], datetime]
 DEFAULT_MAX_ANCHORS = 40
+DEFAULT_MIN_BATCH_MESSAGES = 1
 DEFAULT_STAGING_RETENTION_DAYS = 7
 DEFAULT_MAX_BATCH_DELAY_MINUTES = 5
 DEFAULT_CONTEXT_MAX_RECORDS = 20
@@ -182,6 +183,7 @@ class _RoutePlan:
 class Engine:
     DEFAULT_STAGING_RETENTION_DAYS = DEFAULT_STAGING_RETENTION_DAYS
     DEFAULT_MAX_BATCH_DELAY_MINUTES = DEFAULT_MAX_BATCH_DELAY_MINUTES
+    DEFAULT_MIN_BATCH_MESSAGES = DEFAULT_MIN_BATCH_MESSAGES
     DEFAULT_CONTEXT_MAX_RECORDS = DEFAULT_CONTEXT_MAX_RECORDS
     DEFAULT_CONTEXT_MAX_CHARS = DEFAULT_CONTEXT_MAX_CHARS
 
@@ -196,6 +198,7 @@ class Engine:
         extractor: RecordExtractor | None = None,
         staging_retention_days: float = DEFAULT_STAGING_RETENTION_DAYS,
         max_batch_delay_minutes: float = DEFAULT_MAX_BATCH_DELAY_MINUTES,
+        min_batch_messages: int = DEFAULT_MIN_BATCH_MESSAGES,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -207,6 +210,9 @@ class Engine:
         self.staging_retention_days = validate_staging_retention_days(
             staging_retention_days
         )
+        if min_batch_messages < 1:
+            raise ValueError("min_batch_messages MUST be positive")
+        self.min_batch_messages = min_batch_messages
         self.max_batch_delay_minutes = validate_max_batch_delay_minutes(
             max_batch_delay_minutes
         )
@@ -1666,11 +1672,22 @@ class Engine:
             ),
         )
 
+    def _resolve_min_batch(self, override: int | None) -> int:
+        value = (
+            override
+            if override is not None
+            else getattr(self, "min_batch_messages", DEFAULT_MIN_BATCH_MESSAGES)
+        )
+        if value < 1:
+            raise ValueError("min_batch_messages MUST be positive")
+        return value
+
     def flush_quiet(
         self,
         quiet_period_minutes: float = 10,
         *,
         max_batch_delay_minutes: float | None = None,
+        min_batch_messages: int | None = None,
     ) -> list[FlushReport]:
         if quiet_period_minutes < 0:
             raise ValueError("quiet_period_minutes MUST be non-negative")
@@ -1687,6 +1704,7 @@ class Engine:
             for scope_id in self.store.quiet_scopes(
                 quiet_cutoff,
                 delay_cutoff=delay_cutoff,
+                min_accepted=self._resolve_min_batch(min_batch_messages),
                 max_attempts=MAX_TASK_ATTEMPTS,
             )
         ]
@@ -1697,6 +1715,7 @@ class Engine:
         instant: datetime,
         *,
         max_batch_delay_minutes: float | None = None,
+        min_batch_messages: int | None = None,
     ) -> list[FlushReport]:
         if quiet_period_minutes < 0:
             raise ValueError("quiet_period_minutes MUST be non-negative")
@@ -1713,6 +1732,7 @@ class Engine:
             for scope_id in self.store.quiet_scopes(
                 quiet_cutoff,
                 delay_cutoff=delay_cutoff,
+                min_accepted=self._resolve_min_batch(min_batch_messages),
                 max_attempts=MAX_TASK_ATTEMPTS,
             )
         ]

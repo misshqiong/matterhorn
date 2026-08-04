@@ -19,8 +19,21 @@ from matterhorn.contracts.models import StrictModel
 ADJUDICATION_SCHEMA_ID = "matterhorn-identity-adjudication/v1"
 PINNED_ADJUDICATION_EXAMPLE = (
     '{"decision":"attach","subject_key":"matter-204","confidence":0.86,'
-    '"evidence_source_ids":["chat:release:r17"]}'
+    '"evidence_source_ids":["m1"]}'
 )
+
+
+def adjudication_source_aliases(card: EpisodeCard) -> dict[str, str]:
+    """Deterministic alias -> source_id map in cited-source order.
+
+    Long record ids get mangled when a model copies them; short aliases do
+    not. The gate accepts either form.
+    """
+
+    return {
+        f"m{index + 1}": ref.source_id
+        for index, ref in enumerate(card.source_refs)
+    }
 
 
 class AdjudicationCandidate(StrictModel):
@@ -38,7 +51,7 @@ class AdjudicationResponse(StrictModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     decision: Literal["attach", "new", "abstain"]
-    subject_key: str | None
+    subject_key: str | None = None
     confidence: float = Field(ge=0, le=1)
     evidence_source_ids: list[str]
 
@@ -50,9 +63,13 @@ class AdjudicationResponse(StrictModel):
         return value
 
     @model_validator(mode="after")
-    def non_attach_has_no_subject(self) -> AdjudicationResponse:
+    def non_attach_ignores_subject(self) -> AdjudicationResponse:
+        # Live incident: the adjudicator habitually fills subject_key on
+        # abstain (or omits the field). Both are still safe abstentions —
+        # rejecting them as MALFORMED only mislabels the review queue.
+        # Normalize instead of refusing; attach semantics stay strict.
         if self.decision != "attach" and self.subject_key is not None:
-            raise ValueError("new and abstain decisions MUST have null subject_key")
+            object.__setattr__(self, "subject_key", None)
         return self
 
 
@@ -74,10 +91,13 @@ def build_adjudication_prompt(
     card: EpisodeCard,
     candidates: list[AdjudicationCandidate],
 ) -> AdjudicationPrompt:
+    aliases = adjudication_source_aliases(card)
+    excerpt_by_id = {ref.source_id: ref.excerpt for ref in card.source_refs}
     system = (
         "You adjudicate whether one evidence-backed card belongs to one offered "
-        "open matter. Use only the offered candidates and the card's real cited "
-        "source IDs. Return exactly one closed JSON object. Choose abstain when "
+        "open matter. Use only the offered candidates. Cite evidence by the "
+        "short source_alias values (m1, m2, ...) shown with the card's "
+        "sources. Return exactly one closed JSON object. Choose abstain when "
         "the evidence does not safely support attach or new. Literal example: "
         + PINNED_ADJUDICATION_EXAMPLE
     )
@@ -99,10 +119,10 @@ def build_adjudication_prompt(
                 ],
                 "sources": [
                     {
-                        "source_id": item.source_id,
-                        "excerpt": item.excerpt,
+                        "source_alias": alias,
+                        "excerpt": excerpt_by_id[source_id],
                     }
-                    for item in card.source_refs
+                    for alias, source_id in aliases.items()
                 ],
             },
             "candidates": [
@@ -149,8 +169,10 @@ def gate_adjudication(
     if response.decision == "abstain":
         return AdjudicationGate("review", None, ("EXPLICIT_ABSTAIN",))
 
+    aliases = adjudication_source_aliases(card)
     cited = {item.source_id for item in card.source_refs}
-    if not set(response.evidence_source_ids).issubset(cited):
+    resolved = [aliases.get(item, item) for item in response.evidence_source_ids]
+    if not set(resolved).issubset(cited):
         return AdjudicationGate("review", None, ("SOURCE_NOT_TRACEABLE",))
     if response.decision == "new":
         return AdjudicationGate("new", None)

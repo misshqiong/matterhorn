@@ -71,7 +71,7 @@ def test_adjudication_prompt_is_rich_closed_and_pins_literal_example() -> None:
     assert prompt.response_schema["additionalProperties"] is False
     assert payload["card"]["sources"] == [
         {
-            "source_id": "routing-scope:updates:r1",
+            "source_alias": "m1",
             "excerpt": "Atlas launch checklist passed verification.",
         }
     ]
@@ -420,3 +420,41 @@ def test_review_survives_restart_and_rest_resolution_is_human_and_once(tmp_path)
     resolved_rows = second.store.review_items("review-scope", pending_only=False)
     assert len(resolved_rows) == 1
     assert resolved_rows[0].resolved_at == NOW
+
+
+def test_abstain_with_subject_key_or_missing_key_is_abstain_not_malformed() -> None:
+    import json as _json
+
+    from matterhorn.engine.routing import gate_adjudication
+
+    card = _card()
+    for raw in (
+        '{"decision":"abstain","subject_key":"sub_x","confidence":0.2,"evidence_source_ids":[]}',
+        '{"decision":"abstain","confidence":0.6,"evidence_source_ids":[]}',
+    ):
+        gate = gate_adjudication(
+            raw, card=card, candidates=[], confidence_threshold=0.6
+        )
+        assert gate.outcome == "review"
+        assert gate.reasons == ("EXPLICIT_ABSTAIN",)
+
+
+def test_attach_may_cite_evidence_by_alias() -> None:
+    from matterhorn.engine.routing import (
+        AdjudicationCandidate,
+        gate_adjudication,
+    )
+
+    card = _card()
+    candidate = AdjudicationCandidate(
+        subject_key="matter-1", title="Fictional Atlas launch"
+    )
+    gate = gate_adjudication(
+        '{"decision":"attach","subject_key":"matter-1","confidence":0.9,'
+        '"evidence_source_ids":["m1"]}',
+        card=card,
+        candidates=[candidate],
+        confidence_threshold=0.6,
+    )
+    assert gate.outcome == "attach"
+    assert gate.subject_key == "matter-1"

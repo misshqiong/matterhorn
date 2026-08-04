@@ -1522,6 +1522,7 @@ class SQLiteStore:
         quiet_cutoff: datetime,
         *,
         delay_cutoff: datetime | None = None,
+        min_accepted: int = 1,
         max_attempts: int = MAX_TASK_ATTEMPTS,
     ) -> list[str]:
         rows = self.connection.execute(
@@ -1531,7 +1532,8 @@ class SQLiteStore:
               status=? OR (status=? AND attempts < ?)
             ) AND kind='messages' AND newest_message_at IS NOT NULL
             GROUP BY scope_id
-            HAVING MAX(newest_message_at) <= ? OR MIN(created_at) <= ?
+            HAVING (MAX(newest_message_at) <= ? AND SUM(accepted) >= ?)
+              OR MIN(created_at) <= ?
             ORDER BY scope_id COLLATE BINARY
             """,
             (
@@ -1539,6 +1541,7 @@ class SQLiteStore:
                 TaskStatus.failed.value,
                 max_attempts,
                 instant_text(quiet_cutoff),
+                min_accepted,
                 instant_text(delay_cutoff) if delay_cutoff is not None else None,
             ),
         )

@@ -28,6 +28,7 @@ class Engine(CoreEngine):
         extractor: RecordExtractor | None = None,
         staging_retention_days: float = CoreEngine.DEFAULT_STAGING_RETENTION_DAYS,
         max_batch_delay_minutes: float = CoreEngine.DEFAULT_MAX_BATCH_DELAY_MINUTES,
+        min_batch_messages: int = CoreEngine.DEFAULT_MIN_BATCH_MESSAGES,
     ):
         super().__init__(
             store,
@@ -38,6 +39,7 @@ class Engine(CoreEngine):
             extractor=extractor,
             staging_retention_days=staging_retention_days,
             max_batch_delay_minutes=max_batch_delay_minutes,
+            min_batch_messages=min_batch_messages,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(
