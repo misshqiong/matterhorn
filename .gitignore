@@ -10,3 +10,4 @@ build/
 # internal project brief, kept local only
 docs/PROPOSAL.zh.md
 .claude/
+.matterhorn-scope

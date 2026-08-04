@@ -55,7 +55,14 @@ mh setup claude-code \
 The `Stop` hook posts the recent user/assistant transcript tail after every
 completed turn, while `SessionEnd` posts the full transcript and
 `SessionStart` injects the scope's open matters. Overlap is harmless because
-Claude transcript messages use deterministic IDs. Explicit MCP tool calls from
+Claude transcript messages use deterministic IDs.
+
+For a single GLOBAL configuration (hooks in `~/.claude/settings.json`
+covering every project), pass `--scope auto` to the `mh hook` commands: each
+project then resolves its own scope — a `.matterhorn-scope` file at the
+project root (or any parent) names it explicitly, and projects without one
+get a stable derived scope (`cc-<name>-<path digest>`), so one config never
+mixes projects into one partition. Explicit MCP tool calls from
 every mounted session reach the same nine-tool server. For multiple machines,
 replace loopback with the authenticated TLS origin described under Security.
 

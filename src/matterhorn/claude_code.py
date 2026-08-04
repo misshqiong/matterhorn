@@ -20,6 +20,39 @@ from urllib.request import Request, urlopen
 
 DEFAULT_HUB_URL = "http://127.0.0.1:8000"
 HOOK_TIMEOUT_SECONDS = 1.5
+SCOPE_FILE_NAME = ".matterhorn-scope"
+AUTO_SCOPE = "auto"
+
+
+def resolve_hook_scope(scope: str, *, project_dir: Path | None = None) -> str:
+    """Resolve `--scope auto` for globally-configured hooks.
+
+    Priority: an explicit scope passes through; otherwise a
+    `.matterhorn-scope` file at the project root (or any parent up to $HOME)
+    names the scope; otherwise the scope is derived from the project path so
+    every project lands in its own partition without per-project setup.
+    """
+
+    if scope != AUTO_SCOPE:
+        return scope
+    root = (
+        project_dir
+        or Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
+    ).resolve()
+    home = Path.home().resolve()
+    for candidate in (root, *root.parents):
+        marker = candidate / SCOPE_FILE_NAME
+        if marker.is_file():
+            named = marker.read_text(encoding="utf-8").strip()
+            if named:
+                return named
+        if candidate == home:
+            break
+    slug = "".join(
+        ch if ch.isalnum() else "-" for ch in root.name.lower()
+    ).strip("-") or "project"
+    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:6]
+    return f"cc-{slug}-{digest}"
 _TERMINAL_STATUSES = frozenset(
     {"cancelled", "closed", "complete", "completed", "done", "resolved"}
 )

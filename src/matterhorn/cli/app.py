@@ -1392,9 +1392,9 @@ def hook_turn_end(
 ) -> None:
     """Best-effort per-turn transcript tail delivery to a hub."""
 
-    from matterhorn.claude_code import session_end
+    from matterhorn.claude_code import resolve_hook_scope, session_end
 
-    session_end(sys.stdin, url=url, scope=scope, tail=40)
+    session_end(sys.stdin, url=url, scope=resolve_hook_scope(scope), tail=40)
 
 
 @hook_app.command("session-end")
@@ -1407,9 +1407,9 @@ def hook_session_end(
 ) -> None:
     """Best-effort delivery of a Claude Code transcript to a hub."""
 
-    from matterhorn.claude_code import session_end
+    from matterhorn.claude_code import resolve_hook_scope, session_end
 
-    session_end(sys.stdin, url=url, scope=scope)
+    session_end(sys.stdin, url=url, scope=resolve_hook_scope(scope))
 
 
 @hook_app.command("session-start")
@@ -1422,9 +1422,9 @@ def hook_session_start(
 ) -> None:
     """Best-effort open-matter context for a Claude Code session."""
 
-    from matterhorn.claude_code import session_start
+    from matterhorn.claude_code import resolve_hook_scope, session_start
 
-    session_start(sys.stdin, sys.stdout, url=url, scope=scope)
+    session_start(sys.stdin, sys.stdout, url=url, scope=resolve_hook_scope(scope))
 
 
 @app.command()

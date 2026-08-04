@@ -670,3 +670,26 @@ def test_activity_and_connections_endpoints_are_public_and_cross_scope(
         assert "/v1/connections" in paths
 
     asyncio.run(scenario())
+
+
+def test_hook_scope_auto_resolution(tmp_path) -> None:
+    from matterhorn.claude_code import resolve_hook_scope
+
+    # Explicit scope passes through untouched.
+    assert resolve_hook_scope("dumbo-dev", project_dir=tmp_path) == "dumbo-dev"
+
+    # Derived scope: deterministic slug + path digest, stable across calls.
+    project = tmp_path / "My Project"
+    project.mkdir()
+    derived = resolve_hook_scope("auto", project_dir=project)
+    assert derived.startswith("cc-my-project-")
+    assert derived == resolve_hook_scope("auto", project_dir=project)
+
+    # Sibling projects with the same basename get distinct scopes.
+    other = tmp_path / "nested" / "My Project"
+    other.mkdir(parents=True)
+    assert resolve_hook_scope("auto", project_dir=other) != derived
+
+    # A .matterhorn-scope marker names the scope; nearest marker wins.
+    (project / ".matterhorn-scope").write_text("named-scope\n", encoding="utf-8")
+    assert resolve_hook_scope("auto", project_dir=project) == "named-scope"
