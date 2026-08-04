@@ -1,0 +1,56 @@
+case_id: ingest-binds-handles-idempotently
+title: Accepted Record evidence binds profile handles once
+invariants: [P4, P5, P9, INV-14]
+schema_profile: org-matters/v1
+scope_id: handles-ingest
+clock:
+  - "2026-08-04T09:00:00Z"
+  - "2026-08-04T09:05:00Z"
+cards:
+  - card_id: seed-target
+    scope_id: handles-ingest
+    subject_key: ingest-target
+    date: 2026-08-04
+    title: Fictional launch review
+    status: open
+    source_refs:
+      - {source_id: seed-source, sent_at: "2026-08-04T08:55:00Z", sender: Dana Reyes}
+record_batches:
+  - records:
+      - record_id: handles-ingest:conv:r1
+        container_id: handles-ingest:conv
+        sent_at: "2026-08-04T09:04:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "Dana linked OCT-4821 to order 0007319."
+record_model_responses:
+  - cards:
+      - date: "2026-08-04"
+        title: "Review PR #00456 for OCT-4821"
+        progress: "Order 0007319 is ready for fictional review."
+        source_ids: [handles-ingest:conv:r1]
+        subject_key: ingest-target
+expect:
+  record_reports:
+    - {handles_bound: 3, handles_already_bound: 0, handle_conflicts: 0}
+  second_record_reports:
+    - {handles_bound: 0, handles_already_bound: 0, handle_conflicts: 0}
+  assertions:
+    - {subject_key: ingest-target, predicate: status, object_value: open}
+    - {subject_key: ingest-target, predicate: progress, object_value: "Order 0007319 is ready for fictional review."}
+  intervals:
+    - {subject_key: ingest-target, predicate: status, object_value: open}
+    - {subject_key: ingest-target, predicate: progress, object_value: "Order 0007319 is ready for fictional review."}
+  subject_count: 1
+  subject_handles:
+    ingest-target:
+      - {subject_key: ingest-target, handle_type: issue, handle_value: OCT-4821, normalized_value: oct-4821, origin: system}
+      - {subject_key: ingest-target, handle_type: order, handle_value: "order 0007319", normalized_value: "7319", origin: system}
+      - {subject_key: ingest-target, handle_type: pull_request, handle_value: "PR #00456", normalized_value: "456", origin: system}
+  handle_lookups:
+    - handle_type: issue
+      value: oct-4821
+      result: [{subject_key: ingest-target, normalized_value: oct-4821}]
+    - handle_type: null
+      value: "PR #00456"
+      result: [{subject_key: ingest-target, handle_type: pull_request, normalized_value: "456"}]
+  queries: []

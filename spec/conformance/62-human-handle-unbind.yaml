@@ -1,0 +1,51 @@
+case_id: human-handle-unbind
+title: Human unbind revokes a handle with mandatory provenance
+invariants: [P4, P5, P8, P9, INV-14]
+schema_profile: org-matters/v1
+scope_id: human-handle-unbind
+clock:
+  - "2026-08-04T12:00:00Z"
+  - "2026-08-04T12:01:00Z"
+  - "2026-08-04T12:02:00Z"
+cards:
+  - card_id: human-handle-seed
+    scope_id: human-handle-unbind
+    subject_key: human-target
+    date: 2026-08-04
+    title: Fictional pull request review
+    status: open
+    source_refs:
+      - {source_id: human-seed-source, sent_at: "2026-08-04T11:50:00Z", sender: Dana Reyes}
+handle_operations:
+  - operation: bind
+    subject_key: human-target
+    handle_type: pull_request
+    handle_value: "PR #00456"
+    source_refs:
+      - {source_id: human-bind-source, sent_at: "2026-08-04T12:01:00Z", sender: Dana Reyes, excerpt: "Bind the fictional review reference."}
+  - operation: unbind
+    subject_key: human-target
+    handle_type: pull_request
+    normalized_value: "456"
+    source_refs:
+      - {source_id: human-unbind-source, sent_at: "2026-08-04T12:02:00Z", sender: Dana Reyes, excerpt: "The reference belongs elsewhere."}
+expect:
+  assertions:
+    - {subject_key: human-target, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: human-target, predicate: status, object_value: open}
+  handle_bindings:
+    - subject_key: human-target
+      handle_type: pull_request
+      handle_value: "PR #00456"
+      normalized_value: "456"
+      origin: human
+      revoked_at: "2026-08-04T12:02:00.000000Z"
+      revocation_origin: human
+      revocation_source_refs:
+        - {source_id: human-unbind-source, sent_at: "2026-08-04T12:02:00.000000Z", sender: Dana Reyes, excerpt: "The reference belongs elsewhere.", uri: null}
+  subject_handles:
+    human-target: []
+  handle_lookups:
+    - {handle_type: pull_request, value: "456", result: []}
+  queries: []

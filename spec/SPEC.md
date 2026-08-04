@@ -127,6 +127,13 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   chunks and conversations can attach to a matter born earlier in the same
   operation without mixing conversation evidence or waiting for another
   flush.
+- **INV-14 — Evidenced subject-handle registry.** A handle binding MUST be a
+  provenance-bearing, revocable assertion and MUST NOT be silently deleted.
+  At most one active binding may exist for a
+  `(scope_id, handle_type, normalized_value)` tuple. Active handles from every
+  subject in a merge chain MUST read and look up as a union on the canonical
+  subject; unmerge MUST restore the original per-subject view. Replay MUST
+  reproduce the complete active and revoked binding state.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -256,6 +263,7 @@ A profile is a YAML or JSON object. Unknown fields MUST be rejected.
 | `identity` | object | default `{}` | Contains `merge_evidence`. |
 | `identity.merge_evidence.min_shared_sources` | integer >= 1 | default `2` | Absolute merge threshold. |
 | `identity.merge_evidence.or_share_ratio` | number in `(0,1]` | default `0.5` | New-card evidence share threshold. |
+| `handle_patterns` | array | default `[]` | Ordered conservative structured-identifier patterns. Each entry has a required unique `handle_type`, required regular-expression `pattern`, and optional `normalization` options. |
 | `completion` | object or null | default null | Optional registered `predicate` and string array `completed_values`. |
 | `semantic` | object | default `{}` | Semantic extraction policy. |
 | `semantic.conservative_confidence_threshold` | number in `[0,1]` | default `0.8` | Minimum confidence for predicates with `semantic_filter: conservative`. |
@@ -279,6 +287,13 @@ Each predicate entry has:
 The core MUST obtain all predicate names, subject types, field mappings,
 person-valued predicates, and completion meaning from this profile. It MUST NOT
 contain profile-domain vocabulary.
+
+Each `handle_patterns` entry's `normalization` object MAY contain
+`strip_prefixes`, an ordered unique array of literal textual prefixes, and
+`strip_leading_zeros`, a boolean defaulting to false. Patterns MUST compile as
+regular expressions. `handle_type` values MUST be unique within a profile.
+Pattern order is normative for deterministic scanning, although the resulting
+bindings are deduplicated by their normalized routing key.
 
 The two built-in profiles MUST be package resources under
 `matterhorn.schemas`, at `org-matters/v1.yaml` and
@@ -345,6 +360,16 @@ active merge, and MUST remove only that active edge. It MUST NOT delete or
 rewrite either subject, any assertion, or any evidence. Card identity,
 correction, semantic-write, and query paths that receive a merged subject key
 MUST redirect to the canonical target.
+
+A SubjectHandle contains `binding_id`, `scope_id`, `subject_key`, required
+`handle_type`, `handle_value` preserving the exact matched or human-supplied
+surface form, `normalized_value`, `origin` (`human`, `model`, or `system`),
+non-empty ordered `source_refs`, and `bound_at`. Revocation adds nullable
+`revoked_at`, nullable `revocation_origin`, and ordered
+`revocation_source_refs`. A binding is active exactly when `revoked_at` is
+null. Handle rows are historical assertions: bind appends a row, unbind marks
+the active row revoked with mandatory provenance, and neither operation may
+silently delete a row.
 
 A ChangeEvent contains required deterministic `event_id`, `event_type`,
 `scope_id`, `subject_key`, registered `predicate`, nullable JSON `old_value`
@@ -475,6 +500,16 @@ semantic assertions MUST write against that canonical key. This redirect MUST
 preserve the canonical target's own title while accumulating the incoming
 sources and thread boundaries. Active edges are acyclic by section 5, so
 resolution MUST terminate deterministically.
+
+### 7.3 Activity derivation
+
+Subject activity is not stored as a lifecycle column. Where a caller needs an
+active-versus-closed distinction, the Engine MUST derive it from the current
+projected value of the profile's completion predicate: a subject is closed
+exactly when that value is a member of `completion.completed_values`, and is
+active otherwise. For `org-matters/v1`, this means current status `done`,
+`completed`, or `closed` is closed. This derivation is zero-model and does not
+change identity resolution.
 
 ## 8. Exact extraction and retract guards
 
@@ -798,7 +833,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-13`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-14`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, new cards, accepted semantic assertions, and corrections. |
@@ -809,6 +844,8 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `record_model_responses` | Optional ordered closed Record-to-card responses, one per extractor call over unseen non-revoked Records. |
 | `corrections` | Ordered Correction mappings, default `[]`. |
 | `merge_operations` | Optional ordered merge/unmerge mappings. Each contains `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional `expect_error` for an operation-level rejection. |
+| `handle_normalization_cases` | Optional ordered `{handle_type,value,normalized_value}` mappings evaluated without persistence. |
+| `handle_operations` | Optional ordered human bind/unbind mappings. Bind names `subject_key`, `handle_type`, `handle_value`, and non-empty `source_refs`; unbind names `handle_type`, `normalized_value`, and non-empty `source_refs`. |
 | `model_responses` | Optional ordered list of closed response objects returned once per queued card during `dream()`. Absence means the semantic path is not run. |
 | `expect_error` | Optional validation/error substring. If present, the case succeeds only on that rejection. |
 | `expect.assertions` | Expected assertion mappings. |
@@ -826,6 +863,9 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.extraction_calls` | Optional ordered extractor-call mappings. Each contains an exact ordered `records` list of partial Record mappings, proving unit and chunk boundaries. |
 | `expect.events` | Optional expected ChangeEvent mappings, compared as a partial-field exact multiset. |
 | `expect.merge_count` | Optional exact active SubjectMerge count. |
+| `expect.handle_bindings` | Optional partial-field exact multiset of all active and revoked SubjectHandle rows. |
+| `expect.subject_handles` | Optional mapping from subject key to its exact active canonicalized handle list. |
+| `expect.handle_lookups` | Optional ordered lookup mappings with `handle_type` or null, `value`, and an exact list of partial canonical SubjectHandle results. |
 | `expect.matters` | Optional partial-field exact multiset of ergonomic canonical Matters, including aliases. |
 | `expect.export_replay_identity` | When true, the ownership export immediately before and after replay MUST be byte-identical. |
 | `expect.replay_events_emitted` | Optional exact replay new-event count; event cases use zero. |
@@ -838,10 +878,13 @@ projected mapping is allowed. Nested `supporting_assertion_ids` and query
 Query results are order-sensitive according to section 10. Every case runner
 MUST also re-add the same Message, card, and Record batches and compare a
 canonical whole-store snapshot including observation ledger, source lifecycle,
-sync positions, and active merges, then invoke replay and compare it again.
+sync positions, active merges, and active and revoked SubjectHandle rows, then
+invoke replay and compare it again.
 Merge operations are applied once because an already-active source is
 normatively rejected; their persisted state participates in both snapshot
-comparisons. Error cases MUST verify the transaction left the scope empty.
+comparisons. Human handle operations are also applied once because they are
+historical corrections; their state participates in both snapshot comparisons.
+Error cases MUST verify the transaction left the scope empty.
 
 ## 13. Distillation, prompt, and gateway contract
 
@@ -989,7 +1032,8 @@ missing, importing the MCP server MUST raise an actionable `ImportError` that
 names the `matterhorn[mcp]` extra.
 
 The Python facade MUST expose `add`, `matters`, `flush`, `task`, `add_cards`,
-`query.*`, `correct`, `merge_subjects`, `unmerge_subjects`, and
+`query.*`, `correct`, `merge_subjects`, `unmerge_subjects`, `bind_handle`,
+`unbind_handle`, `subject_handles`, `handle_lookup`, and
 advanced/internal `add_records`. `matters(scope_id)` MUST return
 projection-derived objects with at least `title`, `status`, `owners`,
 `participants`, `blocked_by`, `next_step`, `due`, `subject_key`, and
@@ -1017,6 +1061,10 @@ The CLI MUST additionally expose `mh init`, `mh add`, `mh matters`, `mh flush`,
 `mh add` MUST accept YAML/JSON from a file or stdin. `mh export SCOPE
 [--out FILE]` MUST write the section 11.3 envelope; `mh import FILE` MUST
 import it into an empty store.
+`mh handles backfill SCOPE [--db PATH]` MUST scan retained evidence offline,
+MUST NOT call a model, and MUST print `bound`, `skipped-conflict`, and
+`already-bound` counts. Repeating it against unchanged state MUST bind zero new
+rows.
 `mh init
 [--schema ID] [--db PATH]` MUST idempotently create the SQLite database and a
 small `matterhorn.toml` containing default database, schema, scope, and
@@ -1040,6 +1088,9 @@ GET  /v1/scopes/{scope_id}/export
 POST /v1/scopes/{scope_id}/corrections
 POST /v1/scopes/{scope_id}/merges
 POST /v1/scopes/{scope_id}/merges/{source_subject_key}/unmerge
+GET  /v1/scopes/{scope_id}/subjects/{subject_key}/handles
+POST /v1/scopes/{scope_id}/subjects/{subject_key}/handles
+POST /v1/scopes/{scope_id}/subjects/{subject_key}/handles/{handle_type}/{normalized_value}/unbind
 GET  /v1/tasks/{task_id}
 ```
 
@@ -1048,6 +1099,12 @@ non-empty `source_refs`; the unmerge request contains non-empty `source_refs`.
 Request-shape failures MUST return 422, merge-state conflicts MUST return 409,
 and missing subjects MUST return 404 through the normal structured error
 envelope. Merge and unmerge events MUST appear in the ordinary events feed.
+
+The handle bind request contains `handle_type`, `handle_value`, and non-empty
+`source_refs`; unbind contains non-empty `source_refs`. The subject in the
+unbind path is an ownership guard and MUST resolve to the active binding's
+canonical subject. Matter detail responses MUST add active canonicalized
+`handles`. All handle reads are P4 zero-model reads.
 
 The old `/v1/add_episode_cards`-style RPC endpoints MUST NOT be exposed, and
 wire protocols MUST NOT retain legacy aliases. Each request and response MUST
@@ -1300,6 +1357,101 @@ read-side results. Evaluation scores are measurements and MUST NOT be treated
 as conformance gates. Distributed artifacts MUST include the eval README, case
 YAML, and sibling scripted-response YAML.
 
+## 22. Subject handles
+
+The topic library is the existing `subjects` table plus a `subject_handles`
+index and the section 7.3 derived activity notion. An implementation MUST NOT
+introduce a second entity parallel to Subject.
+
+### 22.1 Entropy rule and shipped profile
+
+Only structured identifiers MAY become handles. Bare numbers, amounts, and
+person names are auxiliary evidence only and MUST NOT be handle types or
+routing primary keys in shipped defaults. A false binding is worse than a
+missed binding, so built-in patterns MUST favor precision over recall.
+
+`org-matters/v1` ships conservative patterns for issue/ticket keys,
+PR/MR references, explicitly prefixed order numbers, explicitly prefixed
+invoice numbers, flight numbers, RFC Message-IDs, and explicitly labeled
+thread IDs. The Engine and adapters MUST NOT hardcode any of those domains;
+they consume only the active profile's `handle_patterns` configuration.
+
+### 22.2 Exact normalization
+
+Given one surface value and its profile pattern, normalization MUST execute in
+this exact order:
+
+1. Trim surrounding whitespace, then strip surrounding Unicode punctuation or
+   symbol characters. Preserve the original input unchanged as `handle_value`.
+2. Remove at most one configured textual `strip_prefixes` member by
+   ASCII-case-insensitive comparison, then trim whitespace and surrounding
+   punctuation or symbols again.
+3. Remove leading `#` and `!` marker characters and following whitespace.
+4. Convert ASCII `A` through `Z` to `a` through `z`; non-ASCII code points MUST
+   remain unchanged.
+5. Collapse every internal Unicode-whitespace run to one ASCII space and trim.
+6. If and only if that pattern sets `strip_leading_zeros: true`, replace every
+   maximal purely numeric segment with its base-10 spelling without leading
+   zeros, using `0` when the segment contains only zeros. Numeric characters
+   inside an alphanumeric segment are unchanged.
+
+The result MUST be non-empty. `normalized_value` is the lookup and routing key;
+normalization is deterministic and locale-independent.
+
+### 22.3 Persistence, conflicts, and write-path maintenance
+
+Storage MUST retain the SubjectHandle fields in section 5 and MUST enforce at
+most one active row for each `(scope_id, handle_type, normalized_value)`, while
+allowing an unbind followed by a new bind of the same tuple. Lookups and
+ordered reads MUST use bytewise text ordering (`COLLATE "C"` on PostgreSQL and
+`BINARY` or equivalent on SQLite). Both backends MUST evolve existing schemas
+without requiring a destructive rebuild. Every Store method remains behind
+the Store instance's reentrant lock.
+
+After a Record-derived card is accepted and its subject has been resolved, the
+Engine MUST scan the card title and only the cited input Records' `content`
+using the active profile patterns. A title match uses the card's ordered
+SourceRefs; a content match uses the matching cited Record's SourceRef. Matches
+are grouped by `(handle_type, normalized_value)` and source provenance is a
+stable first-seen union. The Engine binds each group to the resolved canonical
+subject with `origin=system` and `bound_at` from the injectable clock, without
+calling a model.
+
+If the tuple already has an active binding to the same canonical subject, the
+operation is `already-bound` and MUST NOT append a row. If it is actively bound
+to a different canonical subject, first binding wins: the Engine MUST NOT
+rebind or throw, MUST append nothing, and MUST increment `handle_conflicts` in
+the operation report, persistent gate statistics, and enclosing task gate.
+Exact Record re-ingest is filtered before scanning and therefore changes no
+binding or counter.
+
+Human `bind_handle` and `unbind_handle` operations require non-empty
+`source_refs` and use `origin=human`. A human bind conflict is rejected rather
+than displacing the active owner. Unbind revokes exactly the active matching
+row and records `revoked_at`, `revocation_origin=human`, and the mandatory
+revocation SourceRefs. A following bind may append a new active generation.
+
+### 22.4 Merge projection, backfill, and phase boundary
+
+Handle merge-union uses transparent canonicalization at read time. Persisted
+bindings remain attached to their original subjects; `subject_handles` unions
+all active bindings whose original subjects currently resolve to the requested
+canonical subject, and `handle_lookup` resolves the bound subject through the
+same active merge chain. This preserves original provenance, makes replay a
+pure retained-state operation, and makes unmerge restore the original binding
+view without synthetic revoke/rebind rows.
+
+The offline backfill MUST walk retained assertion `SourceRef` excerpts and
+stored MemoryCard titles/current evidence, apply the same profile patterns and
+normalization, and bind to the subject owning that evidence with
+`origin=system`. It uses the same first-binding-wins conflict behavior and
+reports `bound`, `skipped-conflict`, and `already-bound`; unchanged repeated
+runs MUST bind nothing new.
+
+Phase 1 creates, maintains, and exposes the handle registry only. It MUST NOT
+change section 7 subject identity resolution, the Record extraction prompt, or
+the model subject-key gate. Handle-based routing begins in a later phase.
+
 ## 中文摘要
 
 Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Record 经受控
@@ -1318,4 +1470,6 @@ Java 实现共同的验收资产。M4 增加通用 Record 合同、Slack 纯适�
 target，被合并标题作为别名显示，unmerge 与 replay 不丢失原断言。INV-13 要求按
 `container_id` 划分绝不混合的 conversation extraction unit，以最早 `sent_at` 和
 bytewise container key 确定顺序，按完整 boundary 分块；每次模型调用前重算 anchor，
-并让本次 flush 已落库的卡立即进入下一次 anchor snapshot。
+并让本次 flush 已落库的卡立即进入下一次 anchor snapshot。INV-14
+增加带证据、可撤销且活动绑定唯一的 subject handle 索引；归并时按 canonical
+subject 联合读取，unmerge 与 replay 均恢复并保留原始绑定状态。

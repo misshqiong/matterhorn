@@ -1,0 +1,93 @@
+case_id: handle-merge-union-unmerge
+title: Merge unions handle reads and unmerge restores original ownership
+invariants: [P4, P8, P9, INV-12, INV-14]
+schema_profile: org-matters/v1
+scope_id: handle-merge
+clock:
+  - "2026-08-04T11:00:00Z"
+  - "2026-08-04T11:01:00Z"
+  - "2026-08-04T11:05:00Z"
+  - "2026-08-04T11:06:00Z"
+  - "2026-08-04T11:10:00Z"
+  - "2026-08-04T11:11:00Z"
+cards:
+  - card_id: canonical-seed
+    scope_id: handle-merge
+    subject_key: canonical
+    date: 2026-08-04
+    title: Canonical fictional release
+    status: open
+    source_refs:
+      - {source_id: canonical-seed-source, sent_at: "2026-08-04T10:50:00Z", sender: Dana Reyes}
+  - card_id: duplicate-seed
+    scope_id: handle-merge
+    subject_key: duplicate
+    date: 2026-08-04
+    title: Duplicate fictional release
+    status: open
+    source_refs:
+      - {source_id: duplicate-seed-source, sent_at: "2026-08-04T10:51:00Z", sender: Ellis Stone}
+record_batches:
+  - records:
+      - record_id: handle-merge:canonical:r1
+        container_id: handle-merge:canonical
+        sent_at: "2026-08-04T11:04:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "OCT-8102 is the canonical release issue."
+  - records:
+      - record_id: handle-merge:duplicate:r2
+        container_id: handle-merge:duplicate
+        sent_at: "2026-08-04T11:05:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "OCT-8101 is the duplicate release issue."
+record_model_responses:
+  - cards:
+      - {date: "2026-08-04", title: Canonical follow-up, progress: Canonical note., source_ids: [handle-merge:canonical:r1], subject_key: canonical}
+  - cards:
+      - {date: "2026-08-04", title: Duplicate follow-up, progress: Duplicate note., source_ids: [handle-merge:duplicate:r2], subject_key: duplicate}
+merge_operations:
+  - operation: merge
+    source_subject_key: duplicate
+    target_subject_key: canonical
+    valid_from: "2026-08-04T11:10:00Z"
+    source_refs:
+      - {source_id: handle-merge-reason, sent_at: "2026-08-04T11:10:00Z", sender: Dana Reyes}
+    expect_subject_handles:
+      canonical:
+        - {subject_key: canonical, normalized_value: oct-8101}
+        - {subject_key: canonical, normalized_value: oct-8102}
+    expect_handle_lookups:
+      - {handle_type: issue, value: OCT-8101, result: [{subject_key: canonical}]}
+  - operation: unmerge
+    source_subject_key: duplicate
+    valid_from: "2026-08-04T11:11:00Z"
+    source_refs:
+      - {source_id: handle-unmerge-reason, sent_at: "2026-08-04T11:11:00Z", sender: Dana Reyes}
+    expect_subject_handles:
+      canonical:
+        - {subject_key: canonical, normalized_value: oct-8102}
+      duplicate:
+        - {subject_key: duplicate, normalized_value: oct-8101}
+    expect_handle_lookups:
+      - {handle_type: issue, value: OCT-8101, result: [{subject_key: duplicate}]}
+expect:
+  assertions:
+    - {subject_key: canonical, predicate: status, object_value: open}
+    - {subject_key: canonical, predicate: progress, object_value: Canonical note.}
+    - {subject_key: duplicate, predicate: status, object_value: open}
+    - {subject_key: duplicate, predicate: progress, object_value: Duplicate note.}
+  intervals:
+    - {subject_key: canonical, predicate: status, object_value: open}
+    - {subject_key: canonical, predicate: progress, object_value: Canonical note.}
+    - {subject_key: duplicate, predicate: status, object_value: open}
+    - {subject_key: duplicate, predicate: progress, object_value: Duplicate note.}
+  merge_count: 0
+  subject_handles:
+    canonical:
+      - {subject_key: canonical, normalized_value: oct-8102}
+    duplicate:
+      - {subject_key: duplicate, normalized_value: oct-8101}
+  handle_lookups:
+    - {handle_type: issue, value: OCT-8101, result: [{subject_key: duplicate}]}
+    - {handle_type: issue, value: OCT-8102, result: [{subject_key: canonical}]}
+  queries: []

@@ -42,6 +42,10 @@ from matterhorn.api.models import (
     QuickMessageRequest,
     RawIngestRequest,
     ScopeListResponse,
+    SubjectHandleBindInput,
+    SubjectHandleListResponse,
+    SubjectHandleResponse,
+    SubjectHandleUnbindInput,
     SubjectListResponse,
     SubjectMergeInput,
     SubjectUnmergeInput,
@@ -487,6 +491,56 @@ def create_app(
         return service.unmerge_subjects(
             scope_id=scope_id,
             source_subject_key=source_subject_key,
+            source_refs=payload.source_refs,
+        )
+
+    @app.get(
+        "/v1/scopes/{scope_id}/subjects/{subject_key}/handles",
+        response_model=SubjectHandleListResponse,
+        summary="List active canonicalized handles for one subject",
+    )
+    def subject_handles(scope_id: str, subject_key: str):
+        return service.subject_handles(
+            scope_id=scope_id,
+            subject_key=subject_key,
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/subjects/{subject_key}/handles",
+        response_model=SubjectHandleResponse,
+        summary="Bind an evidenced handle to a subject",
+    )
+    def bind_handle(
+        scope_id: str,
+        subject_key: str,
+        payload: SubjectHandleBindInput,
+    ):
+        return service.bind_handle(
+            scope_id=scope_id,
+            subject_key=subject_key,
+            handle_type=payload.handle_type,
+            handle_value=payload.handle_value,
+            source_refs=payload.source_refs,
+        )
+
+    @app.post(
+        "/v1/scopes/{scope_id}/subjects/{subject_key}/handles/"
+        "{handle_type}/{normalized_value:path}/unbind",
+        response_model=SubjectHandleResponse,
+        summary="Revoke an active handle binding with human provenance",
+    )
+    def unbind_handle(
+        scope_id: str,
+        subject_key: str,
+        handle_type: str,
+        normalized_value: str,
+        payload: SubjectHandleUnbindInput,
+    ):
+        return service.unbind_handle(
+            scope_id=scope_id,
+            subject_key=subject_key,
+            handle_type=handle_type,
+            normalized_value=normalized_value,
             source_refs=payload.source_refs,
         )
 

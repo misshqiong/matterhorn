@@ -11,7 +11,7 @@ Public door: add(messages)
 ════════╪════ Engine promise boundary ═══════════════════════════════════
         ▼
    EpisodeCard ──► validation ──► assertions ──► intervals ──► answers
-        ▲          deterministic, idempotent, replayable (INV-1…INV-13)
+        ▲          deterministic, idempotent, replayable (INV-1…INV-14)
         │
 Advanced door: add_cards(episode_cards)
 ```

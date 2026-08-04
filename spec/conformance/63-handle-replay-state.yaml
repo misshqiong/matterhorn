@@ -1,0 +1,45 @@
+case_id: handle-replay-state
+title: Replay preserves deterministic handle binding state
+invariants: [P4, P5, P9, INV-3, INV-14]
+schema_profile: org-matters/v1
+scope_id: handle-replay
+clock:
+  - "2026-08-04T13:00:00Z"
+  - "2026-08-04T13:05:00Z"
+cards:
+  - card_id: replay-seed
+    scope_id: handle-replay
+    subject_key: replay-target
+    date: 2026-08-04
+    title: Fictional replay target
+    status: open
+    source_refs:
+      - {source_id: replay-seed-source, sent_at: "2026-08-04T12:50:00Z", sender: Dana Reyes}
+record_batches:
+  - records:
+      - record_id: handle-replay:conv:r1
+        container_id: handle-replay:conv
+        sent_at: "2026-08-04T13:04:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "Flight CA4321 carries the fictional review team; RFC Message-ID: <route-63@octo.example>."
+record_model_responses:
+  - cards:
+      - {date: "2026-08-04", title: Fictional route follow-up, progress: Route noted., source_ids: [handle-replay:conv:r1], subject_key: replay-target}
+expect:
+  record_reports:
+    - {handles_bound: 2, handle_conflicts: 0}
+  assertions:
+    - {subject_key: replay-target, predicate: status, object_value: open}
+    - {subject_key: replay-target, predicate: progress, object_value: Route noted.}
+  intervals:
+    - {subject_key: replay-target, predicate: status, object_value: open}
+    - {subject_key: replay-target, predicate: progress, object_value: Route noted.}
+  handle_bindings:
+    - {subject_key: replay-target, handle_type: flight, normalized_value: ca4321, revoked_at: null}
+    - {subject_key: replay-target, handle_type: message_id, normalized_value: route-63@octo.example, revoked_at: null}
+  subject_handles:
+    replay-target:
+      - {subject_key: replay-target, handle_type: flight, normalized_value: ca4321}
+      - {subject_key: replay-target, handle_type: message_id, normalized_value: route-63@octo.example}
+  replay_events_emitted: 0
+  queries: []

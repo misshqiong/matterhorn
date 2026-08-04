@@ -1,0 +1,19 @@
+case_id: handle-normalization
+title: Handle normalization is deterministic and type-configured
+invariants: [P2, P4, P9, INV-14]
+schema_profile: org-matters/v1
+scope_id: handle-normalization
+clock: []
+cards: []
+handle_normalization_cases:
+  - {handle_type: issue, value: "((ABC-0007))", normalized_value: abc-0007}
+  - {handle_type: pull_request, value: "PR #00456", normalized_value: "456"}
+  - {handle_type: order, value: "订单 0007319。", normalized_value: "7319"}
+  - {handle_type: message_id, value: "<Dana.Route@Octo.Example>", normalized_value: dana.route@octo.example}
+  - {handle_type: thread_id, value: "Thread-ID: 路线-ABC", normalized_value: 路线-abc}
+expect:
+  assertions: []
+  intervals: []
+  subject_count: 0
+  handle_bindings: []
+  queries: []

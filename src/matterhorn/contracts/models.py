@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -267,6 +268,12 @@ class Origin(str, Enum):
     human = "human"
 
 
+class HandleOrigin(str, Enum):
+    human = "human"
+    model = "model"
+    system = "system"
+
+
 class EventType(str, Enum):
     matter_created = "matter_created"
     status_changed = "status_changed"
@@ -305,6 +312,35 @@ class PredicateDefinition(StrictModel):
         if self.semantic_filter not in (None, "conservative"):
             raise ValueError("semantic_filter MUST be null or conservative")
         return self
+
+
+class HandleNormalization(StrictModel):
+    strip_prefixes: list[str] = Field(default_factory=list)
+    strip_leading_zeros: bool = False
+
+    @field_validator("strip_prefixes")
+    @classmethod
+    def prefixes_are_non_empty_and_unique(cls, value: list[str]) -> list[str]:
+        if any(not item for item in value):
+            raise ValueError("handle normalization prefixes MUST be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("handle normalization prefixes MUST be unique")
+        return value
+
+
+class HandlePattern(StrictModel):
+    handle_type: str = Field(min_length=1)
+    pattern: str = Field(min_length=1)
+    normalization: HandleNormalization = Field(default_factory=HandleNormalization)
+
+    @field_validator("pattern")
+    @classmethod
+    def pattern_must_compile(cls, value: str) -> str:
+        try:
+            re.compile(value)
+        except re.error as error:
+            raise ValueError(f"invalid handle pattern: {error}") from error
+        return value
 
 
 class MergeEvidence(StrictModel):
@@ -351,6 +387,7 @@ class SchemaProfile(StrictModel):
     subjects: list[SubjectDefinition]
     predicates: list[PredicateDefinition]
     identity: IdentityDefinition = Field(default_factory=IdentityDefinition)
+    handle_patterns: list[HandlePattern] = Field(default_factory=list)
     completion: CompletionDefinition | None = None
     semantic: SemanticDefinition = Field(default_factory=SemanticDefinition)
 
@@ -358,10 +395,13 @@ class SchemaProfile(StrictModel):
     def profile_is_closed_and_consistent(self) -> SchemaProfile:
         subject_names = [item.type for item in self.subjects]
         predicate_names = [item.name for item in self.predicates]
+        handle_types = [item.handle_type for item in self.handle_patterns]
         if not subject_names or len(subject_names) != len(set(subject_names)):
             raise ValueError("subject types MUST be non-empty and unique")
         if not predicate_names or len(predicate_names) != len(set(predicate_names)):
             raise ValueError("predicate names MUST be non-empty and unique")
+        if len(handle_types) != len(set(handle_types)):
+            raise ValueError("handle types MUST be unique")
         for subject in self.subjects:
             if subject.parent and subject.parent not in subject_names:
                 raise ValueError(f"unknown parent subject: {subject.parent}")
@@ -468,6 +508,39 @@ class SubjectMerge(StrictModel):
         return value
 
 
+class SubjectHandle(StrictModel):
+    binding_id: str = Field(min_length=1)
+    scope_id: str = Field(min_length=1)
+    subject_key: str = Field(min_length=1)
+    handle_type: str = Field(min_length=1)
+    handle_value: str = Field(min_length=1)
+    normalized_value: str = Field(min_length=1)
+    origin: HandleOrigin
+    source_refs: list[SourceRef]
+    bound_at: datetime
+    revoked_at: datetime | None = None
+    revocation_origin: HandleOrigin | None = None
+    revocation_source_refs: list[SourceRef] = Field(default_factory=list)
+
+    @field_validator("source_refs")
+    @classmethod
+    def binding_sources_must_not_be_empty(cls, value: list[SourceRef]) -> list[SourceRef]:
+        if not value:
+            raise ValueError("subject handle bindings MUST have source_refs")
+        return value
+
+    @model_validator(mode="after")
+    def revocation_is_complete(self) -> SubjectHandle:
+        fields = (
+            self.revoked_at is not None,
+            self.revocation_origin is not None,
+            bool(self.revocation_source_refs),
+        )
+        if any(fields) and not all(fields):
+            raise ValueError("subject handle revocation provenance MUST be complete")
+        return self
+
+
 class ProjectionStats(StrictModel):
     scope_id: str
     predicate: str
@@ -478,6 +551,7 @@ class GateStatistics(StrictModel):
     scope_id: str
     accepted: int = 0
     rejections: dict[str, int] = Field(default_factory=dict)
+    handle_conflicts: int = Field(default=0, exclude_if=lambda value: value == 0)
 
 
 class TaskStatus(str, Enum):
@@ -495,6 +569,7 @@ class TaskReceipt(StrictModel):
 class TaskGate(StrictModel):
     accepted: int = 0
     rejected: dict[str, int] = Field(default_factory=dict)
+    handle_conflicts: int = Field(default=0, exclude_if=lambda value: value == 0)
 
 
 class TaskResult(StrictModel):
@@ -538,7 +613,17 @@ class AddRecordsReport(StrictModel):
     card_ids: list[str] = Field(default_factory=list)
     assertions_emitted: int
     assertion_ids: list[str] = Field(default_factory=list)
+    handles_bound: int = 0
+    handles_already_bound: int = 0
+    handle_conflicts: int = 0
     sync_positions: list[SyncPosition] = Field(default_factory=list)
+
+
+class HandleBackfillReport(StrictModel):
+    scope_id: str
+    bound: int = 0
+    skipped_conflict: int = 0
+    already_bound: int = 0
 
 
 class ChangeEvent(StrictModel):

@@ -21,10 +21,12 @@ from matterhorn.contracts import (
     EvidenceRef,
     EvidenceStatus,
     GateStatistics,
+    HandleOrigin,
     Interval,
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectHandle,
     SubjectMerge,
     SubjectRecord,
     SyncPosition,
@@ -97,6 +99,25 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 CREATE INDEX IF NOT EXISTS idx_subjects_title
     ON subjects(scope_id, subject_type, normalized_title);
+CREATE TABLE IF NOT EXISTS subject_handles (
+    binding_id TEXT PRIMARY KEY,
+    scope_id TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    handle_type TEXT NOT NULL,
+    handle_value TEXT NOT NULL,
+    normalized_value TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    source_refs_json JSONB NOT NULL,
+    bound_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    revocation_origin TEXT,
+    revocation_source_refs_json JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_subject_handles_lookup
+    ON subject_handles(scope_id, handle_type, normalized_value);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_handles_active_unique
+    ON subject_handles(scope_id, handle_type, normalized_value)
+    WHERE revoked_at IS NULL;
 CREATE TABLE IF NOT EXISTS subject_merges (
     scope_id TEXT NOT NULL,
     source_subject_key TEXT NOT NULL,
@@ -194,6 +215,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     new_assertions INTEGER NOT NULL DEFAULT 0,
     gate_accepted INTEGER NOT NULL DEFAULT 0,
     gate_rejected_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    handle_conflicts INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT
 );
@@ -270,6 +292,13 @@ class PostgresStore:
                 ADD COLUMN IF NOT EXISTS last_error TEXT
                 """
             )
+            cursor.execute(
+                """
+                ALTER TABLE tasks
+                ADD COLUMN IF NOT EXISTS handle_conflicts
+                INTEGER NOT NULL DEFAULT 0
+                """
+            )
 
     def _assert_writable_primary(self) -> None:
         with self.connection.cursor() as cursor:
@@ -306,6 +335,7 @@ class PostgresStore:
                 "intervals",
                 "assertions",
                 "subject_merges",
+                "subject_handles",
                 "subjects",
                 "sync_positions",
                 "evidence_sources",
@@ -319,6 +349,7 @@ class PostgresStore:
             "subjects",
             "assertions",
             "subject_merges",
+            "subject_handles",
             "tasks",
             "events",
             "ingested_cards",
@@ -341,6 +372,7 @@ class PostgresStore:
                 UNION ALL SELECT scope_id FROM evidence_sources
                 UNION ALL SELECT scope_id FROM sync_positions
                 UNION ALL SELECT scope_id FROM subjects
+                UNION ALL SELECT scope_id FROM subject_handles
                 UNION ALL SELECT scope_id FROM subject_merges
                 UNION ALL SELECT scope_id FROM assertions
                 UNION ALL SELECT scope_id FROM intervals
@@ -658,6 +690,148 @@ class PostgresStore:
             ),
         )
 
+    def subject_handle_bindings(self, scope_id: str) -> list[SubjectHandle]:
+        rows = self._execute(
+            """
+            SELECT * FROM subject_handles
+            WHERE scope_id=%s
+            ORDER BY handle_type COLLATE "C",
+                     normalized_value COLLATE "C",
+                     bound_at,
+                     binding_id COLLATE "C"
+            """,
+            (scope_id,),
+        )
+        return [self._row_to_subject_handle(row) for row in rows]
+
+    def active_subject_handles(
+        self,
+        scope_id: str,
+        *,
+        handle_type: str | None = None,
+        normalized_value: str | None = None,
+    ) -> list[SubjectHandle]:
+        sql = (
+            "SELECT * FROM subject_handles "
+            "WHERE scope_id=%s AND revoked_at IS NULL"
+        )
+        parameters: list[str] = [scope_id]
+        if handle_type is not None:
+            sql += " AND handle_type=%s"
+            parameters.append(handle_type)
+        if normalized_value is not None:
+            sql += " AND normalized_value=%s"
+            parameters.append(normalized_value)
+        sql += (
+            ' ORDER BY handle_type COLLATE "C",'
+            ' normalized_value COLLATE "C",binding_id COLLATE "C"'
+        )
+        rows = self._execute(sql, tuple(parameters))
+        return [self._row_to_subject_handle(row) for row in rows]
+
+    def add_subject_handle(self, handle: SubjectHandle) -> str:
+        cursor = self._execute(
+            """
+            INSERT INTO subject_handles(
+              binding_id,scope_id,subject_key,handle_type,handle_value,
+              normalized_value,origin,source_refs_json,bound_at,revoked_at,
+              revocation_origin,revocation_source_refs_json
+            ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                handle.binding_id,
+                handle.scope_id,
+                handle.subject_key,
+                handle.handle_type,
+                handle.handle_value,
+                handle.normalized_value,
+                handle.origin.value,
+                self._json_param(
+                    [ref.model_dump(mode="json") for ref in handle.source_refs]
+                ),
+                as_utc(handle.bound_at),
+                as_utc(handle.revoked_at) if handle.revoked_at else None,
+                (
+                    handle.revocation_origin.value
+                    if handle.revocation_origin is not None
+                    else None
+                ),
+                self._json_param(
+                    [
+                        ref.model_dump(mode="json")
+                        for ref in handle.revocation_source_refs
+                    ]
+                ),
+            ),
+        )
+        if cursor.rowcount:
+            return "bound"
+        existing = self._execute(
+            """
+            SELECT * FROM subject_handles
+            WHERE scope_id=%s AND handle_type=%s AND normalized_value=%s
+              AND revoked_at IS NULL
+            """,
+            (handle.scope_id, handle.handle_type, handle.normalized_value),
+        ).fetchone()
+        if existing is not None:
+            return (
+                "already_bound"
+                if existing["subject_key"] == handle.subject_key
+                else "conflict"
+            )
+        prior_id = self._execute(
+            "SELECT * FROM subject_handles WHERE binding_id=%s",
+            (handle.binding_id,),
+        ).fetchone()
+        if prior_id is None or self._row_to_subject_handle(prior_id) != handle:
+            raise ValueError("subject handle binding_id collision with different payload")
+        return "already_bound"
+
+    def revoke_subject_handle(
+        self,
+        scope_id: str,
+        handle_type: str,
+        normalized_value: str,
+        *,
+        revoked_at: datetime,
+        revocation_origin: str,
+        source_refs: list[SourceRef],
+    ) -> SubjectHandle | None:
+        row = self._execute(
+            """
+            SELECT * FROM subject_handles
+            WHERE scope_id=%s AND handle_type=%s AND normalized_value=%s
+              AND revoked_at IS NULL
+            """,
+            (scope_id, handle_type, normalized_value),
+        ).fetchone()
+        if row is None:
+            return None
+        self._execute(
+            """
+            UPDATE subject_handles
+            SET revoked_at=%s,revocation_origin=%s,
+                revocation_source_refs_json=%s
+            WHERE binding_id=%s AND revoked_at IS NULL
+            """,
+            (
+                as_utc(revoked_at),
+                revocation_origin,
+                self._json_param(
+                    [ref.model_dump(mode="json") for ref in source_refs]
+                ),
+                row["binding_id"],
+            ),
+        )
+        updated = self._execute(
+            "SELECT * FROM subject_handles WHERE binding_id=%s",
+            (row["binding_id"],),
+        ).fetchone()
+        assert updated is not None
+        return self._row_to_subject_handle(updated)
+
     def subject_merges(self, scope_id: str) -> list[SubjectMerge]:
         rows = self._execute(
             """
@@ -875,8 +1049,14 @@ class PostgresStore:
         *,
         accepted: int,
         rejections: dict[str, int],
+        handle_conflicts: int = 0,
     ) -> None:
-        for counter, count in {"ACCEPTED": accepted, **rejections}.items():
+        counters = {
+            "ACCEPTED": accepted,
+            "HANDLE_CONFLICTS": handle_conflicts,
+            **rejections,
+        }
+        for counter, count in counters.items():
             if count:
                 self._execute(
                     """
@@ -899,6 +1079,7 @@ class PostgresStore:
         return GateStatistics(
             scope_id=scope_id,
             accepted=counters.pop("ACCEPTED", 0),
+            handle_conflicts=counters.pop("HANDLE_CONFLICTS", 0),
             rejections=counters,
         )
 
@@ -987,13 +1168,14 @@ class PostgresStore:
         new_assertions: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
+        handle_conflicts: int = 0,
         last_error: str | None = None,
     ) -> None:
         cursor = self._execute(
             """
             UPDATE tasks SET
               status=%s,cards_produced=%s,new_assertions=%s,
-              gate_accepted=%s,gate_rejected_json=%s,
+              gate_accepted=%s,gate_rejected_json=%s,handle_conflicts=%s,
               attempts=attempts + CASE WHEN %s=%s THEN 1 ELSE 0 END,
               last_error=CASE
                 WHEN %s=%s THEN %s
@@ -1008,6 +1190,7 @@ class PostgresStore:
                 new_assertions,
                 gate_accepted,
                 self._json_param(gate_rejected or {}),
+                handle_conflicts,
                 status.value,
                 TaskStatus.failed.value,
                 status.value,
@@ -1523,6 +1706,31 @@ class PostgresStore:
         )
 
     @staticmethod
+    def _row_to_subject_handle(row: dict[str, Any]) -> SubjectHandle:
+        return SubjectHandle.model_validate(
+            {
+                "binding_id": row["binding_id"],
+                "scope_id": row["scope_id"],
+                "subject_key": row["subject_key"],
+                "handle_type": row["handle_type"],
+                "handle_value": row["handle_value"],
+                "normalized_value": row["normalized_value"],
+                "origin": HandleOrigin(row["origin"]),
+                "source_refs": row["source_refs_json"],
+                "bound_at": as_utc(row["bound_at"]),
+                "revoked_at": (
+                    as_utc(row["revoked_at"])
+                    if row["revoked_at"] is not None
+                    else None
+                ),
+                "revocation_origin": row["revocation_origin"],
+                "revocation_source_refs": row[
+                    "revocation_source_refs_json"
+                ],
+            }
+        )
+
+    @staticmethod
     def _task_row(row: dict[str, Any]) -> TaskRow:
         status = TaskStatus(row["status"])
         return TaskRow(
@@ -1547,6 +1755,7 @@ class PostgresStore:
                 gate=TaskGate(
                     accepted=row["gate_accepted"],
                     rejected=row["gate_rejected_json"],
+                    handle_conflicts=row["handle_conflicts"],
                 ),
             ),
         )

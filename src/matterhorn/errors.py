@@ -23,6 +23,11 @@ class SubjectMergeConflictError(MatterhornError, ValueError):
     status_code = 409
 
 
+class SubjectHandleConflictError(MatterhornError, ValueError):
+    code = "SUBJECT_HANDLE_CONFLICT"
+    status_code = 409
+
+
 class IngestFormatError(MatterhornError, ValueError):
     code = "UNRECOGNIZED_INGEST_FORMAT"
     status_code = 400

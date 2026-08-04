@@ -18,6 +18,7 @@ from matterhorn.canonical import canonical_json, instant_text
 from matterhorn.contracts import SchemaProfile
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.defaults import Engine
+from matterhorn.engine.handles import normalize_handle
 from matterhorn.store import SQLiteStore, Store
 
 
@@ -207,6 +208,18 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid merge_operations"
         )
+    if "handle_normalization_cases" in case and not isinstance(
+        case["handle_normalization_cases"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid handle_normalization_cases"
+        )
+    if "handle_operations" in case and not isinstance(
+        case["handle_operations"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid handle_operations"
+        )
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -249,6 +262,16 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         clock=FixedClock(case.get("clock", [])),
         gateway=fixture_gateway,
     )
+    for normalization_case in case.get("handle_normalization_cases", []):
+        _equal(
+            normalize_handle(
+                profile,
+                normalization_case["handle_type"],
+                normalization_case["value"],
+            ),
+            normalization_case["normalized_value"],
+            f"handle normalization {normalization_case['handle_type']}",
+        )
     expected_error = case.get("expect_error")
     if expected_error:
         try:
@@ -292,6 +315,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         first_dream = engine.dream(case["scope_id"])
     for correction in case.get("corrections", []):
         engine.correct(correction)
+    _run_handle_operations(engine, case)
     _run_merge_operations(engine, case)
 
     expect = case["expect"]
@@ -371,6 +395,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             expect["merge_count"],
             "merge_count",
         )
+    _assert_handle_expectations(engine, case["scope_id"], expect)
     if "matters" in expect:
         _assert_partial_exact(
             engine.matters(case["scope_id"]),
@@ -536,6 +561,14 @@ def _run_merge_operations(engine: Engine, case: dict[str, Any]) -> None:
         expected_error = operation.get("expect_error")
         if expected_error is None:
             invoke()
+            _assert_handle_expectations(
+                engine,
+                scope_id,
+                {
+                    "subject_handles": operation.get("expect_subject_handles"),
+                    "handle_lookups": operation.get("expect_handle_lookups"),
+                },
+            )
             continue
         try:
             invoke()
@@ -547,6 +580,63 @@ def _run_merge_operations(engine: Engine, case: dict[str, Any]) -> None:
         else:
             raise ConformanceFailure(
                 f"expected merge error matching {expected_error!r}"
+            )
+
+
+def _run_handle_operations(engine: Engine, case: dict[str, Any]) -> None:
+    scope_id = case["scope_id"]
+    for operation in case.get("handle_operations", []):
+        kind = operation.get("operation")
+        if kind == "bind":
+            engine.bind_handle(
+                scope_id,
+                operation["subject_key"],
+                operation["handle_type"],
+                operation["handle_value"],
+                source_refs=operation["source_refs"],
+            )
+        elif kind == "unbind":
+            engine.unbind_handle(
+                scope_id,
+                operation["subject_key"],
+                operation["handle_type"],
+                operation["normalized_value"],
+                source_refs=operation["source_refs"],
+            )
+        else:
+            raise ConformanceFailure(f"unknown handle operation {kind!r}")
+
+
+def _assert_handle_expectations(
+    engine: Engine,
+    scope_id: str,
+    expect: dict[str, Any],
+) -> None:
+    if expect.get("handle_bindings") is not None:
+        _assert_partial_exact(
+            engine.store.subject_handle_bindings(scope_id),
+            expect["handle_bindings"],
+            "handle_bindings",
+        )
+    subject_handles = expect.get("subject_handles")
+    if subject_handles is not None:
+        for subject_key, wanted in subject_handles.items():
+            _assert_partial_exact(
+                engine.subject_handles(scope_id, subject_key),
+                wanted,
+                f"subject_handles.{subject_key}",
+            )
+    handle_lookups = expect.get("handle_lookups")
+    if handle_lookups is not None:
+        for index, lookup in enumerate(handle_lookups):
+            _assert_partial_exact(
+                engine.handle_lookup(
+                    scope_id,
+                    lookup["value"],
+                    lookup.get("handle_type"),
+                ),
+                lookup["result"],
+                f"handle_lookups[{index}]",
             )
 
 
@@ -644,6 +734,12 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             if source_ref.source_id not in seen_sources:
                 source_refs.append(source_ref)
                 seen_sources.add(source_ref.source_id)
+    handles = engine.store.subject_handle_bindings(scope_id)
+    for handle in handles:
+        for source_ref in [*handle.source_refs, *handle.revocation_source_refs]:
+            if source_ref.source_id not in seen_sources:
+                source_refs.append(source_ref)
+                seen_sources.add(source_ref.source_id)
     return canonical_json(
         {
             "assertions": [_plain(item) for item in assertions],
@@ -658,6 +754,7 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
                 _plain(item.__dict__) for item in engine.store.subjects(scope_id)
             ],
             "merges": [_plain(item) for item in merges],
+            "subject_handles": [_plain(item) for item in handles],
             "record_observations": [
                 _plain(item)
                 for item in engine.store.record_observations(scope_id)

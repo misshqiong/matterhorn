@@ -5,7 +5,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from matterhorn.contracts import (
     Assertion,
@@ -17,6 +17,7 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectHandle,
     SubjectMerge,
     SubjectRecord,
     SyncPosition,
@@ -181,6 +182,31 @@ class Store(Protocol):
 
     def subject_merges(self, scope_id: str) -> list[SubjectMerge]: ...
 
+    def subject_handle_bindings(self, scope_id: str) -> list[SubjectHandle]: ...
+
+    def active_subject_handles(
+        self,
+        scope_id: str,
+        *,
+        handle_type: str | None = None,
+        normalized_value: str | None = None,
+    ) -> list[SubjectHandle]: ...
+
+    def add_subject_handle(
+        self, handle: SubjectHandle
+    ) -> Literal["bound", "already_bound", "conflict"]: ...
+
+    def revoke_subject_handle(
+        self,
+        scope_id: str,
+        handle_type: str,
+        normalized_value: str,
+        *,
+        revoked_at: datetime,
+        revocation_origin: str,
+        source_refs: list[SourceRef],
+    ) -> SubjectHandle | None: ...
+
     def add_subject_merge(self, merge: SubjectMerge) -> None: ...
 
     def remove_subject_merge(
@@ -210,7 +236,12 @@ class Store(Protocol):
     def distill_queue_count(self, scope_id: str) -> int: ...
 
     def record_gate_report(
-        self, scope_id: str, *, accepted: int, rejections: dict[str, int]
+        self,
+        scope_id: str,
+        *,
+        accepted: int,
+        rejections: dict[str, int],
+        handle_conflicts: int = 0,
     ) -> None: ...
 
     def gate_statistics(self, scope_id: str) -> GateStatistics: ...
@@ -246,6 +277,7 @@ class Store(Protocol):
         new_assertions: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
+        handle_conflicts: int = 0,
         last_error: str | None = None,
     ) -> None: ...
 

@@ -160,6 +160,10 @@ class MatterhornService:
             "subject_type": subject.subject_type,
             "title": subject.title,
             "aliases": self.engine._subject_aliases(scope_id).get(subject_key, []),
+            "handles": [
+                item.model_dump(mode="json")
+                for item in self.engine.subject_handles(scope_id, subject_key)
+            ],
             "current": current,
             "timeline": {
                 predicate: values
@@ -336,6 +340,54 @@ class MatterhornService:
                 for ref in source_refs
             ],
             valid_from=valid_from or self.engine.now(),
+        ).model_dump(mode="json")
+
+    def subject_handles(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+    ) -> list[dict[str, Any]]:
+        self._require_subject(scope_id, subject_key)
+        return [
+            item.model_dump(mode="json")
+            for item in self.engine.subject_handles(scope_id, subject_key)
+        ]
+
+    def bind_handle(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+        handle_type: str,
+        handle_value: str,
+        source_refs: list[SourceRef | dict[str, Any]],
+    ) -> dict[str, Any]:
+        self._require_subject(scope_id, subject_key)
+        return self.engine.bind_handle(
+            scope_id,
+            subject_key,
+            handle_type,
+            handle_value,
+            source_refs=source_refs,
+        ).model_dump(mode="json")
+
+    def unbind_handle(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+        handle_type: str,
+        normalized_value: str,
+        source_refs: list[SourceRef | dict[str, Any]],
+    ) -> dict[str, Any]:
+        self._require_subject(scope_id, subject_key)
+        return self.engine.unbind_handle(
+            scope_id,
+            subject_key,
+            handle_type,
+            normalized_value,
+            source_refs=source_refs,
         ).model_dump(mode="json")
 
     def events(

@@ -520,6 +520,39 @@ def test_merge_and_unmerge_cli_use_human_provenance(tmp_path) -> None:
     assert {item["subject_key"] for item in restored} == {"source", "target"}
 
 
+def test_handles_backfill_cli_is_idempotent(tmp_path) -> None:
+    db = tmp_path / "handles-backfill.db"
+    cards = tmp_path / "handles-card.yaml"
+    cards.write_text(
+        yaml.safe_dump(
+            {
+                "card_id": "handle-card",
+                "scope_id": "demo",
+                "subject_key": "fictional-invoice",
+                "date": "2026-08-04",
+                "title": "Invoice INV-2026-009",
+                "status": "open",
+                "source_refs": [
+                    {
+                        "source_id": "fictional-invoice-source",
+                        "sent_at": "2026-08-04T09:00:00Z",
+                        "sender": "Dana Reyes",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _run("ingest", str(cards), "--db", str(db))
+
+    first = _run("handles", "backfill", "demo", "--db", str(db)).stdout
+    second = _run("handles", "backfill", "demo", "--db", str(db)).stdout
+
+    assert "bound                 1" in first
+    assert "bound                 0" in second
+    assert "already-bound         1" in second
+
+
 def test_dream_help_documents_environment_credentials() -> None:
     command = _cli_metadata("dream")
     help_text = " ".join(
@@ -538,7 +571,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=57 failed=0 total=57" in completed.stdout
+    assert "SUMMARY passed=63 failed=0 total=63" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

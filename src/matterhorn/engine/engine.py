@@ -33,6 +33,8 @@ from matterhorn.contracts import (
     ExportSourceState,
     ExportSubject,
     FlushReport,
+    HandleBackfillReport,
+    HandleOrigin,
     ImportReport,
     Message,
     Operation,
@@ -43,6 +45,7 @@ from matterhorn.contracts import (
     SchemaProfile,
     SourceRef,
     SubjectAnchor,
+    SubjectHandle,
     SubjectMerge,
     SubjectRecord,
     TaskReceipt,
@@ -54,11 +57,17 @@ from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_r
 from matterhorn.distill.traceability import restore_source_aliases
 from matterhorn.engine.events import derive_change_events
 from matterhorn.engine.extractor import extract_card
+from matterhorn.engine.handles import (
+    matches_handle_pattern,
+    normalize_handle,
+    scan_handles,
+)
 from matterhorn.engine.identity import resolve_subject
 from matterhorn.engine.materializer import materialize
 from matterhorn.errors import (
     ImportRefusedError,
     ResourceNotFoundError,
+    SubjectHandleConflictError,
     SubjectMergeConflictError,
 )
 from matterhorn.projection import project_assertions
@@ -102,6 +111,18 @@ class Matter:
             "subject_key": self.subject_key,
             "aliases": self.aliases,
         }
+
+
+@dataclass
+class _HandleCounts:
+    bound: int = 0
+    already_bound: int = 0
+    conflicts: int = 0
+
+    def add(self, other: _HandleCounts) -> None:
+        self.bound += other.bound
+        self.already_bound += other.already_bound
+        self.conflicts += other.conflicts
 
 
 class Engine:
@@ -226,6 +247,9 @@ class Engine:
         self,
         cards: list[EpisodeCard | dict[str, Any]],
         scope_id: str | None = None,
+        *,
+        record_by_id: dict[str, Record] | None = None,
+        handle_counts: _HandleCounts | None = None,
     ) -> list[Assertion]:
         validated = [
             card if isinstance(card, EpisodeCard) else EpisodeCard.model_validate(card)
@@ -253,12 +277,13 @@ class Engine:
                     self.store.subject_merges(card.scope_id),
                 )
                 self.store.upsert_subject(subject)
+                recorded_at = self._clock()
                 assertions = extract_card(
                     card,
                     subject.subject_key,
                     subject.subject_type,
                     self.profile,
-                    self._clock(),
+                    recorded_at,
                 )
                 for assertion in assertions:
                     if self.store.add_assertion(assertion):
@@ -268,6 +293,15 @@ class Engine:
                     subject_key=subject.subject_key,
                     subject_type=subject.subject_type,
                 )
+                if record_by_id is not None:
+                    counts = self._bind_card_handles(
+                        card,
+                        subject.subject_key,
+                        record_by_id,
+                        bound_at=recorded_at,
+                    )
+                    if handle_counts is not None:
+                        handle_counts.add(counts)
                 self.store.mark_card(card.scope_id, card.card_id, payload_hash)
             for scope in scopes:
                 self._rebuild(scope)
@@ -323,6 +357,7 @@ class Engine:
         cards: list[EpisodeCard] = []
         rejection_counts: dict[str, int] = {}
         emitted: list[Assertion] = []
+        handle_counts = _HandleCounts()
         if revoked:
             self._commit_record_chunk(
                 scope_id=scope_id,
@@ -345,7 +380,7 @@ class Engine:
             chunk_observations = [
                 pending_by_record_id[record.record_id] for record in chunk
             ]
-            chunk_emitted = self._commit_record_chunk(
+            chunk_emitted, chunk_handle_counts = self._commit_record_chunk(
                 scope_id=scope_id,
                 observations=chunk_observations,
                 cards=chunk_cards,
@@ -358,6 +393,7 @@ class Engine:
                 extraction.rejection_counts,
             )
             emitted.extend(chunk_emitted)
+            handle_counts.add(chunk_handle_counts)
 
         return AddRecordsReport(
             scope_id=scope_id,
@@ -373,6 +409,9 @@ class Engine:
             card_ids=[card.card_id for card in cards],
             assertions_emitted=len(emitted),
             assertion_ids=[assertion.assertion_id for assertion in emitted],
+            handles_bound=handle_counts.bound,
+            handles_already_bound=handle_counts.already_bound,
+            handle_conflicts=handle_counts.conflicts,
             sync_positions=self.store.sync_positions(scope_id),
         )
 
@@ -384,8 +423,9 @@ class Engine:
         cards: list[EpisodeCard],
         cursors: dict[str, str] | None,
         backfill: bool,
-    ) -> list[Assertion]:
+    ) -> tuple[list[Assertion], _HandleCounts]:
         emitted: list[Assertion] = []
+        handle_counts = _HandleCounts()
         with self.store.transaction():
             for record, observation_hash in observations:
                 self.store.observe_source(
@@ -402,7 +442,22 @@ class Engine:
                 )
             if cards:
                 emitted.extend(
-                    self._ingest_cards_sync(cards, scope_id=scope_id)
+                    self._ingest_cards_sync(
+                        cards,
+                        scope_id=scope_id,
+                        record_by_id={
+                            record.record_id: record
+                            for record, _ in observations
+                        },
+                        handle_counts=handle_counts,
+                    )
+                )
+            if handle_counts.conflicts:
+                self.store.record_gate_report(
+                    scope_id,
+                    accepted=0,
+                    rejections={},
+                    handle_conflicts=handle_counts.conflicts,
                 )
             if observations and not backfill:
                 by_container: dict[str, list[Record]] = {}
@@ -415,7 +470,371 @@ class Engine:
                         watermark=max(_record_observed_at(item) for item in items),
                         cursor=(cursors or {}).get(container_id),
                     )
-        return emitted
+        return emitted, handle_counts
+
+    def _bind_card_handles(
+        self,
+        card: EpisodeCard,
+        subject_key: str,
+        record_by_id: dict[str, Record],
+        *,
+        bound_at: datetime,
+    ) -> _HandleCounts:
+        matches = scan_handles(self.profile, card.title, card.source_refs)
+        refs_by_id = {ref.source_id: ref for ref in card.source_refs}
+        for source_ref in card.source_refs:
+            record = record_by_id.get(source_ref.source_id)
+            if record is None:
+                continue
+            matches.extend(
+                scan_handles(
+                    self.profile,
+                    record.content,
+                    [refs_by_id[source_ref.source_id]],
+                )
+            )
+
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for match in matches:
+            key = (match.handle_type, match.normalized_value)
+            entry = grouped.setdefault(
+                key,
+                {
+                    "handle_value": match.handle_value,
+                    "source_refs": [],
+                    "source_ids": set(),
+                },
+            )
+            for source_ref in match.source_refs:
+                if source_ref.source_id in entry["source_ids"]:
+                    continue
+                entry["source_ids"].add(source_ref.source_id)
+                entry["source_refs"].append(source_ref)
+
+        counts = _HandleCounts()
+        for handle_type, normalized_value in sorted(
+            grouped,
+            key=lambda item: (item[0].encode("utf-8"), item[1].encode("utf-8")),
+        ):
+            entry = grouped[(handle_type, normalized_value)]
+            result, _ = self._bind_handle(
+                scope_id=card.scope_id,
+                subject_key=subject_key,
+                handle_type=handle_type,
+                handle_value=entry["handle_value"],
+                normalized_value=normalized_value,
+                source_refs=entry["source_refs"],
+                origin=HandleOrigin.system,
+                bound_at=bound_at,
+            )
+            if result == "bound":
+                counts.bound += 1
+            elif result == "already_bound":
+                counts.already_bound += 1
+            else:
+                counts.conflicts += 1
+        return counts
+
+    def bind_handle(
+        self,
+        scope_id: str,
+        subject_key: str,
+        handle_type: str,
+        handle_value: str,
+        *,
+        source_refs: list[SourceRef | dict[str, Any]],
+    ) -> SubjectHandle:
+        refs = _source_refs(source_refs, operation="subject handle bindings")
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        if not matches_handle_pattern(self.profile, handle_type, handle_value):
+            raise ValueError(
+                "handle_value MUST match the configured structured-identifier pattern"
+            )
+        normalized_value = normalize_handle(
+            self.profile,
+            handle_type,
+            handle_value,
+        )
+        with self.store.transaction():
+            for source_ref in refs:
+                self.store.observe_source(scope_id, source_ref)
+            result, handle = self._bind_handle(
+                scope_id=scope_id,
+                subject_key=self.canonical_subject_key(scope_id, subject_key),
+                handle_type=handle_type,
+                handle_value=handle_value,
+                normalized_value=normalized_value,
+                source_refs=refs,
+                origin=HandleOrigin.human,
+                bound_at=self._clock(),
+            )
+            if result == "conflict":
+                raise SubjectHandleConflictError(
+                    "handle is already bound to a different subject"
+                )
+            assert handle is not None
+            return handle
+
+    def unbind_handle(
+        self,
+        scope_id: str,
+        subject_key: str,
+        handle_type: str,
+        normalized_value: str,
+        *,
+        source_refs: list[SourceRef | dict[str, Any]],
+    ) -> SubjectHandle:
+        refs = _source_refs(source_refs, operation="subject handle unbindings")
+        expected_subject = self.canonical_subject_key(scope_id, subject_key)
+        normalized_value = normalize_handle(
+            self.profile,
+            handle_type,
+            normalized_value,
+        )
+        with self.store.transaction():
+            for source_ref in refs:
+                self.store.observe_source(scope_id, source_ref)
+            active = self.store.active_subject_handles(
+                scope_id,
+                handle_type=handle_type,
+                normalized_value=normalized_value,
+            )
+            if not active:
+                raise ResourceNotFoundError("active subject handle binding not found")
+            actual_subject = self.canonical_subject_key(
+                scope_id,
+                active[0].subject_key,
+            )
+            if actual_subject != expected_subject:
+                raise SubjectHandleConflictError(
+                    "handle is bound to a different subject"
+                )
+            revoked = self.store.revoke_subject_handle(
+                scope_id,
+                handle_type,
+                normalized_value,
+                revoked_at=self._clock(),
+                revocation_origin=HandleOrigin.human.value,
+                source_refs=refs,
+            )
+            assert revoked is not None
+            return revoked.model_copy(update={"subject_key": actual_subject})
+
+    def subject_handles(
+        self,
+        scope_id: str,
+        subject_key: str,
+    ) -> list[SubjectHandle]:
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        canonical_key = self.canonical_subject_key(scope_id, subject_key)
+        result = []
+        for handle in self.store.active_subject_handles(scope_id):
+            if self.canonical_subject_key(scope_id, handle.subject_key) != canonical_key:
+                continue
+            result.append(handle.model_copy(update={"subject_key": canonical_key}))
+        return sorted(result, key=_handle_sort_key)
+
+    def handle_lookup(
+        self,
+        scope_id: str,
+        value: str,
+        handle_type: str | None = None,
+    ) -> list[SubjectHandle]:
+        if handle_type is not None:
+            candidates = [(handle_type, normalize_handle(self.profile, handle_type, value))]
+        else:
+            candidates = [
+                (
+                    pattern.handle_type,
+                    normalize_handle(self.profile, pattern.handle_type, value),
+                )
+                for pattern in self.profile.handle_patterns
+            ]
+        result: dict[str, SubjectHandle] = {}
+        for selected_type, normalized_value in candidates:
+            for handle in self.store.active_subject_handles(
+                scope_id,
+                handle_type=selected_type,
+                normalized_value=normalized_value,
+            ):
+                canonical_key = self.canonical_subject_key(
+                    scope_id,
+                    handle.subject_key,
+                )
+                result[handle.binding_id] = handle.model_copy(
+                    update={"subject_key": canonical_key}
+                )
+        return sorted(result.values(), key=_handle_sort_key)
+
+    def subject_is_active(self, scope_id: str, subject_key: str) -> bool:
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        completion = self.profile.completion
+        if completion is None:
+            return True
+        values = self.query.current(
+            scope_id,
+            self.canonical_subject_key(scope_id, subject_key),
+            completion.predicate,
+        )
+        return not any(
+            value.value in completion.completed_values for value in values
+        )
+
+    def backfill_handles(self, scope_id: str) -> HandleBackfillReport:
+        if not self.scope_exists(scope_id):
+            raise ResourceNotFoundError(f"unknown scope_id: {scope_id}")
+        assertions_by_subject: dict[str, list[Assertion]] = {}
+        for assertion in self.store.assertions(scope_id):
+            assertions_by_subject.setdefault(assertion.subject_key, []).append(assertion)
+        cards = {
+            card.subject_key: card for card in self.store.memory_cards(scope_id)
+        }
+        counts = _HandleCounts()
+        with self.store.transaction():
+            for subject in self.store.subjects(scope_id):
+                assertions = assertions_by_subject.get(subject.subject_key, [])
+                refs = _stable_source_refs(
+                    ref for assertion in assertions for ref in assertion.source_refs
+                )
+                matches = scan_handles(self.profile, subject.title, refs) if refs else []
+                for assertion in assertions:
+                    for source_ref in assertion.source_refs:
+                        if source_ref.excerpt:
+                            matches.extend(
+                                scan_handles(
+                                    self.profile,
+                                    source_ref.excerpt,
+                                    [source_ref],
+                                )
+                            )
+                canonical_key = self.canonical_subject_key(
+                    scope_id,
+                    subject.subject_key,
+                )
+                card = cards.get(canonical_key)
+                if (
+                    card is not None
+                    and refs
+                    and subject.subject_key == canonical_key
+                ):
+                    matches.extend(scan_handles(self.profile, card.title, refs))
+                    matches.extend(
+                        scan_handles(
+                            self.profile,
+                            json.dumps(
+                                card.current,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
+                            refs,
+                        )
+                    )
+                grouped = _group_handle_matches(matches)
+                for (selected_type, normalized_value), entry in grouped.items():
+                    result, _ = self._bind_handle(
+                        scope_id=scope_id,
+                        subject_key=subject.subject_key,
+                        handle_type=selected_type,
+                        handle_value=entry["handle_value"],
+                        normalized_value=normalized_value,
+                        source_refs=entry["source_refs"],
+                        origin=HandleOrigin.system,
+                        bound_at=self._clock(),
+                    )
+                    if result == "bound":
+                        counts.bound += 1
+                    elif result == "already_bound":
+                        counts.already_bound += 1
+                    else:
+                        counts.conflicts += 1
+            if counts.conflicts:
+                self.store.record_gate_report(
+                    scope_id,
+                    accepted=0,
+                    rejections={},
+                    handle_conflicts=counts.conflicts,
+                )
+        return HandleBackfillReport(
+            scope_id=scope_id,
+            bound=counts.bound,
+            skipped_conflict=counts.conflicts,
+            already_bound=counts.already_bound,
+        )
+
+    def _bind_handle(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+        handle_type: str,
+        handle_value: str,
+        normalized_value: str,
+        source_refs: list[SourceRef],
+        origin: HandleOrigin,
+        bound_at: datetime,
+    ) -> tuple[str, SubjectHandle | None]:
+        active = self.store.active_subject_handles(
+            scope_id,
+            handle_type=handle_type,
+            normalized_value=normalized_value,
+        )
+        if active:
+            existing = active[0]
+            if (
+                self.canonical_subject_key(scope_id, existing.subject_key)
+                == self.canonical_subject_key(scope_id, subject_key)
+            ):
+                return (
+                    "already_bound",
+                    existing.model_copy(
+                        update={
+                            "subject_key": self.canonical_subject_key(
+                                scope_id,
+                                subject_key,
+                            )
+                        }
+                    ),
+                )
+            return "conflict", None
+        generation = sum(
+            handle.handle_type == handle_type
+            and handle.normalized_value == normalized_value
+            for handle in self.store.subject_handle_bindings(scope_id)
+        )
+        handle = SubjectHandle(
+            binding_id="hdl_"
+            + stable_hash(
+                [
+                    scope_id,
+                    subject_key,
+                    handle_type,
+                    normalized_value,
+                    instant_text(bound_at),
+                    origin.value,
+                    [ref.model_dump(mode="json") for ref in source_refs],
+                    generation,
+                ]
+            ),
+            scope_id=scope_id,
+            subject_key=subject_key,
+            handle_type=handle_type,
+            handle_value=handle_value,
+            normalized_value=normalized_value,
+            origin=origin,
+            source_refs=source_refs,
+            bound_at=bound_at,
+        )
+        result = self.store.add_subject_handle(handle)
+        return result, handle if result != "conflict" else None
 
     def _subject_anchors(self, scope_id: str) -> list[SubjectAnchor]:
         activity: dict[str, datetime] = {}
@@ -494,7 +913,7 @@ class Engine:
             before_assertions = {
                 item.assertion_id for item in self.store.assertions(scope_id)
             }
-            cards_produced = gate_accepted = 0
+            cards_produced = gate_accepted = handle_conflicts = 0
             gate_rejected: dict[str, int] = {}
             failed = False
             last_error: str | None = None
@@ -510,6 +929,7 @@ class Engine:
                     gate_rejected = _merge_counts(
                         gate_rejected, record_report.drop_reasons
                     )
+                    handle_conflicts += record_report.handle_conflicts
                 elif row.kind == "cards":
                     cards = [
                         EpisodeCard.model_validate(item)
@@ -556,6 +976,7 @@ class Engine:
                     new_assertions=len(after_assertions - before_assertions),
                     gate_accepted=gate_accepted,
                     gate_rejected=gate_rejected,
+                    handle_conflicts=handle_conflicts,
                     last_error=last_error,
                 )
             processed.append(row.task_id)
@@ -1491,6 +1912,65 @@ def _merge_counts(
     for key, value in right.items():
         result[key] = result.get(key, 0) + value
     return result
+
+
+def _source_refs(
+    values: list[SourceRef | dict[str, Any]],
+    *,
+    operation: str,
+) -> list[SourceRef]:
+    refs = [
+        value if isinstance(value, SourceRef) else SourceRef.model_validate(value)
+        for value in values
+    ]
+    if not refs:
+        raise ValueError(f"{operation} MUST have source_refs")
+    return refs
+
+
+def _stable_source_refs(values: Iterable[SourceRef]) -> list[SourceRef]:
+    result: list[SourceRef] = []
+    seen: set[str] = set()
+    for value in values:
+        if value.source_id in seen:
+            continue
+        seen.add(value.source_id)
+        result.append(value)
+    return result
+
+
+def _group_handle_matches(matches: Iterable[Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for match in matches:
+        key = (match.handle_type, match.normalized_value)
+        entry = grouped.setdefault(
+            key,
+            {
+                "handle_value": match.handle_value,
+                "source_refs": [],
+                "source_ids": set(),
+            },
+        )
+        for source_ref in match.source_refs:
+            if source_ref.source_id in entry["source_ids"]:
+                continue
+            entry["source_ids"].add(source_ref.source_id)
+            entry["source_refs"].append(source_ref)
+    return {
+        key: grouped[key]
+        for key in sorted(
+            grouped,
+            key=lambda item: (item[0].encode("utf-8"), item[1].encode("utf-8")),
+        )
+    }
+
+
+def _handle_sort_key(handle: SubjectHandle) -> tuple[bytes, bytes, bytes]:
+    return (
+        handle.handle_type.encode("utf-8"),
+        handle.normalized_value.encode("utf-8"),
+        handle.binding_id.encode("utf-8"),
+    )
 
 
 def _task_error_summary(error: BaseException) -> str:

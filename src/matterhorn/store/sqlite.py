@@ -17,10 +17,12 @@ from matterhorn.contracts import (
     EvidenceRef,
     EvidenceStatus,
     GateStatistics,
+    HandleOrigin,
     Interval,
     MemoryCard,
     ProjectionStats,
     SourceRef,
+    SubjectHandle,
     SubjectMerge,
     SubjectRecord,
     SyncPosition,
@@ -84,6 +86,25 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 CREATE INDEX IF NOT EXISTS idx_subjects_title
     ON subjects(scope_id, subject_type, normalized_title);
+CREATE TABLE IF NOT EXISTS subject_handles (
+    binding_id TEXT PRIMARY KEY,
+    scope_id TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    handle_type TEXT NOT NULL,
+    handle_value TEXT NOT NULL,
+    normalized_value TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    source_refs_json TEXT NOT NULL,
+    bound_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revocation_origin TEXT,
+    revocation_source_refs_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_subject_handles_lookup
+    ON subject_handles(scope_id, handle_type, normalized_value);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_handles_active_unique
+    ON subject_handles(scope_id, handle_type, normalized_value)
+    WHERE revoked_at IS NULL;
 CREATE TABLE IF NOT EXISTS subject_merges (
     scope_id TEXT NOT NULL,
     source_subject_key TEXT NOT NULL,
@@ -181,6 +202,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     new_assertions INTEGER NOT NULL DEFAULT 0,
     gate_accepted INTEGER NOT NULL DEFAULT 0,
     gate_rejected_json TEXT NOT NULL DEFAULT '{}',
+    handle_conflicts INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT
 );
@@ -268,6 +290,11 @@ class SQLiteStore:
             self.connection.execute(
                 "ALTER TABLE tasks ADD COLUMN last_error TEXT"
             )
+        if "handle_conflicts" not in task_columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN handle_conflicts "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
         columns = {
             row["name"]
             for row in self.connection.execute("PRAGMA table_info(intervals)")
@@ -339,6 +366,7 @@ class SQLiteStore:
                 "intervals",
                 "assertions",
                 "subject_merges",
+                "subject_handles",
                 "subjects",
                 "sync_positions",
                 "evidence_sources",
@@ -354,6 +382,7 @@ class SQLiteStore:
             "subjects",
             "assertions",
             "subject_merges",
+            "subject_handles",
             "tasks",
             "events",
             "ingested_cards",
@@ -376,6 +405,7 @@ class SQLiteStore:
                 UNION ALL SELECT scope_id FROM evidence_sources
                 UNION ALL SELECT scope_id FROM sync_positions
                 UNION ALL SELECT scope_id FROM subjects
+                UNION ALL SELECT scope_id FROM subject_handles
                 UNION ALL SELECT scope_id FROM subject_merges
                 UNION ALL SELECT scope_id FROM assertions
                 UNION ALL SELECT scope_id FROM intervals
@@ -664,6 +694,144 @@ class SQLiteStore:
             ),
         )
 
+    def subject_handle_bindings(self, scope_id: str) -> list[SubjectHandle]:
+        rows = self.connection.execute(
+            """
+            SELECT * FROM subject_handles
+            WHERE scope_id=?
+            ORDER BY handle_type COLLATE BINARY,
+                     normalized_value COLLATE BINARY,
+                     bound_at,
+                     binding_id COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return [self._row_to_subject_handle(row) for row in rows]
+
+    def active_subject_handles(
+        self,
+        scope_id: str,
+        *,
+        handle_type: str | None = None,
+        normalized_value: str | None = None,
+    ) -> list[SubjectHandle]:
+        sql = "SELECT * FROM subject_handles WHERE scope_id=? AND revoked_at IS NULL"
+        parameters: list[str] = [scope_id]
+        if handle_type is not None:
+            sql += " AND handle_type=?"
+            parameters.append(handle_type)
+        if normalized_value is not None:
+            sql += " AND normalized_value=?"
+            parameters.append(normalized_value)
+        sql += (
+            " ORDER BY handle_type COLLATE BINARY,"
+            " normalized_value COLLATE BINARY,binding_id COLLATE BINARY"
+        )
+        rows = self.connection.execute(sql, tuple(parameters))
+        return [self._row_to_subject_handle(row) for row in rows]
+
+    def add_subject_handle(self, handle: SubjectHandle) -> str:
+        cursor = self.connection.execute(
+            """
+            INSERT INTO subject_handles(
+              binding_id,scope_id,subject_key,handle_type,handle_value,
+              normalized_value,origin,source_refs_json,bound_at,revoked_at,
+              revocation_origin,revocation_source_refs_json
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                handle.binding_id,
+                handle.scope_id,
+                handle.subject_key,
+                handle.handle_type,
+                handle.handle_value,
+                handle.normalized_value,
+                handle.origin.value,
+                canonical_json(
+                    [ref.model_dump(mode="json") for ref in handle.source_refs]
+                ),
+                instant_text(handle.bound_at),
+                instant_text(handle.revoked_at) if handle.revoked_at else None,
+                (
+                    handle.revocation_origin.value
+                    if handle.revocation_origin is not None
+                    else None
+                ),
+                canonical_json(
+                    [
+                        ref.model_dump(mode="json")
+                        for ref in handle.revocation_source_refs
+                    ]
+                ),
+            ),
+        )
+        if cursor.rowcount:
+            return "bound"
+        existing = self.connection.execute(
+            """
+            SELECT * FROM subject_handles
+            WHERE scope_id=? AND handle_type=? AND normalized_value=?
+              AND revoked_at IS NULL
+            """,
+            (handle.scope_id, handle.handle_type, handle.normalized_value),
+        ).fetchone()
+        if existing is not None:
+            return (
+                "already_bound"
+                if existing["subject_key"] == handle.subject_key
+                else "conflict"
+            )
+        prior_id = self.connection.execute(
+            "SELECT * FROM subject_handles WHERE binding_id=?",
+            (handle.binding_id,),
+        ).fetchone()
+        if prior_id is None or self._row_to_subject_handle(prior_id) != handle:
+            raise ValueError("subject handle binding_id collision with different payload")
+        return "already_bound"
+
+    def revoke_subject_handle(
+        self,
+        scope_id: str,
+        handle_type: str,
+        normalized_value: str,
+        *,
+        revoked_at: datetime,
+        revocation_origin: str,
+        source_refs: list[SourceRef],
+    ) -> SubjectHandle | None:
+        row = self.connection.execute(
+            """
+            SELECT * FROM subject_handles
+            WHERE scope_id=? AND handle_type=? AND normalized_value=?
+              AND revoked_at IS NULL
+            """,
+            (scope_id, handle_type, normalized_value),
+        ).fetchone()
+        if row is None:
+            return None
+        self.connection.execute(
+            """
+            UPDATE subject_handles
+            SET revoked_at=?,revocation_origin=?,revocation_source_refs_json=?
+            WHERE binding_id=? AND revoked_at IS NULL
+            """,
+            (
+                instant_text(revoked_at),
+                revocation_origin,
+                canonical_json(
+                    [ref.model_dump(mode="json") for ref in source_refs]
+                ),
+                row["binding_id"],
+            ),
+        )
+        updated = self.connection.execute(
+            "SELECT * FROM subject_handles WHERE binding_id=?",
+            (row["binding_id"],),
+        ).fetchone()
+        assert updated is not None
+        return self._row_to_subject_handle(updated)
+
     def subject_merges(self, scope_id: str) -> list[SubjectMerge]:
         rows = self.connection.execute(
             """
@@ -863,8 +1031,13 @@ class SQLiteStore:
         *,
         accepted: int,
         rejections: dict[str, int],
+        handle_conflicts: int = 0,
     ) -> None:
-        counters = {"ACCEPTED": accepted, **rejections}
+        counters = {
+            "ACCEPTED": accepted,
+            "HANDLE_CONFLICTS": handle_conflicts,
+            **rejections,
+        }
         self.connection.executemany(
             """
             INSERT INTO gate_stats(scope_id,counter,count) VALUES(?,?,?)
@@ -889,6 +1062,7 @@ class SQLiteStore:
         return GateStatistics(
             scope_id=scope_id,
             accepted=counters.pop("ACCEPTED", 0),
+            handle_conflicts=counters.pop("HANDLE_CONFLICTS", 0),
             rejections=counters,
         )
 
@@ -981,13 +1155,14 @@ class SQLiteStore:
         new_assertions: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
+        handle_conflicts: int = 0,
         last_error: str | None = None,
     ) -> None:
         cursor = self.connection.execute(
             """
             UPDATE tasks SET
               status=?,cards_produced=?,new_assertions=?,
-              gate_accepted=?,gate_rejected_json=?,
+              gate_accepted=?,gate_rejected_json=?,handle_conflicts=?,
               attempts=attempts + CASE WHEN ?=? THEN 1 ELSE 0 END,
               last_error=CASE
                 WHEN ?=? THEN ?
@@ -1002,6 +1177,7 @@ class SQLiteStore:
                 new_assertions,
                 gate_accepted,
                 canonical_json(gate_rejected or {}),
+                handle_conflicts,
                 status.value,
                 TaskStatus.failed.value,
                 status.value,
@@ -1508,6 +1684,27 @@ class SQLiteStore:
         )
 
     @staticmethod
+    def _row_to_subject_handle(row: sqlite3.Row) -> SubjectHandle:
+        return SubjectHandle.model_validate(
+            {
+                "binding_id": row["binding_id"],
+                "scope_id": row["scope_id"],
+                "subject_key": row["subject_key"],
+                "handle_type": row["handle_type"],
+                "handle_value": row["handle_value"],
+                "normalized_value": row["normalized_value"],
+                "origin": HandleOrigin(row["origin"]),
+                "source_refs": json.loads(row["source_refs_json"]),
+                "bound_at": row["bound_at"],
+                "revoked_at": row["revoked_at"],
+                "revocation_origin": row["revocation_origin"],
+                "revocation_source_refs": json.loads(
+                    row["revocation_source_refs_json"]
+                ),
+            }
+        )
+
+    @staticmethod
     def _task_row(row: sqlite3.Row) -> TaskRow:
         status = TaskStatus(row["status"])
         return TaskRow(
@@ -1528,6 +1725,7 @@ class SQLiteStore:
                 gate=TaskGate(
                     accepted=row["gate_accepted"],
                     rejected=json.loads(row["gate_rejected_json"]),
+                    handle_conflicts=row["handle_conflicts"],
                 ),
             ),
         )

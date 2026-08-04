@@ -41,6 +41,7 @@ eval_app = typer.Typer(help="Measure message-to-matter extraction quality.")
 mail_app = typer.Typer(help="Configure and pull an IMAP mailbox.")
 setup_app = typer.Typer(help="Configure agent clients for Matterhorn.")
 hook_app = typer.Typer(help="Fail-open agent lifecycle hooks.")
+handles_app = typer.Typer(help="Maintain the subject handle registry.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
@@ -48,6 +49,7 @@ app.add_typer(eval_app, name="eval")
 app.add_typer(mail_app, name="mail")
 app.add_typer(setup_app, name="setup")
 app.add_typer(hook_app, name="hook")
+app.add_typer(handles_app, name="handles")
 
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
@@ -538,6 +540,30 @@ def matters(
 
     result = _engine(db, schema, schema_dir).matters(_scope(scope_id))
     _print([item.to_dict() for item in result])
+
+
+@handles_app.command("backfill")
+def handles_backfill(
+    scope_id: str = typer.Argument(..., help="Scope whose retained evidence is scanned."),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Offline, zero-model handle backfill over retained subject evidence."""
+
+    try:
+        report = _engine(db, schema, schema_dir).backfill_handles(scope_id)
+    except (MatterhornError, ValueError, TypeError) as error:
+        raise typer.BadParameter(str(error)) from error
+    rows = (
+        ("bound", report.bound),
+        ("skipped-conflict", report.skipped_conflict),
+        ("already-bound", report.already_bound),
+    )
+    typer.echo("metric             count")
+    typer.echo("----------------- -----")
+    for label, count in rows:
+        typer.echo(f"{label:<17} {count:>5}")
 
 
 @app.command("flush")

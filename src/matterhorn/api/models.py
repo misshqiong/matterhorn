@@ -94,6 +94,35 @@ class SubjectUnmergeInput(StrictModel):
     source_refs: list[SourceRef] = Field(min_length=1)
 
 
+class SubjectHandleBindInput(StrictModel):
+    handle_type: str = Field(min_length=1)
+    handle_value: str = Field(min_length=1)
+    source_refs: list[SourceRef] = Field(min_length=1)
+
+
+class SubjectHandleUnbindInput(StrictModel):
+    source_refs: list[SourceRef] = Field(min_length=1)
+
+
+class SubjectHandleResponse(StrictModel):
+    binding_id: str
+    scope_id: str
+    subject_key: str
+    handle_type: str
+    handle_value: str
+    normalized_value: str
+    origin: str
+    source_refs: list[SourceRef]
+    bound_at: datetime
+    revoked_at: datetime | None = None
+    revocation_origin: str | None = None
+    revocation_source_refs: list[SourceRef] = Field(default_factory=list)
+
+
+class SubjectHandleListResponse(RootModel[list[SubjectHandleResponse]]):
+    pass
+
+
 class ValueSourceDetailResponse(StrictModel):
     source_id: str
     sender: str
@@ -167,6 +196,7 @@ class MatterDetailResponse(StrictModel):
     subject_type: str
     title: str
     aliases: list[str] = Field(default_factory=list)
+    handles: list[SubjectHandleResponse] = Field(default_factory=list)
     current: list[ValueResponse]
     timeline: dict[str, list[ValueResponse]]
 

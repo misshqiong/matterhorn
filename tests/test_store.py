@@ -145,7 +145,7 @@ def test_sqlite_migrates_legacy_task_retry_columns(tmp_path) -> None:
     columns = {
         row["name"] for row in store.connection.execute("PRAGMA table_info(tasks)")
     }
-    assert {"attempts", "last_error"} <= columns
+    assert {"attempts", "last_error", "handle_conflicts"} <= columns
     assert store.create_task(
         task_id="task-legacy",
         scope_id="fictional-team",

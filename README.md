@@ -254,7 +254,7 @@ Public door: add(messages)
 ════════╪════ Engine promise boundary ═══════════════════════════════════
         ▼
    EpisodeCard ──► validation ──► assertions ──► intervals ──► answers
-        ▲          deterministic, idempotent, replayable (INV-1…INV-13)
+        ▲          deterministic, idempotent, replayable (INV-1…INV-14)
         │
 Advanced door: add_cards(episode_cards)
 ```
@@ -286,13 +286,13 @@ Service mode exposes resource-style REST endpoints under
 it can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 57
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 63
 language-neutral golden cases include the Message door, conversation-scoped
 rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=57 failed=0 total=57
+SUMMARY passed=63 failed=0 total=63
 ```
 
 ### Extraction quality evaluation
