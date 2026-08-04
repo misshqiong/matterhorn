@@ -163,6 +163,8 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
             task = await client.get(f"/v1/tasks/{task_id}")
             assert task.status_code == 200
             assert task.json()["gate"] == {"accepted": 1, "rejected": {}}
+            assert task.json()["attempts"] == 0
+            assert task.json()["last_error"] is None
             waited_messages = await client.post(
                 "/v1/scopes/s/messages",
                 json={

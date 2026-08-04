@@ -33,11 +33,13 @@ from matterhorn.contracts import (
     TaskStatus,
 )
 from matterhorn.store.base import (
+    MAX_TASK_ATTEMPTS,
     DistillQueueItem,
     QuerySubjectRow,
     QueryValueRow,
     RecordObservationRow,
     TaskRow,
+    thread_safe_store,
 )
 
 try:
@@ -191,7 +193,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     cards_produced INTEGER NOT NULL DEFAULT 0,
     new_assertions INTEGER NOT NULL DEFAULT 0,
     gate_accepted INTEGER NOT NULL DEFAULT 0,
-    gate_rejected_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    gate_rejected_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_scope_status
     ON tasks(scope_id, status, created_at, task_id);
@@ -220,6 +224,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 """
 
 
+@thread_safe_store
 class PostgresStore:
     """Single-primary PostgreSQL Store preserving Matterhorn's INV-6 boundary.
 
@@ -229,8 +234,8 @@ class PostgresStore:
 
     def __init__(self, dsn: str):
         self.dsn = dsn
+        self._lock = RLock()
         self.connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
-        self._transaction_lock = RLock()
         self._assert_writable_primary()
         with self.connection.cursor() as cursor:
             cursor.execute(SCHEMA_SQL)
@@ -253,6 +258,18 @@ class PostgresStore:
                 ADD COLUMN IF NOT EXISTS uid_watermark BIGINT
                 """
             )
+            cursor.execute(
+                """
+                ALTER TABLE tasks
+                ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE tasks
+                ADD COLUMN IF NOT EXISTS last_error TEXT
+                """
+            )
 
     def _assert_writable_primary(self) -> None:
         with self.connection.cursor() as cursor:
@@ -270,7 +287,7 @@ class PostgresStore:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        with self._transaction_lock, self.connection.transaction():
+        with self._lock, self.connection.transaction():
             yield
 
     def close(self) -> None:
@@ -938,6 +955,29 @@ class PostgresStore:
         sql += ' ORDER BY created_at,task_id COLLATE "C"'
         return [self._task_row(row) for row in self._execute(sql, parameters)]
 
+    def flushable_tasks(
+        self,
+        scope_id: str,
+        *,
+        max_attempts: int = MAX_TASK_ATTEMPTS,
+    ) -> list[TaskRow]:
+        rows = self._execute(
+            """
+            SELECT * FROM tasks
+            WHERE scope_id=%s AND (
+              status=%s OR (status=%s AND attempts < %s)
+            )
+            ORDER BY created_at,task_id COLLATE "C"
+            """,
+            (
+                scope_id,
+                TaskStatus.pending.value,
+                TaskStatus.failed.value,
+                max_attempts,
+            ),
+        )
+        return [self._task_row(row) for row in rows]
+
     def update_task(
         self,
         task_id: str,
@@ -947,12 +987,19 @@ class PostgresStore:
         new_assertions: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
+        last_error: str | None = None,
     ) -> None:
         cursor = self._execute(
             """
             UPDATE tasks SET
               status=%s,cards_produced=%s,new_assertions=%s,
-              gate_accepted=%s,gate_rejected_json=%s
+              gate_accepted=%s,gate_rejected_json=%s,
+              attempts=attempts + CASE WHEN %s=%s THEN 1 ELSE 0 END,
+              last_error=CASE
+                WHEN %s=%s THEN %s
+                WHEN %s=%s THEN NULL
+                ELSE last_error
+              END
             WHERE task_id=%s
             """,
             (
@@ -961,33 +1008,58 @@ class PostgresStore:
                 new_assertions,
                 gate_accepted,
                 self._json_param(gate_rejected or {}),
+                status.value,
+                TaskStatus.failed.value,
+                status.value,
+                TaskStatus.failed.value,
+                last_error,
+                status.value,
+                TaskStatus.completed.value,
                 task_id,
             ),
         )
         if cursor.rowcount != 1:
             raise KeyError(f"unknown task_id: {task_id}")
 
-    def quiet_scopes(self, cutoff: datetime) -> list[str]:
+    def quiet_scopes(
+        self,
+        cutoff: datetime,
+        *,
+        max_attempts: int = MAX_TASK_ATTEMPTS,
+    ) -> list[str]:
         rows = self._execute(
             """
             SELECT scope_id FROM tasks
-            WHERE status=%s AND kind='messages' AND newest_message_at IS NOT NULL
+            WHERE (
+              status=%s OR (status=%s AND attempts < %s)
+            ) AND kind='messages' AND newest_message_at IS NOT NULL
             GROUP BY scope_id
             HAVING MAX(newest_message_at) <= %s
             ORDER BY scope_id COLLATE "C"
             """,
-            (TaskStatus.pending.value, as_utc(cutoff)),
+            (
+                TaskStatus.pending.value,
+                TaskStatus.failed.value,
+                max_attempts,
+                as_utc(cutoff),
+            ),
         )
         return [row["scope_id"] for row in rows]
 
-    def pending_scopes(self) -> list[str]:
+    def pending_scopes(
+        self, *, max_attempts: int = MAX_TASK_ATTEMPTS
+    ) -> list[str]:
         rows = self._execute(
             """
             SELECT DISTINCT scope_id FROM tasks
-            WHERE status=%s
+            WHERE status=%s OR (status=%s AND attempts < %s)
             ORDER BY scope_id COLLATE "C"
             """,
-            (TaskStatus.pending.value,),
+            (
+                TaskStatus.pending.value,
+                TaskStatus.failed.value,
+                max_attempts,
+            ),
         )
         return [row["scope_id"] for row in rows]
 
@@ -1470,6 +1542,8 @@ class PostgresStore:
                 status=status,
                 cards_produced=row["cards_produced"],
                 new_assertions=row["new_assertions"],
+                attempts=row["attempts"],
+                last_error=row["last_error"],
                 gate=TaskGate(
                     accepted=row["gate_accepted"],
                     rejected=row["gate_rejected_json"],

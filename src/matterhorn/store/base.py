@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
+from functools import wraps
 from typing import Any, Protocol
 
 from matterhorn.contracts import (
@@ -21,6 +23,27 @@ from matterhorn.contracts import (
     TaskResult,
     TaskStatus,
 )
+
+MAX_TASK_ATTEMPTS = 5
+
+
+def _locked(method: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(method)
+    def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapped
+
+
+def thread_safe_store(cls: type[Any]) -> type[Any]:
+    """Serialize each concrete store's public API on its instance lock."""
+
+    for name, method in vars(cls).items():
+        if name.startswith("_") or name == "transaction" or not callable(method):
+            continue
+        setattr(cls, name, _locked(method))
+    return cls
 
 
 @dataclass(frozen=True)
@@ -210,6 +233,10 @@ class Store(Protocol):
         self, scope_id: str, *, status: TaskStatus | None = None
     ) -> list[TaskRow]: ...
 
+    def flushable_tasks(
+        self, scope_id: str, *, max_attempts: int = MAX_TASK_ATTEMPTS
+    ) -> list[TaskRow]: ...
+
     def update_task(
         self,
         task_id: str,
@@ -219,11 +246,19 @@ class Store(Protocol):
         new_assertions: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
+        last_error: str | None = None,
     ) -> None: ...
 
-    def quiet_scopes(self, cutoff: datetime) -> list[str]: ...
+    def quiet_scopes(
+        self,
+        cutoff: datetime,
+        *,
+        max_attempts: int = MAX_TASK_ATTEMPTS,
+    ) -> list[str]: ...
 
-    def pending_scopes(self) -> list[str]: ...
+    def pending_scopes(
+        self, *, max_attempts: int = MAX_TASK_ATTEMPTS
+    ) -> list[str]: ...
 
     def add_event(self, event: ChangeEvent) -> bool: ...
 

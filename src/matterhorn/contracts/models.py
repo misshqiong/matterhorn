@@ -502,6 +502,8 @@ class TaskResult(StrictModel):
     status: TaskStatus
     cards_produced: int = 0
     new_assertions: int = 0
+    attempts: int = 0
+    last_error: str | None = None
     gate: TaskGate = Field(default_factory=TaskGate)
 
 

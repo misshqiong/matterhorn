@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from matterhorn import Engine
 from matterhorn.contracts import Message, TaskResult, TaskStatus
+from matterhorn.store import SQLiteStore
 
 
 class FacadeGateway:
@@ -40,6 +44,27 @@ class FacadeGateway:
 class ExplodingGateway:
     def complete(self, **_kwargs):
         raise AssertionError("add() called the gateway")
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def retry_store(request, tmp_path):
+    scope_id = f"fictional-retry-{uuid4().hex}"
+    if request.param == "sqlite":
+        store = SQLiteStore(tmp_path / "retry.db")
+    else:
+        dsn = os.environ.get("MATTERHORN_TEST_POSTGRES_DSN")
+        if not dsn:
+            pytest.skip(
+                "MATTERHORN_TEST_POSTGRES_DSN is unset; PostgreSQL retry tests skipped"
+            )
+        from matterhorn.store.postgres import PostgresStore
+
+        store = PostgresStore(dsn)
+    try:
+        yield store, scope_id
+    finally:
+        store.clear_scope(scope_id)
+        store.close()
 
 
 def _message(**updates):
@@ -132,6 +157,135 @@ def test_wait_cards_returns_completed_result_with_task_id(tmp_path) -> None:
     assert isinstance(result, TaskResult)
     assert result.status == TaskStatus.completed
     assert result.task_id.startswith("task_")
+
+
+def test_failed_extractor_task_retries_and_clears_last_error(retry_store) -> None:
+    class FailOnceExtractor:
+        def __init__(self):
+            self.calls = 0
+
+        def extract(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError(
+                    "Authorization: Bearer fictional-secret-value " + "x" * 600
+                )
+            return SimpleNamespace(cards=[], rejection_counts={})
+
+    store, scope_id = retry_store
+    extractor = FailOnceExtractor()
+    engine = Engine(
+        store,
+        extractor=extractor,
+        clock=lambda: datetime(2026, 8, 4, 9, tzinfo=UTC),
+    )
+    receipt = engine.add(scope_id, [_message()])
+
+    first = engine.flush(scope_id)
+    failed = engine.task(receipt.task_id)
+
+    assert first.tasks_processed == 1
+    assert first.remaining == 1
+    assert failed.status == TaskStatus.failed
+    assert failed.attempts == 1
+    assert failed.last_error is not None
+    assert len(failed.last_error) <= 500
+    assert "fictional-secret-value" not in failed.last_error
+
+    second = engine.flush(scope_id)
+    completed = engine.task(receipt.task_id)
+
+    assert second.tasks_processed == 1
+    assert second.remaining == 0
+    assert extractor.calls == 2
+    assert completed.status == TaskStatus.completed
+    assert completed.attempts == 1
+    assert completed.last_error is None
+
+
+def test_failed_task_stops_retrying_at_attempt_cap(retry_store) -> None:
+    class AlwaysFailExtractor:
+        def __init__(self):
+            self.calls = 0
+
+        def extract(self, **_kwargs):
+            self.calls += 1
+            raise RuntimeError("fictional provider unavailable")
+
+    store, scope_id = retry_store
+    extractor = AlwaysFailExtractor()
+    engine = Engine(
+        store,
+        extractor=extractor,
+        clock=lambda: datetime(2026, 8, 4, 9, tzinfo=UTC),
+    )
+    receipt = engine.add(scope_id, [_message()])
+
+    for expected_attempts in range(1, 6):
+        report = engine.flush(scope_id)
+        assert report.tasks_processed == 1
+        assert engine.task(receipt.task_id).attempts == expected_attempts
+
+    exhausted = engine.task(receipt.task_id)
+    stopped = engine.flush(scope_id)
+
+    assert exhausted.status == TaskStatus.failed
+    assert exhausted.attempts == 5
+    assert exhausted.last_error == "RuntimeError: fictional provider unavailable"
+    assert stopped.tasks_processed == 0
+    assert stopped.remaining == 0
+    assert extractor.calls == 5
+
+
+def test_dream_failure_retries_the_enclosing_task(retry_store) -> None:
+    class FailOnceGateway:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("fictional semantic provider unavailable")
+            return json.dumps({"candidates": []})
+
+    store, scope_id = retry_store
+    gateway = FailOnceGateway()
+    engine = Engine(
+        store,
+        gateway=gateway,
+        clock=lambda: datetime(2026, 8, 4, 9, tzinfo=UTC),
+    )
+    receipt = engine.add_cards(
+        [
+            {
+                "card_id": "fictional-dream-card",
+                "scope_id": scope_id,
+                "date": "2026-08-04",
+                "title": "Fictional retry exercise",
+                "status": "open",
+                "source_refs": [
+                    {
+                        "source_id": "fictional-source-1",
+                        "sent_at": "2026-08-04T08:00:00Z",
+                        "sender": "Ada Example",
+                    }
+                ],
+            }
+        ]
+    )
+
+    engine.flush(scope_id)
+    failed = engine.task(receipt.task_id)
+    assert failed.status == TaskStatus.failed
+    assert failed.attempts == 1
+    assert failed.last_error is not None
+
+    engine.flush(scope_id)
+    completed = engine.task(receipt.task_id)
+    assert gateway.calls == 2
+    assert completed.status == TaskStatus.completed
+    assert completed.attempts == 1
+    assert completed.last_error is None
 
 
 def test_ingest_is_a_deprecated_alias_for_add_cards(tmp_path) -> None:

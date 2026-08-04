@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -63,10 +64,18 @@ from matterhorn.errors import (
 from matterhorn.projection import project_assertions
 from matterhorn.query import QueryService
 from matterhorn.store import SQLiteStore, Store
+from matterhorn.store.base import MAX_TASK_ATTEMPTS
 
 Clock = Callable[[], datetime]
 DEFAULT_MAX_ANCHORS = 40
 SUBJECT_MERGE_PREDICATE = "subject_merge"
+_TASK_ERROR_SECRET_MARKER = re.compile(
+    r"(?i)\b(?:authorization|proxy-authorization|x-api-key|api[ _-]?key|"
+    r"access[ _-]?token|refresh[ _-]?token|password|secret|bearer)\b"
+)
+_TASK_ERROR_LONG_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z0-9_.-]{24,}(?![A-Za-z0-9])"
+)
 
 
 @dataclass(frozen=True)
@@ -303,56 +312,52 @@ class Engine:
             pending.append((record, observation_hash))
 
         active = [record for record, _ in pending if record.revoked_at is None]
+        revoked = [item for item in pending if item[0].revoked_at is not None]
         if active and self._extractor is None:
             raise RuntimeError("record extraction requires a RecordExtractor")
         chunks = _conversation_extraction_chunks(active, batch_size) if active else []
+        pending_by_record_id = {
+            record.record_id: (record, observation_hash)
+            for record, observation_hash in pending
+        }
         cards: list[EpisodeCard] = []
         rejection_counts: dict[str, int] = {}
         emitted: list[Assertion] = []
-        with self.store.transaction():
-            for record, observation_hash in pending:
-                source_ref = record.to_source_ref()
-                self.store.observe_source(
-                    scope_id,
-                    source_ref,
-                    revoked_at=record.revoked_at,
-                )
-                self.store.mark_record_observation(
-                    scope_id,
-                    record.record_id,
-                    observation_hash,
-                    record.container_id,
-                    _record_observed_at(record),
-                )
-            for chunk in chunks:
-                assert self._extractor is not None
-                extraction = self._extractor.extract(
-                    scope_id=scope_id,
-                    records=chunk,
-                    batch_size=batch_size,
-                    anchors=self._subject_anchors(scope_id),
-                )
-                chunk_cards = list(extraction.cards)
-                cards.extend(chunk_cards)
-                rejection_counts = _merge_counts(
-                    rejection_counts,
-                    extraction.rejection_counts,
-                )
-                if chunk_cards:
-                    emitted.extend(
-                        self._ingest_cards_sync(chunk_cards, scope_id=scope_id)
-                    )
-            if pending and not backfill:
-                by_container: dict[str, list[Record]] = {}
-                for record, _ in pending:
-                    by_container.setdefault(record.container_id, []).append(record)
-                for container_id, items in by_container.items():
-                    self.store.update_sync_position(
-                        scope_id,
-                        container_id,
-                        watermark=max(_record_observed_at(item) for item in items),
-                        cursor=(cursors or {}).get(container_id),
-                    )
+        if revoked:
+            self._commit_record_chunk(
+                scope_id=scope_id,
+                observations=revoked,
+                cards=[],
+                cursors=cursors,
+                backfill=backfill,
+            )
+        for chunk in chunks:
+            assert self._extractor is not None
+            with self.store.transaction():
+                anchors = self._subject_anchors(scope_id)
+            extraction = self._extractor.extract(
+                scope_id=scope_id,
+                records=chunk,
+                batch_size=batch_size,
+                anchors=anchors,
+            )
+            chunk_cards = list(extraction.cards)
+            chunk_observations = [
+                pending_by_record_id[record.record_id] for record in chunk
+            ]
+            chunk_emitted = self._commit_record_chunk(
+                scope_id=scope_id,
+                observations=chunk_observations,
+                cards=chunk_cards,
+                cursors=cursors,
+                backfill=backfill,
+            )
+            cards.extend(chunk_cards)
+            rejection_counts = _merge_counts(
+                rejection_counts,
+                extraction.rejection_counts,
+            )
+            emitted.extend(chunk_emitted)
 
         return AddRecordsReport(
             scope_id=scope_id,
@@ -370,6 +375,47 @@ class Engine:
             assertion_ids=[assertion.assertion_id for assertion in emitted],
             sync_positions=self.store.sync_positions(scope_id),
         )
+
+    def _commit_record_chunk(
+        self,
+        *,
+        scope_id: str,
+        observations: list[tuple[Record, str]],
+        cards: list[EpisodeCard],
+        cursors: dict[str, str] | None,
+        backfill: bool,
+    ) -> list[Assertion]:
+        emitted: list[Assertion] = []
+        with self.store.transaction():
+            for record, observation_hash in observations:
+                self.store.observe_source(
+                    scope_id,
+                    record.to_source_ref(),
+                    revoked_at=record.revoked_at,
+                )
+                self.store.mark_record_observation(
+                    scope_id,
+                    record.record_id,
+                    observation_hash,
+                    record.container_id,
+                    _record_observed_at(record),
+                )
+            if cards:
+                emitted.extend(
+                    self._ingest_cards_sync(cards, scope_id=scope_id)
+                )
+            if observations and not backfill:
+                by_container: dict[str, list[Record]] = {}
+                for record, _ in observations:
+                    by_container.setdefault(record.container_id, []).append(record)
+                for container_id, items in by_container.items():
+                    self.store.update_sync_position(
+                        scope_id,
+                        container_id,
+                        watermark=max(_record_observed_at(item) for item in items),
+                        cursor=(cursors or {}).get(container_id),
+                    )
+        return emitted
 
     def _subject_anchors(self, scope_id: str) -> list[SubjectAnchor]:
         activity: dict[str, datetime] = {}
@@ -437,7 +483,10 @@ class Engine:
     def flush(self, scope_id: str) -> FlushReport:
         """Synchronously run all pending extraction and distillation for a scope."""
 
-        pending = self.store.tasks(scope_id, status=TaskStatus.pending)
+        pending = self.store.flushable_tasks(
+            scope_id,
+            max_attempts=MAX_TASK_ATTEMPTS,
+        )
         processed: list[str] = []
         for row in pending:
             with self.store.transaction():
@@ -448,6 +497,7 @@ class Engine:
             cards_produced = gate_accepted = 0
             gate_rejected: dict[str, int] = {}
             failed = False
+            last_error: str | None = None
             gate_before = self.gate_statistics(scope_id)
             try:
                 if row.kind == "messages":
@@ -486,8 +536,14 @@ class Engine:
                     },
                 )
                 failed = dream.failed > 0
-            except Exception:  # noqa: BLE001
+                if failed:
+                    last_error = (
+                        "DreamFailure: semantic distillation failed for "
+                        f"{dream.failed} queue item(s)"
+                    )
+            except Exception as error:  # noqa: BLE001
                 failed = True
+                last_error = _task_error_summary(error)
 
             after_assertions = {
                 item.assertion_id for item in self.store.assertions(scope_id)
@@ -500,6 +556,7 @@ class Engine:
                     new_assertions=len(after_assertions - before_assertions),
                     gate_accepted=gate_accepted,
                     gate_rejected=gate_rejected,
+                    last_error=last_error,
                 )
             processed.append(row.task_id)
         if not pending and self.store.distill_queue_count(scope_id):
@@ -509,7 +566,10 @@ class Engine:
             tasks_processed=len(processed),
             task_ids=processed,
             remaining=len(
-                self.store.tasks(scope_id, status=TaskStatus.pending)
+                self.store.flushable_tasks(
+                    scope_id,
+                    max_attempts=MAX_TASK_ATTEMPTS,
+                )
             ),
         )
 
@@ -517,7 +577,13 @@ class Engine:
         if quiet_period_minutes < 0:
             raise ValueError("quiet_period_minutes MUST be non-negative")
         cutoff = self._clock() - timedelta(minutes=quiet_period_minutes)
-        return [self.flush(scope_id) for scope_id in self.store.quiet_scopes(cutoff)]
+        return [
+            self.flush(scope_id)
+            for scope_id in self.store.quiet_scopes(
+                cutoff,
+                max_attempts=MAX_TASK_ATTEMPTS,
+            )
+        ]
 
     def flush_quiet_at(
         self, quiet_period_minutes: float, instant: datetime
@@ -525,10 +591,21 @@ class Engine:
         if quiet_period_minutes < 0:
             raise ValueError("quiet_period_minutes MUST be non-negative")
         cutoff = as_utc(instant) - timedelta(minutes=quiet_period_minutes)
-        return [self.flush(scope_id) for scope_id in self.store.quiet_scopes(cutoff)]
+        return [
+            self.flush(scope_id)
+            for scope_id in self.store.quiet_scopes(
+                cutoff,
+                max_attempts=MAX_TASK_ATTEMPTS,
+            )
+        ]
 
     def flush_pending(self) -> list[FlushReport]:
-        return [self.flush(scope_id) for scope_id in self.store.pending_scopes()]
+        return [
+            self.flush(scope_id)
+            for scope_id in self.store.pending_scopes(
+                max_attempts=MAX_TASK_ATTEMPTS,
+            )
+        ]
 
     def now(self) -> datetime:
         return self._clock()
@@ -1409,6 +1486,16 @@ def _merge_counts(
     for key, value in right.items():
         result[key] = result.get(key, 0) + value
     return result
+
+
+def _task_error_summary(error: BaseException) -> str:
+    kind = type(error).__name__
+    message = " ".join(str(error).split())
+    if _TASK_ERROR_SECRET_MARKER.search(message):
+        message = "[REDACTED]"
+    else:
+        message = _TASK_ERROR_LONG_TOKEN.sub("[REDACTED]", message)
+    return (f"{kind}: {message}" if message else kind)[:500]
 
 
 def _profile_version(profile: SchemaProfile) -> str:

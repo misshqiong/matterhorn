@@ -29,11 +29,13 @@ from matterhorn.contracts import (
     TaskStatus,
 )
 from matterhorn.store.base import (
+    MAX_TASK_ATTEMPTS,
     DistillQueueItem,
     QuerySubjectRow,
     QueryValueRow,
     RecordObservationRow,
     TaskRow,
+    thread_safe_store,
 )
 
 SCHEMA_SQL = """
@@ -178,7 +180,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     cards_produced INTEGER NOT NULL DEFAULT 0,
     new_assertions INTEGER NOT NULL DEFAULT 0,
     gate_accepted INTEGER NOT NULL DEFAULT 0,
-    gate_rejected_json TEXT NOT NULL DEFAULT '{}'
+    gate_rejected_json TEXT NOT NULL DEFAULT '{}',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_scope_status
     ON tasks(scope_id, status, created_at, task_id);
@@ -207,9 +211,11 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 """
 
 
+@thread_safe_store
 class SQLiteStore:
     def __init__(self, path: str | Path):
         self.path = str(path)
+        self._lock = RLock()
         self.connection = sqlite3.connect(
             self.path, isolation_level=None, check_same_thread=False
         )
@@ -217,7 +223,6 @@ class SQLiteStore:
         self.connection.executescript(SCHEMA_SQL)
         self._migrate_schema()
         self._transaction_depth = 0
-        self._transaction_lock = RLock()
 
     def _migrate_schema(self) -> None:
         subject_columns = {
@@ -251,6 +256,18 @@ class SQLiteStore:
             self.connection.execute(
                 "ALTER TABLE sync_positions ADD COLUMN uid_watermark INTEGER"
             )
+        task_columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(tasks)")
+        }
+        if "attempts" not in task_columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_error" not in task_columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN last_error TEXT"
+            )
         columns = {
             row["name"]
             for row in self.connection.execute("PRAGMA table_info(intervals)")
@@ -281,7 +298,7 @@ class SQLiteStore:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        with self._transaction_lock:
+        with self._lock:
             outer = self._transaction_depth == 0
             name = f"mh_sp_{self._transaction_depth}"
             if outer:
@@ -932,6 +949,29 @@ class SQLiteStore:
             for row in self.connection.execute(sql, parameters)
         ]
 
+    def flushable_tasks(
+        self,
+        scope_id: str,
+        *,
+        max_attempts: int = MAX_TASK_ATTEMPTS,
+    ) -> list[TaskRow]:
+        rows = self.connection.execute(
+            """
+            SELECT * FROM tasks
+            WHERE scope_id=? AND (
+              status=? OR (status=? AND attempts < ?)
+            )
+            ORDER BY created_at,task_id COLLATE BINARY
+            """,
+            (
+                scope_id,
+                TaskStatus.pending.value,
+                TaskStatus.failed.value,
+                max_attempts,
+            ),
+        )
+        return [self._task_row(row) for row in rows]
+
     def update_task(
         self,
         task_id: str,
@@ -941,12 +981,19 @@ class SQLiteStore:
         new_assertions: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
+        last_error: str | None = None,
     ) -> None:
         cursor = self.connection.execute(
             """
             UPDATE tasks SET
               status=?,cards_produced=?,new_assertions=?,
-              gate_accepted=?,gate_rejected_json=?
+              gate_accepted=?,gate_rejected_json=?,
+              attempts=attempts + CASE WHEN ?=? THEN 1 ELSE 0 END,
+              last_error=CASE
+                WHEN ?=? THEN ?
+                WHEN ?=? THEN NULL
+                ELSE last_error
+              END
             WHERE task_id=?
             """,
             (
@@ -955,33 +1002,58 @@ class SQLiteStore:
                 new_assertions,
                 gate_accepted,
                 canonical_json(gate_rejected or {}),
+                status.value,
+                TaskStatus.failed.value,
+                status.value,
+                TaskStatus.failed.value,
+                last_error,
+                status.value,
+                TaskStatus.completed.value,
                 task_id,
             ),
         )
         if cursor.rowcount != 1:
             raise KeyError(f"unknown task_id: {task_id}")
 
-    def quiet_scopes(self, cutoff: datetime) -> list[str]:
+    def quiet_scopes(
+        self,
+        cutoff: datetime,
+        *,
+        max_attempts: int = MAX_TASK_ATTEMPTS,
+    ) -> list[str]:
         rows = self.connection.execute(
             """
             SELECT scope_id FROM tasks
-            WHERE status=? AND kind='messages' AND newest_message_at IS NOT NULL
+            WHERE (
+              status=? OR (status=? AND attempts < ?)
+            ) AND kind='messages' AND newest_message_at IS NOT NULL
             GROUP BY scope_id
             HAVING MAX(newest_message_at) <= ?
             ORDER BY scope_id COLLATE BINARY
             """,
-            (TaskStatus.pending.value, instant_text(cutoff)),
+            (
+                TaskStatus.pending.value,
+                TaskStatus.failed.value,
+                max_attempts,
+                instant_text(cutoff),
+            ),
         )
         return [row["scope_id"] for row in rows]
 
-    def pending_scopes(self) -> list[str]:
+    def pending_scopes(
+        self, *, max_attempts: int = MAX_TASK_ATTEMPTS
+    ) -> list[str]:
         rows = self.connection.execute(
             """
             SELECT DISTINCT scope_id FROM tasks
-            WHERE status=?
+            WHERE status=? OR (status=? AND attempts < ?)
             ORDER BY scope_id COLLATE BINARY
             """,
-            (TaskStatus.pending.value,),
+            (
+                TaskStatus.pending.value,
+                TaskStatus.failed.value,
+                max_attempts,
+            ),
         )
         return [row["scope_id"] for row in rows]
 
@@ -1451,6 +1523,8 @@ class SQLiteStore:
                 status=status,
                 cards_produced=row["cards_produced"],
                 new_assertions=row["new_assertions"],
+                attempts=row["attempts"],
+                last_error=row["last_error"],
                 gate=TaskGate(
                     accepted=row["gate_accepted"],
                     rejected=json.loads(row["gate_rejected_json"]),

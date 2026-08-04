@@ -43,6 +43,8 @@ class IngestResponse(StrictModel):
     status: TaskStatus | None = None
     cards_produced: int = 0
     new_assertions: int = 0
+    attempts: int = 0
+    last_error: str | None = None
     gate: TaskGate | None = None
 
 

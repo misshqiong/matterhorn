@@ -617,13 +617,18 @@ writes, distillation queue writes, projection replacement, statistics
 replacement, and memory-card replacement MUST occur in one transaction. Any
 failure MUST roll back the whole batch.
 
-For `add_records`, observation-ledger writes, source lifecycle writes,
-Record-derived card ingest, projection replacement, and non-backfill sync
-position updates MUST share that transaction. Gateway I/O MAY occur before it.
-An exact `(scope_id, record_id, canonical Record payload hash)` observation
-already in the ledger MUST be filtered before gateway access and MUST be a
-complete no-op. The same `record_id` with a changed canonical payload is a new
-observation, as required by INV-11.
+For `add_records`, atomicity is per successful extraction chunk rather than
+per complete operation. The chunk's observation-ledger writes, source lifecycle
+writes, Record-derived card ingest, projection replacement, and non-backfill
+sync-position updates MUST share one short transaction. Gateway I/O MUST occur
+before that transaction and while no store transaction is held. Revoked
+Records MAY use a separate short bookkeeping transaction because they do not
+invoke extraction. A failure MAY therefore leave earlier chunks committed;
+P9 retry MUST skip those exact observations and retry the still-unobserved
+chunk deterministically. An exact `(scope_id, record_id, canonical Record
+payload hash)` observation already in the ledger MUST be filtered before
+gateway access and MUST be a complete no-op. The same `record_id` with a
+changed canonical payload is a new observation, as required by INV-11.
 
 `replay(scope_id)` MUST retain assertions, subjects, active SubjectMerge edges,
 and merge/unmerge events; delete/replace all intervals, projection statistics,
@@ -647,8 +652,9 @@ creation instants, and status transitions MUST use the Engine's injectable
 clock rather than an uninjectable wall-clock source. Task rows MUST be stored
 by both SQLite and PostgreSQL and MUST survive Engine/process restart.
 
-The default state is `pending`. `flush(scope_id)` MUST visit pending tasks in
-stable creation order and synchronously execute pending Message-to-Record,
+The default state is `pending`. `flush(scope_id)` MUST visit pending tasks plus
+failed tasks whose `attempts` is less than five in stable creation order and
+synchronously execute pending Message-to-Record,
 Record-to-card extraction, deterministic card application, semantic
 distillation, projection, and materialization. `add(..., wait=true)` and
 `add_cards(..., wait=true)` MUST run that same flush path and return the
@@ -661,12 +667,23 @@ response have exactly:
   "status": "pending" | "running" | "completed" | "failed",
   "cards_produced": integer,
   "new_assertions": integer,
+  "attempts": integer,
+  "last_error": string | null,
   "gate": {
     "accepted": integer,
     "rejected": {reason_code: count}
   }
 }
 ```
+
+`attempts` and `last_error` are additive task-result fields with compatible
+defaults of `0` and null. Each failed flush run MUST increment `attempts` once
+and store a conservatively credential-redacted exception summary of at most
+500 characters in `last_error`. A successful retry MUST retain the attempt
+count, set status to `completed`, and clear `last_error`. A failed task with
+five attempts MUST remain failed and MUST NOT be selected again. A semantic
+`dream()` failure still makes its enclosing task fail and follows the same
+retry policy.
 
 The gate object MUST aggregate the task's Record-to-card and semantic gate
 outcomes without borrowing prior scope counters. Repeating an identical
@@ -1073,10 +1090,13 @@ of revoked Records from extraction, the Engine MUST perform this orchestration:
    at most `batch_size`. A boundary group MUST NOT be split. If one group alone
    exceeds `batch_size`, it MUST be one oversized chunk.
 4. Process units and their chunks serially. Immediately before each extractor
-   call, recompute section 3.4 anchors. Immediately after the call, run every
+   call, recompute section 3.4 anchors in a short read transaction, release the
+   store transaction, and then call the extractor. Immediately after the call,
+   atomically persist that chunk's observation/source bookkeeping and run every
    accepted card through the ordinary gate, subject resolution,
-   canonicalization, assertion, projection, and materialization pipeline before
-   computing the next snapshot.
+   canonicalization, assertion, projection, materialization, and sync-position
+   pipeline before computing the next snapshot. No extractor or gateway call
+   may run while a store transaction is held.
 
 The Engine MUST pass exactly one such chunk to each RecordExtractor call while
 retaining the extractor Protocol signature and `batch_size` argument. A direct
@@ -1249,9 +1269,11 @@ The store MUST fail during initialization when
 read/write splitting, and transaction pooling that can move one Engine between
 servers are unsupported because they violate INV-6.
 
-Every ingest batch and every successful dream item MUST use one database
-transaction for the complete sequences in sections 11 and 13. No projection or
-materialization read may use another connection or replica inside that
+Every direct EpisodeCard ingest batch and every successful dream item MUST use
+one database transaction for the complete sequences in sections 11 and 13.
+Record extraction uses the per-chunk transaction boundary in sections 11 and
+16 so no gateway call holds the connection or store lock. No projection or
+materialization read may use another connection or replica inside a committed
 sequence. PostgreSQL and SQLite MUST pass every case in section 12; a behavioral
 difference is a defect, never an allowed backend variance.
 

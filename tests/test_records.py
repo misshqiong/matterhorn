@@ -94,6 +94,79 @@ def test_add_records_uses_injected_extractor(tmp_path) -> None:
     assert report.cards_accepted == 0
 
 
+def test_record_extractor_runs_without_store_lock_held(tmp_path) -> None:
+    class LockProbeExtractor:
+        def __init__(self):
+            self.store = None
+
+        def extract(self, **_kwargs):
+            assert self.store is not None
+            assert not self.store._lock._is_owned()
+            return SimpleNamespace(cards=[], rejection_counts={})
+
+    extractor = LockProbeExtractor()
+    engine = Engine(tmp_path / "lock-probe.db", extractor=extractor)
+    extractor.store = engine.store
+
+    report = engine.add_records([_record()], scope_id="fictional-team")
+
+    assert report.records_processed == 1
+
+
+def test_add_records_retry_skips_only_committed_chunks(tmp_path) -> None:
+    class FailSecondChunkOnce:
+        def __init__(self):
+            self.calls = []
+            self.failed = False
+
+        def extract(self, **kwargs):
+            container_id = kwargs["records"][0].container_id
+            self.calls.append(container_id)
+            if container_id == "fictional-b" and not self.failed:
+                self.failed = True
+                raise RuntimeError("temporary extractor failure")
+            return SimpleNamespace(cards=[], rejection_counts={})
+
+    records = [
+        {
+            "record_id": "fictional-a:m1",
+            "native_id": "m1",
+            "container_id": "fictional-a",
+            "sent_at": "2026-08-04T09:00:00Z",
+            "author": {"id": "ada", "kind": "human"},
+            "content": "Fictional alpha update.",
+        },
+        {
+            "record_id": "fictional-b:m2",
+            "native_id": "m2",
+            "container_id": "fictional-b",
+            "sent_at": "2026-08-04T10:00:00Z",
+            "author": {"id": "bert", "kind": "human"},
+            "content": "Fictional beta update.",
+        },
+    ]
+    extractor = FailSecondChunkOnce()
+    engine = Engine(tmp_path / "chunk-retry.db", extractor=extractor)
+
+    with pytest.raises(RuntimeError, match="temporary extractor failure"):
+        engine.add_records(records, scope_id="fictional-team")
+
+    assert [
+        observation.record_id
+        for observation in engine.store.record_observations("fictional-team")
+    ] == ["fictional-a:m1"]
+
+    report = engine.add_records(records, scope_id="fictional-team")
+
+    assert extractor.calls == ["fictional-a", "fictional-b", "fictional-b"]
+    assert report.records_processed == 1
+    assert report.records_skipped == 1
+    assert {
+        observation.record_id
+        for observation in engine.store.record_observations("fictional-team")
+    } == {"fictional-a:m1", "fictional-b:m2"}
+
+
 def test_engine_orders_conversation_units_and_packs_boundaries(tmp_path) -> None:
     class RecordingExtractor:
         def __init__(self):
