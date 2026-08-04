@@ -554,3 +554,45 @@ def test_mcp_stdio_entrypoints_use_official_protocol(entrypoint, tmp_path) -> No
             assert len(tools.tools) == 9
 
     asyncio.run(scenario())
+
+
+def test_dev_trace_logs_received_content_only_when_enabled(tmp_path) -> None:
+    import logging
+
+    from matterhorn import Engine
+    from matterhorn.service import INGEST_TRACE_LOGGER, MatterhornService
+
+    class Sink(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.lines: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.lines.append(record.getMessage())
+
+    sink = Sink()
+    logger = logging.getLogger(INGEST_TRACE_LOGGER)
+    logger.addHandler(sink)
+    logger.setLevel(logging.INFO)
+    try:
+        message = {
+            "id": "t1",
+            "sender": {"id": "u1", "name": "Dana"},
+            "text": "Fictional ingest trace probe.",
+            "sent_at": "2026-08-04T09:00:00Z",
+            "conversation_id": "trace-conv",
+        }
+        silent = MatterhornService(Engine(tmp_path / "off.db"), dev_trace=False)
+        silent.add_messages(messages=[message], scope_id="trace")
+        assert not [line for line in sink.lines if "[ingest]" in line]
+
+        loud = MatterhornService(Engine(tmp_path / "on.db"), dev_trace=True)
+        loud.add_messages(messages=[message], scope_id="trace")
+        lines = [line for line in sink.lines if "[ingest]" in line]
+        assert len(lines) == 1
+        assert "scope=trace" in lines[0]
+        assert "conv=trace-conv" in lines[0]
+        assert "sender=Dana" in lines[0]
+        assert "Fictional ingest trace probe." in lines[0]
+    finally:
+        logger.removeHandler(sink)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -15,12 +17,65 @@ from matterhorn.contracts import (
     TaskResult,
 )
 
+INGEST_TRACE_LOGGER = "matterhorn.ingest"
+_TRACE_CONTENT_LIMIT = 500
+
+
+def dev_trace_enabled() -> bool:
+    return os.environ.get("MATTERHORN_DEV_TRACE", "") == "1"
+
 
 class MatterhornService:
     """Transport-neutral application service shared by SDK, REST, and MCP."""
 
-    def __init__(self, engine: Any):
+    def __init__(self, engine: Any, *, dev_trace: bool | None = None):
         self.engine = engine
+        self.dev_trace = dev_trace_enabled() if dev_trace is None else dev_trace
+        self._trace_logger = logging.getLogger(INGEST_TRACE_LOGGER)
+        if self.dev_trace and not self._trace_logger.handlers:
+            # Plain single-line handler: rich/uvicorn handlers wrap at terminal
+            # width and swallow the content field, defeating the trace.
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+            self._trace_logger.addHandler(handler)
+            self._trace_logger.propagate = False
+            self._trace_logger.setLevel(logging.INFO)
+
+    def _trace_ingest(self, *, scope_id: str, kind: str, items: list[Any]) -> None:
+        # Dev-mode observability only: show exactly what arrived, before any
+        # distillation. Content is user data in a local log; still truncated
+        # per line to keep the log readable. Credentials never pass this path.
+        if not self.dev_trace:
+            return
+        for item in items:
+            try:
+                if isinstance(item, dict):
+                    payload = item
+                else:
+                    payload = item.model_dump(mode="json")
+                if kind == "message":
+                    sender = payload.get("sender") or {}
+                    who = sender.get("name") or sender.get("id") or "?"
+                    conv = payload.get("conversation_id") or "-"
+                    text = payload.get("text") or ""
+                    native = payload.get("id") or "?"
+                else:
+                    author = payload.get("author") or {}
+                    who = author.get("display_name") or author.get("id") or "?"
+                    conv = payload.get("container_id") or "-"
+                    text = payload.get("content") or ""
+                    native = payload.get("record_id") or "?"
+                snippet = text[:_TRACE_CONTENT_LIMIT]
+                suffix = "…" if len(text) > _TRACE_CONTENT_LIMIT else ""
+                self._trace_logger.info(
+                    "[ingest] scope=%s %s=%s sender=%s id=%s chars=%d content=%r%s",
+                    scope_id, "conv" if kind == "message" else "container",
+                    conv, who, native, len(text), snippet, suffix,
+                )
+            except Exception:  # noqa: BLE001 - tracing must never break ingest
+                self._trace_logger.info(
+                    "[ingest] scope=%s untraceable %s item", scope_id, kind
+                )
 
     def add_messages(
         self,
@@ -29,6 +84,7 @@ class MatterhornService:
         scope_id: str,
         wait: bool = False,
     ) -> dict[str, Any]:
+        self._trace_ingest(scope_id=scope_id, kind="message", items=messages)
         return self.engine.add(
             scope_id=scope_id, messages=messages, wait=wait
         ).model_dump(mode="json")
@@ -52,6 +108,7 @@ class MatterhornService:
         cursors: dict[str, str] | None = None,
         backfill: bool = False,
     ) -> dict[str, Any]:
+        self._trace_ingest(scope_id=scope_id, kind="record", items=records)
         return self.engine.add_records(
             records,
             scope_id=scope_id,
