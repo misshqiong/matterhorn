@@ -1030,7 +1030,21 @@
     }
 
     async function pollHub() {
-      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts()]);
+      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall()]);
+    }
+
+    async function pollWall() {
+      // Keep the wall live without re-render churn: only touch the DOM on change.
+      const scopes = await api("/v1/scopes");
+      if (JSON.stringify(scopes) !== JSON.stringify(state.scopes)) {
+        await loadScopes(state.chatScope);
+      }
+      const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
+      const matters = await api(`/v1/matters${query}`);
+      if (JSON.stringify(matters) !== JSON.stringify(state.matters)) {
+        state.matters = matters;
+        renderMatters();
+      }
     }
 
     async function loadChatConfig() {

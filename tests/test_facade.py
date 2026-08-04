@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -376,5 +376,22 @@ def test_quiet_period_flushes_only_old_pending_message_scopes(tmp_path) -> None:
     )
     receipt = engine.add("team", [_message()])
     reports = engine.flush_quiet(10)
+    assert [report.scope_id for report in reports] == ["team"]
+    assert engine.task(receipt.task_id).status == TaskStatus.completed
+
+
+def test_future_stamped_message_cannot_freeze_scope_quiet_period(tmp_path) -> None:
+    now = datetime(2026, 7, 29, 8, tzinfo=UTC)
+    engine = Engine(
+        tmp_path / "skew.db",
+        llm=FacadeGateway(),
+        clock=lambda: now,
+    )
+    skewed = dict(_message())
+    skewed["sent_at"] = "2026-07-29T09:30:00Z"  # source clock 90 min ahead
+    receipt = engine.add("team", [skewed])
+    # Quiet computation must treat the message as arrived at enqueue time,
+    # so the scope flushes after the quiet period instead of at 09:30.
+    reports = engine.flush_quiet_at(10, now + timedelta(minutes=11))
     assert [report.scope_id for report in reports] == ["team"]
     assert engine.task(receipt.task_id).status == TaskStatus.completed

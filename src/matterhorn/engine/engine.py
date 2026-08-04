@@ -620,6 +620,11 @@ class Engine:
         newest_message_at: datetime | None,
     ) -> TaskReceipt:
         created_at = self._clock()
+        if newest_message_at is not None:
+            # Source clocks skew. A future-stamped message must count as
+            # "arrived now" for quiet-period purposes, or one bad timestamp
+            # freezes the whole scope's distillation until that instant.
+            newest_message_at = min(as_utc(newest_message_at), as_utc(created_at))
         nonce = 0
         while True:
             task_id = "task_" + stable_hash(
