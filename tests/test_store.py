@@ -251,7 +251,21 @@ def test_sqlite_migrates_legacy_task_retry_columns(tmp_path) -> None:
     columns = {
         row["name"] for row in store.connection.execute("PRAGMA table_info(tasks)")
     }
-    assert {"attempts", "last_error", "handle_conflicts"} <= columns
+    assert {
+        "attempts",
+        "last_error",
+        "handle_conflicts",
+        "route_handle",
+        "route_thread",
+        "route_evidence",
+        "route_model",
+        "route_new",
+        "route_review",
+        "route_disagreements",
+    } <= columns
+    assert store.connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='review_queue'"
+    ).fetchone()
     assert store.create_task(
         task_id="task-legacy",
         scope_id="fictional-team",
@@ -287,6 +301,27 @@ def test_postgres_store_declares_every_sqlite_spi_method() -> None:
     sqlite_methods = methods(root / "sqlite.py", "SQLiteStore")
     postgres_methods = methods(root / "postgres.py", "PostgresStore")
     assert postgres_methods == sqlite_methods
+
+
+def test_postgres_never_calls_executemany_on_connection() -> None:
+    path = Path(__file__).resolve().parents[1] / "src/matterhorn/store/postgres.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    violations = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != "executemany":
+            continue
+        owner = node.func.value
+        if (
+            isinstance(owner, ast.Attribute)
+            and isinstance(owner.value, ast.Name)
+            and owner.value.id == "self"
+            and owner.attr == "connection"
+        ):
+            violations.append(node.lineno)
+
+    assert violations == []
 
 
 def test_backend_sql_and_connections_are_confined_to_store_package() -> None:

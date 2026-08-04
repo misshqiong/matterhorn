@@ -1,6 +1,6 @@
 case_id: handle-conflict-first-binding-wins
-title: A conflicting second handle binding is counted but not applied
-invariants: [P4, P5, P9, INV-14]
+title: An existing handle binding routes before a contradicting anchor
+invariants: [P4, P5, P9, INV-14, INV-15]
 schema_profile: org-matters/v1
 scope_id: handle-conflict
 clock:
@@ -54,22 +54,24 @@ record_model_responses:
 expect:
   record_reports:
     - {handles_bound: 1, handle_conflicts: 0}
-    - {handles_bound: 0, handle_conflicts: 1}
+    - {handles_bound: 0, handle_conflicts: 0, route_handle: 1, route_disagreements: 1}
   gate_statistics:
     scope_id: handle-conflict
     accepted: 0
     rejections: {}
-    handle_conflicts: 1
+    route_model: 1
+    route_handle: 1
+    route_disagreements: 1
   assertions:
     - {subject_key: first-matter, predicate: status, object_value: open}
     - {subject_key: first-matter, predicate: progress, object_value: First note.}
     - {subject_key: second-matter, predicate: status, object_value: open}
-    - {subject_key: second-matter, predicate: progress, object_value: Second note.}
+    - {subject_key: first-matter, predicate: progress, object_value: Second note.}
   intervals:
     - {subject_key: first-matter, predicate: status, object_value: open}
     - {subject_key: first-matter, predicate: progress, object_value: First note.}
     - {subject_key: second-matter, predicate: status, object_value: open}
-    - {subject_key: second-matter, predicate: progress, object_value: Second note.}
+    - {subject_key: first-matter, predicate: progress, object_value: Second note.}
   subject_handles:
     first-matter:
       - {subject_key: first-matter, handle_type: issue, normalized_value: oct-7731}

@@ -123,6 +123,27 @@ class SubjectHandleListResponse(RootModel[list[SubjectHandleResponse]]):
     pass
 
 
+class ReviewItemResponse(StrictModel):
+    scope_id: str
+    review_id: str
+    card_json: dict[str, Any]
+    reasons: list[str]
+    candidates_json: list[dict[str, Any]]
+    created_at: datetime
+    resolved_at: datetime | None = None
+    resolution_json: dict[str, Any] | None = None
+
+
+class ReviewListResponse(RootModel[list[ReviewItemResponse]]):
+    pass
+
+
+class ReviewResolveInput(StrictModel):
+    action: Literal["attach", "new"]
+    subject_key: str | None = None
+    source_refs: list[SourceRef] = Field(min_length=1)
+
+
 class ValueSourceDetailResponse(StrictModel):
     source_id: str
     sender: str

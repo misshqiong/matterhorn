@@ -26,6 +26,7 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     Record,
+    ReviewItem,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -37,6 +38,7 @@ from matterhorn.contracts import (
 )
 from matterhorn.store.base import (
     MAX_TASK_ATTEMPTS,
+    ROUTE_COUNTER_NAMES,
     DistillQueueItem,
     QuerySubjectRow,
     QueryValueRow,
@@ -218,6 +220,21 @@ CREATE TABLE IF NOT EXISTS distill_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_distill_queue_scope
     ON distill_queue(scope_id, card_id);
+CREATE TABLE IF NOT EXISTS review_queue (
+    scope_id TEXT NOT NULL,
+    review_id TEXT NOT NULL,
+    card_json JSONB NOT NULL,
+    reasons JSONB NOT NULL,
+    candidates_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    resolution_json JSONB,
+    PRIMARY KEY (scope_id, review_id)
+);
+CREATE INDEX IF NOT EXISTS idx_review_queue_pending
+    ON review_queue(
+        scope_id COLLATE "C", resolved_at, created_at, review_id COLLATE "C"
+    );
 CREATE TABLE IF NOT EXISTS gate_stats (
     scope_id TEXT NOT NULL,
     counter TEXT NOT NULL,
@@ -238,6 +255,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     gate_accepted INTEGER NOT NULL DEFAULT 0,
     gate_rejected_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     handle_conflicts INTEGER NOT NULL DEFAULT 0,
+    route_handle INTEGER NOT NULL DEFAULT 0,
+    route_thread INTEGER NOT NULL DEFAULT 0,
+    route_evidence INTEGER NOT NULL DEFAULT 0,
+    route_model INTEGER NOT NULL DEFAULT 0,
+    route_new INTEGER NOT NULL DEFAULT 0,
+    route_review INTEGER NOT NULL DEFAULT 0,
+    route_disagreements INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT
 );
@@ -321,6 +345,11 @@ class PostgresStore:
                 INTEGER NOT NULL DEFAULT 0
                 """
             )
+            for counter in ROUTE_COUNTER_NAMES:
+                cursor.execute(
+                    f"ALTER TABLE tasks ADD COLUMN IF NOT EXISTS {counter} "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
 
     def _assert_writable_primary(self) -> None:
         with self.connection.cursor() as cursor:
@@ -350,6 +379,7 @@ class PostgresStore:
                 "webhook_deliveries",
                 "events",
                 "tasks",
+                "review_queue",
                 "distill_queue",
                 "gate_stats",
                 "projection_stats",
@@ -374,6 +404,7 @@ class PostgresStore:
             "subject_merges",
             "subject_handles",
             "tasks",
+            "review_queue",
             "events",
             "ingested_cards",
             "record_observations",
@@ -404,6 +435,7 @@ class PostgresStore:
                 UNION ALL SELECT scope_id FROM memory_cards
                 UNION ALL SELECT scope_id FROM projection_stats
                 UNION ALL SELECT scope_id FROM distill_queue
+                UNION ALL SELECT scope_id FROM review_queue
                 UNION ALL SELECT scope_id FROM gate_stats
                 UNION ALL SELECT scope_id FROM tasks
                 UNION ALL SELECT scope_id FROM events
@@ -1161,6 +1193,87 @@ class PostgresStore:
             (scope_id,),
         ).fetchone()["n"]
 
+    def add_review_item(self, item: ReviewItem) -> bool:
+        existing = self.review_item(item.scope_id, item.review_id)
+        if existing is not None:
+            comparable = ("card_json", "reasons", "candidates_json")
+            if any(getattr(existing, field) != getattr(item, field) for field in comparable):
+                raise ValueError(
+                    f"review_id {item.review_id!r} was reused with another payload"
+                )
+            return False
+        self._execute(
+            """
+            INSERT INTO review_queue(
+              scope_id,review_id,card_json,reasons,candidates_json,
+              created_at,resolved_at,resolution_json
+            ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                item.scope_id,
+                item.review_id,
+                self._json_param(item.card_json),
+                self._json_param(item.reasons),
+                self._json_param(item.candidates_json),
+                as_utc(item.created_at),
+                as_utc(item.resolved_at) if item.resolved_at else None,
+                (
+                    self._json_param(item.resolution_json)
+                    if item.resolution_json is not None
+                    else None
+                ),
+            ),
+        )
+        return True
+
+    def review_item(self, scope_id: str, review_id: str) -> ReviewItem | None:
+        row = self._execute(
+            "SELECT * FROM review_queue WHERE scope_id=%s AND review_id=%s",
+            (scope_id, review_id),
+        ).fetchone()
+        return self._row_to_review_item(row) if row is not None else None
+
+    def review_items(
+        self, scope_id: str, *, pending_only: bool = True
+    ) -> list[ReviewItem]:
+        sql = "SELECT * FROM review_queue WHERE scope_id=%s"
+        if pending_only:
+            sql += " AND resolved_at IS NULL"
+        sql += ' ORDER BY created_at,review_id COLLATE "C"'
+        return [
+            self._row_to_review_item(row)
+            for row in self._execute(sql, (scope_id,))
+        ]
+
+    def resolve_review_item(
+        self,
+        scope_id: str,
+        review_id: str,
+        *,
+        resolved_at: datetime,
+        resolution: dict[str, Any],
+    ) -> ReviewItem:
+        cursor = self._execute(
+            """
+            UPDATE review_queue SET resolved_at=%s,resolution_json=%s
+            WHERE scope_id=%s AND review_id=%s AND resolved_at IS NULL
+            """,
+            (
+                as_utc(resolved_at),
+                self._json_param(resolution),
+                scope_id,
+                review_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            existing = self.review_item(scope_id, review_id)
+            if existing is None:
+                raise KeyError(f"unknown review_id: {review_id}")
+            raise ValueError(f"review_id {review_id!r} is already resolved")
+        resolved = self.review_item(scope_id, review_id)
+        assert resolved is not None
+        return resolved
+
     def record_gate_report(
         self,
         scope_id: str,
@@ -1168,10 +1281,15 @@ class PostgresStore:
         accepted: int,
         rejections: dict[str, int],
         handle_conflicts: int = 0,
+        route_counts: dict[str, int] | None = None,
     ) -> None:
         counters = {
             "ACCEPTED": accepted,
             "HANDLE_CONFLICTS": handle_conflicts,
+            **{
+                counter.upper(): (route_counts or {}).get(counter, 0)
+                for counter in ROUTE_COUNTER_NAMES
+            },
             **rejections,
         }
         for counter, count in counters.items():
@@ -1198,6 +1316,10 @@ class PostgresStore:
             scope_id=scope_id,
             accepted=counters.pop("ACCEPTED", 0),
             handle_conflicts=counters.pop("HANDLE_CONFLICTS", 0),
+            **{
+                counter: counters.pop(counter.upper(), 0)
+                for counter in ROUTE_COUNTER_NAMES
+            },
             rejections=counters,
         )
 
@@ -1287,6 +1409,7 @@ class PostgresStore:
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
         handle_conflicts: int = 0,
+        route_counts: dict[str, int] | None = None,
         last_error: str | None = None,
     ) -> None:
         cursor = self._execute(
@@ -1294,6 +1417,8 @@ class PostgresStore:
             UPDATE tasks SET
               status=%s,cards_produced=%s,new_assertions=%s,
               gate_accepted=%s,gate_rejected_json=%s,handle_conflicts=%s,
+              route_handle=%s,route_thread=%s,route_evidence=%s,route_model=%s,
+              route_new=%s,route_review=%s,route_disagreements=%s,
               attempts=attempts + CASE WHEN %s=%s THEN 1 ELSE 0 END,
               last_error=CASE
                 WHEN %s=%s THEN %s
@@ -1309,6 +1434,7 @@ class PostgresStore:
                 gate_accepted,
                 self._json_param(gate_rejected or {}),
                 handle_conflicts,
+                *((route_counts or {}).get(counter, 0) for counter in ROUTE_COUNTER_NAMES),
                 status.value,
                 TaskStatus.failed.value,
                 status.value,
@@ -1874,8 +2000,26 @@ class PostgresStore:
                     accepted=row["gate_accepted"],
                     rejected=row["gate_rejected_json"],
                     handle_conflicts=row["handle_conflicts"],
+                    **{counter: row[counter] for counter in ROUTE_COUNTER_NAMES},
                 ),
             ),
+        )
+
+    @staticmethod
+    def _row_to_review_item(row: dict[str, Any]) -> ReviewItem:
+        return ReviewItem(
+            scope_id=row["scope_id"],
+            review_id=row["review_id"],
+            card_json=row["card_json"],
+            reasons=row["reasons"],
+            candidates_json=row["candidates_json"],
+            created_at=as_utc(row["created_at"]),
+            resolved_at=(
+                as_utc(row["resolved_at"])
+                if row["resolved_at"] is not None
+                else None
+            ),
+            resolution_json=row["resolution_json"],
         )
 
     @staticmethod

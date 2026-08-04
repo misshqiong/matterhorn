@@ -64,17 +64,36 @@ class FixedClock:
 
 
 class FixtureGateway:
-    def __init__(self, responses: list[Any]):
-        self.responses = list(responses)
-        self.index = 0
+    def __init__(
+        self,
+        *,
+        extraction: list[Any],
+        adjudication: list[Any],
+        semantic: list[Any],
+    ):
+        self.responses = {
+            "extraction": list(extraction),
+            "adjudication": list(adjudication),
+            "semantic": list(semantic),
+        }
+        self.indexes = {kind: 0 for kind in self.responses}
         self.calls: list[dict[str, Any]] = []
 
     def complete(self, **kwargs: Any) -> str:
         self.calls.append(kwargs)
-        if self.index >= len(self.responses):
-            raise ConformanceFailure("model_responses fixture was exhausted")
-        value = self.responses[self.index]
-        self.index += 1
+        schema = kwargs.get("response_schema", {})
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        if schema.get("$id") == "matterhorn-identity-adjudication/v1":
+            kind = "adjudication"
+        elif "cards" in properties:
+            kind = "extraction"
+        else:
+            kind = "semantic"
+        index = self.indexes[kind]
+        if index >= len(self.responses[kind]):
+            raise ConformanceFailure(f"{kind} model response fixture was exhausted")
+        value = self.responses[kind][index]
+        self.indexes[kind] += 1
         return value if isinstance(value, str) else json.dumps(value, default=str)
 
 
@@ -220,6 +239,19 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid handle_operations"
         )
+    if "adjudication_model_responses" in case and not isinstance(
+        case["adjudication_model_responses"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: "
+            "invalid adjudication_model_responses"
+        )
+    if "review_operations" in case and not isinstance(
+        case["review_operations"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid review_operations"
+        )
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -240,18 +272,23 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     record_model_responses = case.get("record_model_responses", [])
     message_model_responses = case.get("message_model_responses", [])
     dream_model_responses = case.get("model_responses", [])
+    adjudication_model_responses = case.get(
+        "adjudication_model_responses", []
+    )
     has_gateway_fixtures = (
         "record_model_responses" in case
         or "message_model_responses" in case
+        or "adjudication_model_responses" in case
         or "model_responses" in case
     )
     fixture_gateway = (
         FixtureGateway(
-            [
+            extraction=[
                 *record_model_responses,
                 *message_model_responses,
-                *dream_model_responses,
-            ]
+            ],
+            adjudication=adjudication_model_responses,
+            semantic=dream_model_responses,
         )
         if has_gateway_fixtures
         else None
@@ -296,6 +333,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     engine._ingest_cards_sync(
         case.get("cards", []), scope_id=case["scope_id"]
     )
+    _run_handle_operations(engine, case)
     record_reports, staging_purge_counts = _run_record_batches(engine, case)
     message_tasks = _run_message_batches(engine, case)
     first_dream = None
@@ -306,8 +344,8 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         first_dream = engine.dream(case["scope_id"])
     for correction in case.get("corrections", []):
         engine.correct(correction)
-    _run_handle_operations(engine, case)
     _run_merge_operations(engine, case)
+    _run_review_operations(engine, case)
 
     expect = case["expect"]
     if "record_reports" in expect:
@@ -335,10 +373,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     if "task_results" in expect:
         _equal(
             [
-                {
-                    key: _plain(result)[key]
-                    for key in wanted
-                }
+                _project_partial(_plain(result), wanted)
                 for result, wanted in zip(
                     message_tasks,
                     expect["task_results"],
@@ -356,6 +391,15 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         _assert_extraction_calls(
             fixture_gateway.calls,
             expect["extraction_calls"],
+        )
+    if "adjudication_calls" in expect:
+        if fixture_gateway is None:
+            raise ConformanceFailure(
+                "adjudication_calls requires gateway fixture responses"
+            )
+        _assert_adjudication_calls(
+            fixture_gateway.calls,
+            expect["adjudication_calls"],
         )
     if "dream_report" in expect:
         actual_report = _plain(first_dream)
@@ -393,6 +437,11 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             "merge_count",
         )
     _assert_handle_expectations(engine, case["scope_id"], expect)
+    if "review_items" in expect:
+        _assert_review_items(
+            engine.review_items(case["scope_id"]),
+            expect["review_items"],
+        )
     if "matters" in expect:
         _assert_partial_exact(
             engine.matters(case["scope_id"]),
@@ -408,7 +457,10 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             _equal(actual_stats[predicate], count, f"conflicts_resolved.{predicate}")
     if "gate_statistics" in expect:
         _equal(
-            _plain(engine.gate_statistics(case["scope_id"])),
+            _project_partial(
+                _plain(engine.gate_statistics(case["scope_id"])),
+                expect["gate_statistics"],
+            ),
             expect["gate_statistics"],
             "gate_statistics",
         )
@@ -464,10 +516,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     if "second_task_results" in expect:
         _equal(
             [
-                {
-                    key: _plain(result)[key]
-                    for key in wanted
-                }
+                _project_partial(_plain(result), wanted)
                 for result, wanted in zip(
                     second_message_tasks,
                     expect["second_task_results"],
@@ -626,6 +675,35 @@ def _run_handle_operations(engine: Engine, case: dict[str, Any]) -> None:
             raise ConformanceFailure(f"unknown handle operation {kind!r}")
 
 
+def _run_review_operations(engine: Engine, case: dict[str, Any]) -> None:
+    scope_id = case["scope_id"]
+    for operation in case.get("review_operations", []):
+        def invoke(current: dict[str, Any] = operation) -> Any:
+            return engine.resolve_review(
+                scope_id,
+                current["review_id"],
+                action=current["action"],
+                subject_key=current.get("subject_key"),
+                source_refs=current["source_refs"],
+            )
+
+        expected_error = operation.get("expect_error")
+        if expected_error is None:
+            invoke()
+            continue
+        try:
+            invoke()
+        except Exception as error:
+            if not re.search(expected_error, str(error)):
+                raise ConformanceFailure(
+                    f"review error {error!r} did not match {expected_error!r}"
+                ) from error
+        else:
+            raise ConformanceFailure(
+                f"expected review error matching {expected_error!r}"
+            )
+
+
 def _assert_handle_expectations(
     engine: Engine,
     scope_id: str,
@@ -675,6 +753,15 @@ def _plain(value: Any) -> Any:
     if isinstance(value, (set, frozenset, tuple)):
         return [_plain(item) for item in sorted(value)]
     return value
+
+
+def _project_partial(actual: Any, wanted: Any) -> Any:
+    if isinstance(wanted, dict):
+        return {
+            key: _project_partial(actual[key], value)
+            for key, value in wanted.items()
+        }
+    return actual
 
 
 def _assert_partial_exact(
@@ -756,6 +843,69 @@ def _assert_extraction_calls(
             )
 
 
+def _assert_adjudication_calls(
+    gateway_calls: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> None:
+    actual = []
+    for call in gateway_calls:
+        schema = call.get("response_schema", {})
+        if schema.get("$id") != "matterhorn-identity-adjudication/v1":
+            continue
+        payload = json.loads(call["user"])
+        actual.append(payload["candidates"])
+    _equal(len(actual), len(expected), "adjudication_calls length")
+    for call_index, (candidates, wanted) in enumerate(
+        zip(actual, expected, strict=True)
+    ):
+        _equal(
+            [item["subject_key"] for item in candidates],
+            wanted["candidate_keys"],
+            f"adjudication_calls[{call_index}].candidate_keys",
+        )
+        if "candidates" in wanted:
+            _equal(
+                len(candidates),
+                len(wanted["candidates"]),
+                f"adjudication_calls[{call_index}].candidates length",
+            )
+            for candidate_index, (candidate, partial) in enumerate(
+                zip(candidates, wanted["candidates"], strict=True)
+            ):
+                _equal(
+                    {key: candidate[key] for key in partial},
+                    partial,
+                    f"adjudication_calls[{call_index}]"
+                    f".candidates[{candidate_index}]",
+                )
+
+
+def _assert_review_items(
+    actual: list[Any], expected: list[dict[str, Any]]
+) -> None:
+    unmatched = [_plain(item) for item in actual]
+    _equal(len(unmatched), len(expected), "review_items length")
+    for wanted in expected:
+        wanted = _plain(wanted)
+        for index, candidate in enumerate(unmatched):
+            projected = {}
+            for key, value in wanted.items():
+                if key == "card_json" and isinstance(value, dict):
+                    projected[key] = {
+                        nested: candidate[key][nested] for nested in value
+                    }
+                else:
+                    projected[key] = candidate[key]
+            if projected == wanted:
+                unmatched.pop(index)
+                break
+        else:
+            raise ConformanceFailure(
+                f"review_items: no actual item matched {wanted!r}; "
+                f"remaining={unmatched!r}"
+            )
+    _equal(unmatched, [], "review_items unmatched")
+
+
 def _snapshot(engine: Engine, scope_id: str) -> str:
     assertions = engine.store.assertions(scope_id)
     merges = engine.store.subject_merges(scope_id)
@@ -792,6 +942,13 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             ],
             "merges": [_plain(item) for item in merges],
             "subject_handles": [_plain(item) for item in handles],
+            "review_queue": [
+                _plain(item)
+                for item in engine.store.review_items(
+                    scope_id,
+                    pending_only=False,
+                )
+            ],
             "record_observations": [
                 _plain(item)
                 for item in engine.store.record_observations(scope_id)

@@ -45,7 +45,18 @@ from matterhorn.defaults import Engine
 
 
 class EmptySemanticGateway:
-    def complete(self, **_kwargs):
+    def complete(self, **kwargs):
+        if kwargs["response_schema"].get("$id") == (
+            "matterhorn-identity-adjudication/v1"
+        ):
+            return json.dumps(
+                {
+                    "decision": "new",
+                    "subject_key": None,
+                    "confidence": 1.0,
+                    "evidence_source_ids": [],
+                }
+            )
         return json.dumps({"candidates": []})
 
 

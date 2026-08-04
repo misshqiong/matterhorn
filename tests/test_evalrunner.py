@@ -185,13 +185,26 @@ def test_shipped_fixture_dataset_is_deterministic_and_json_serializable(
     assert len(first["cases"]) == 8
     assert first["aggregate"]["stats"] == {
         "matters_expected": 11,
-        "matters_produced": 10,
+        "matters_produced": 9,
         "cards_accepted": 21,
         "gate_rejections": 1,
         "gate_rejection_reasons": {"SOURCE_NOT_TRACEABLE": 1},
+        "review_queued": 0,
+        "route_counts": {
+            "route_handle": 8,
+            "route_thread": 0,
+            "route_evidence": 0,
+            "route_model": 4,
+            "route_new": 9,
+            "route_review": 0,
+        },
     }
-    for name in ("over_split", "wrong_merge", "wrong_attach", "missed_attach"):
+    assert first["aggregate"]["metrics"]["zero_model_route_rate"] == pytest.approx(
+        8 / 21
+    )
+    for name in ("over_split", "wrong_merge", "wrong_attach"):
         assert first["aggregate"]["metrics"][name]["count"] > 0
+    assert first["aggregate"]["metrics"]["missed_attach"]["count"] == 0
 
 
 def test_every_shipped_case_has_a_sibling_response_fixture() -> None:

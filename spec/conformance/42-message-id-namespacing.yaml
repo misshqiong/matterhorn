@@ -31,6 +31,8 @@ message_model_responses:
         title: Beta
         status: open
         source_ids: ["team-a:beta:duplicate"]
+adjudication_model_responses:
+  - {decision: new, subject_key: null, confidence: 0.9, evidence_source_ids: ["team-a:beta:duplicate"]}
 model_responses:
   - {candidates: []}
   - {candidates: []}

@@ -121,6 +121,15 @@ class EvalFixtureGateway:
     ) -> str:
         del system, user
         properties = response_schema.get("properties", {})
+        if response_schema.get("$id") == "matterhorn-identity-adjudication/v1":
+            return json.dumps(
+                {
+                    "decision": "abstain",
+                    "subject_key": None,
+                    "confidence": 0.0,
+                    "evidence_source_ids": [],
+                }
+            )
         if "candidates" in properties:
             return '{"candidates":[]}'
         if "cards" not in properties:
@@ -297,6 +306,7 @@ def score_metrics(
     message_rounds: dict[str, int],
     accepted_source_ids: list[list[str]],
     source_to_message: dict[str, str],
+    route_counts: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], list[Alignment]]:
     alignments = align_matters(expected, produced)
     produced_by_key = {item.subject_key: item for item in produced}
@@ -412,7 +422,7 @@ def score_metrics(
         "title_match_rate": _named_success_metric(
             "matched", title_matches, len(alignments)
         ),
-        "zero_model_route_rate": None,
+        "zero_model_route_rate": _zero_model_route_rate(route_counts or {}),
     }
     return metrics, alignments
 
@@ -544,6 +554,19 @@ def _run_case(case: EvalCase, gateway: Any) -> dict[str, Any]:
                     )
                 )
             produced.sort(key=lambda item: item.subject_key.encode("utf-8"))
+            routing_stats = engine.gate_statistics(scope_id)
+            route_counts = {
+                name: getattr(routing_stats, name)
+                for name in (
+                    "route_handle",
+                    "route_thread",
+                    "route_evidence",
+                    "route_model",
+                    "route_new",
+                    "route_review",
+                )
+            }
+            review_queued = len(engine.review_items(scope_id))
         finally:
             engine.store.close()
 
@@ -561,6 +584,7 @@ def _run_case(case: EvalCase, gateway: Any) -> dict[str, Any]:
         message_rounds=message_rounds,
         accepted_source_ids=accepted_source_ids,
         source_to_message=_source_to_message(case),
+        route_counts=route_counts,
     )
     return {
         "case_id": case.case_id,
@@ -571,6 +595,8 @@ def _run_case(case: EvalCase, gateway: Any) -> dict[str, Any]:
             "cards_accepted": cards_accepted,
             "gate_rejections": sum(rejection_reasons.values()),
             "gate_rejection_reasons": dict(sorted(rejection_reasons.items())),
+            "review_queued": review_queued,
+            "route_counts": route_counts,
         },
         "alignment": [
             {
@@ -635,7 +661,24 @@ def aggregate_case_reports(case_reports: list[dict[str, Any]]) -> dict[str, Any]
         )
         total = sum(case["metrics"][name]["total"] for case in case_reports)
         metrics[name] = _named_success_metric(numerator, correct, total)
-    metrics["zero_model_route_rate"] = None
+    aggregate_route_counts = {
+        name: sum(case["stats"]["route_counts"][name] for case in case_reports)
+        for name in (
+            "route_handle",
+            "route_thread",
+            "route_evidence",
+            "route_model",
+            "route_new",
+            "route_review",
+        )
+    }
+    stats["review_queued"] = sum(
+        case["stats"]["review_queued"] for case in case_reports
+    )
+    stats["route_counts"] = aggregate_route_counts
+    metrics["zero_model_route_rate"] = _zero_model_route_rate(
+        aggregate_route_counts
+    )
     return {"stats": stats, "metrics": metrics}
 
 
@@ -646,6 +689,7 @@ def format_report_table(report: dict[str, Any]) -> str:
         "matters_produced",
         "cards_accepted",
         "gate_rejections",
+        "review_queued",
         "over_split",
         "wrong_merge",
         "wrong_attach",
@@ -660,7 +704,11 @@ def format_report_table(report: dict[str, Any]) -> str:
     lines.append(
         _table_row("AGGREGATE", report["aggregate"]["stats"], report["aggregate"]["metrics"])
     )
-    lines.append("zero_model_route_rate | n/a")
+    zero_model_rate = report["aggregate"]["metrics"]["zero_model_route_rate"]
+    lines.append(
+        "zero_model_route_rate | "
+        + ("n/a" if zero_model_rate is None else f"{zero_model_rate:.3f}")
+    )
     if report.get("seed_note"):
         lines.append(f"seed_note | {report['seed_note']}")
     return "\n".join(lines)
@@ -673,6 +721,7 @@ def _table_row(case_id: str, stats: dict[str, Any], metrics: dict[str, Any]) -> 
         stats["matters_produced"],
         stats["cards_accepted"],
         stats["gate_rejections"],
+        stats["review_queued"],
         _failure_text(metrics["over_split"]),
         _failure_text(metrics["wrong_merge"]),
         _failure_text(metrics["wrong_attach"]),
@@ -700,6 +749,18 @@ def _source_to_message(case: EvalCase) -> dict[str, str]:
 
 def _failure_metric(count: int, total: int) -> dict[str, int | float | None]:
     return {"count": count, "total": total, "rate": count / total if total else None}
+
+
+def _zero_model_route_rate(route_counts: dict[str, int]) -> float | None:
+    zero_model = sum(
+        route_counts.get(name, 0)
+        for name in ("route_handle", "route_thread", "route_evidence")
+    )
+    total = zero_model + sum(
+        route_counts.get(name, 0)
+        for name in ("route_model", "route_new", "route_review")
+    )
+    return zero_model / total if total else None
 
 
 def _success_metric(correct: int, total: int) -> dict[str, int | float | None]:

@@ -390,6 +390,29 @@ class MatterhornService:
             source_refs=source_refs,
         ).model_dump(mode="json")
 
+    def review_items(self, *, scope_id: str) -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            for item in self.engine.review_items(scope_id)
+        ]
+
+    def resolve_review(
+        self,
+        *,
+        scope_id: str,
+        review_id: str,
+        action: str,
+        subject_key: str | None,
+        source_refs: list[SourceRef | dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.engine.resolve_review(
+            scope_id,
+            review_id,
+            action=action,
+            subject_key=subject_key,
+            source_refs=source_refs,
+        ).model_dump(mode="json")
+
     def events(
         self, *, scope_id: str, since: datetime | None = None
     ) -> list[dict[str, Any]]:

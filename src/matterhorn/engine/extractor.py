@@ -80,6 +80,8 @@ def extract_card(
     subject_type: str,
     profile: SchemaProfile,
     recorded_at: datetime,
+    *,
+    origin: Origin = Origin.model,
 ) -> list[Assertion]:
     assertions: list[Assertion] = []
     valid_from = card_valid_from(card)
@@ -118,7 +120,7 @@ def extract_card(
                     valid_from=valid_from,
                     recorded_at=recorded_at,
                     source_refs=card.source_refs,
-                    origin=Origin.model,
+                    origin=origin,
                     observation_id=observation_id,
                 )
             )
@@ -145,7 +147,7 @@ def extract_card(
                     valid_from=valid_from,
                     recorded_at=recorded_at,
                     source_refs=card.source_refs,
-                    origin=Origin.model,
+                    origin=origin,
                     observation_id=observation_id,
                 )
             )

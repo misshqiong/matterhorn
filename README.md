@@ -292,7 +292,7 @@ rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=67 failed=0 total=67
+SUMMARY passed=73 failed=0 total=73
 ```
 
 ### Extraction quality evaluation

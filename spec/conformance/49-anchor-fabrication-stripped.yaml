@@ -34,6 +34,8 @@ record_model_responses:
         occurred_at: "2026-07-31T10:00:00Z"
         source_ids: ["CCODE:unrelated-session"]
         subject_key: fabricated-key
+adjudication_model_responses:
+  - {decision: new, subject_key: null, confidence: 0.9, evidence_source_ids: ["CCODE:unrelated-session"]}
 expect:
   assertions:
     - {subject_key: known, predicate: status, object_value: open}

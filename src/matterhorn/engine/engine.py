@@ -43,6 +43,7 @@ from matterhorn.contracts import (
     Record,
     RecordExtractor,
     ReplayReport,
+    ReviewItem,
     SchemaProfile,
     SourceRef,
     SubjectAnchor,
@@ -63,18 +64,31 @@ from matterhorn.engine.handles import (
     normalize_handle,
     scan_handles,
 )
-from matterhorn.engine.identity import resolve_subject
+from matterhorn.engine.identity import (
+    attach_subject,
+    evidence_match,
+    new_subject,
+    resolve_subject,
+    thread_match,
+)
 from matterhorn.engine.materializer import materialize
+from matterhorn.engine.routing import (
+    AdjudicationCandidate,
+    build_adjudication_prompt,
+    candidate_score,
+    gate_adjudication,
+)
 from matterhorn.errors import (
     ImportRefusedError,
     ResourceNotFoundError,
+    ReviewConflictError,
     SubjectHandleConflictError,
     SubjectMergeConflictError,
 )
 from matterhorn.projection import project_assertions
 from matterhorn.query import QueryService
 from matterhorn.store import SQLiteStore, Store
-from matterhorn.store.base import MAX_TASK_ATTEMPTS
+from matterhorn.store.base import MAX_TASK_ATTEMPTS, ROUTE_COUNTER_NAMES
 
 Clock = Callable[[], datetime]
 DEFAULT_MAX_ANCHORS = 40
@@ -127,6 +141,35 @@ class _HandleCounts:
         self.bound += other.bound
         self.already_bound += other.already_bound
         self.conflicts += other.conflicts
+
+
+@dataclass
+class _RouteCounts:
+    route_handle: int = 0
+    route_thread: int = 0
+    route_evidence: int = 0
+    route_model: int = 0
+    route_new: int = 0
+    route_review: int = 0
+    route_disagreements: int = 0
+
+    def add(self, other: _RouteCounts) -> None:
+        for name in ROUTE_COUNTER_NAMES:
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+
+    def to_dict(self) -> dict[str, int]:
+        return {name: getattr(self, name) for name in ROUTE_COUNTER_NAMES}
+
+
+@dataclass(frozen=True)
+class _RoutePlan:
+    route: str
+    subject_key: str | None = None
+    candidates: tuple[AdjudicationCandidate, ...] = ()
+    reasons: tuple[str, ...] = ()
+    handle_conflicts: int = 0
+    disagreement: bool = False
+    duplicate: bool = False
 
 
 class Engine:
@@ -379,6 +422,7 @@ class Engine:
         rejection_counts: dict[str, int] = {}
         emitted: list[Assertion] = []
         handle_counts = _HandleCounts()
+        route_counts = _RouteCounts()
         if revoked:
             self._commit_record_chunk(
                 scope_id=scope_id,
@@ -404,10 +448,26 @@ class Engine:
             chunk_observations = [
                 pending_by_record_id[record.record_id] for record in chunk
             ]
-            chunk_emitted, chunk_handle_counts = self._commit_record_chunk(
+            record_by_id = {
+                record.record_id: record
+                for record in [
+                    *context,
+                    *(record for record, _ in chunk_observations),
+                ]
+            }
+            route_plans = [
+                self._route_record_card(card, record_by_id)
+                for card in chunk_cards
+            ]
+            (
+                chunk_emitted,
+                chunk_handle_counts,
+                chunk_route_counts,
+            ) = self._commit_record_chunk(
                 scope_id=scope_id,
                 observations=chunk_observations,
                 cards=chunk_cards,
+                route_plans=route_plans,
                 context=context,
                 cursors=cursors,
                 backfill=backfill,
@@ -419,6 +479,7 @@ class Engine:
             )
             emitted.extend(chunk_emitted)
             handle_counts.add(chunk_handle_counts)
+            route_counts.add(chunk_route_counts)
 
         return AddRecordsReport(
             scope_id=scope_id,
@@ -437,6 +498,7 @@ class Engine:
             handles_bound=handle_counts.bound,
             handles_already_bound=handle_counts.already_bound,
             handle_conflicts=handle_counts.conflicts,
+            **route_counts.to_dict(),
             sync_positions=self.store.sync_positions(scope_id),
         )
 
@@ -446,12 +508,14 @@ class Engine:
         scope_id: str,
         observations: list[tuple[Record, str]],
         cards: list[EpisodeCard],
+        route_plans: list[_RoutePlan] | None = None,
         context: list[Record],
         cursors: dict[str, str] | None,
         backfill: bool,
-    ) -> tuple[list[Assertion], _HandleCounts]:
+    ) -> tuple[list[Assertion], _HandleCounts, _RouteCounts]:
         emitted: list[Assertion] = []
         handle_counts = _HandleCounts()
+        route_counts = _RouteCounts()
         with self.store.transaction():
             record_by_id = {
                 record.record_id: record
@@ -483,22 +547,19 @@ class Engine:
                             record.revoked_at if record is not None else None
                         ),
                     )
-            if cards:
-                emitted.extend(
-                    self._ingest_cards_sync(
-                        cards,
-                        scope_id=scope_id,
-                        record_by_id=record_by_id,
-                        handle_counts=handle_counts,
-                    )
+            for card, plan in zip(
+                cards,
+                route_plans or [],
+                strict=True,
+            ):
+                card_emitted, card_handles, card_routes = self._apply_route_plan(
+                    card,
+                    plan,
+                    record_by_id=record_by_id,
                 )
-            if handle_counts.conflicts:
-                self.store.record_gate_report(
-                    scope_id,
-                    accepted=0,
-                    rejections={},
-                    handle_conflicts=handle_counts.conflicts,
-                )
+                emitted.extend(card_emitted)
+                handle_counts.add(card_handles)
+                route_counts.add(card_routes)
             if observations and not backfill:
                 by_container: dict[str, list[Record]] = {}
                 for record, _ in observations:
@@ -510,7 +571,383 @@ class Engine:
                         watermark=max(_record_observed_at(item) for item in items),
                         cursor=(cursors or {}).get(container_id),
                     )
-        return emitted, handle_counts
+        return emitted, handle_counts, route_counts
+
+    def _route_record_card(
+        self,
+        card: EpisodeCard,
+        record_by_id: dict[str, Record],
+    ) -> _RoutePlan:
+        payload_hash = stable_hash(card.model_dump(mode="json"))
+        review_id = "review_" + stable_hash([card.scope_id, card.card_id])
+        with self.store.transaction():
+            prior_hash = self.store.card_payload_hash(card.scope_id, card.card_id)
+            if prior_hash is not None:
+                if prior_hash != payload_hash:
+                    raise ValueError(
+                        f"card_id {card.card_id!r} was already used with another payload"
+                    )
+                return _RoutePlan("duplicate", duplicate=True)
+            if self.store.review_item(card.scope_id, review_id) is not None:
+                return _RoutePlan("duplicate", duplicate=True)
+
+            subjects = self.store.subjects(card.scope_id)
+            merges = self.store.subject_merges(card.scope_id)
+            canonical_subjects = _canonicalized_subjects(subjects, merges)
+            edges = _merge_edges(merges)
+            by_key = {item.subject_key: item for item in canonical_subjects}
+
+            if card.subject_key is not None and card.subject_key.startswith("mail:"):
+                return _RoutePlan("trusted", card.subject_key)
+
+            handle_targets = self._handle_route_targets(
+                card,
+                record_by_id,
+                edges,
+            )
+            handle_conflicts = int(len(handle_targets) > 1)
+            handle_subject = (
+                next(iter(handle_targets)) if len(handle_targets) == 1 else None
+            )
+            thread_subject = thread_match(card, self.profile, canonical_subjects)
+            evidence_subject = evidence_match(
+                card,
+                self.profile,
+                canonical_subjects,
+            )
+            suggestion = None
+            if card.subject_key is not None:
+                suggested_key = _canonical_subject_key(card.subject_key, edges)
+                if suggested_key in by_key and self._subject_open_from_cards(
+                    suggested_key,
+                    self.store.memory_cards(card.scope_id),
+                ):
+                    suggestion = suggested_key
+
+            if handle_subject is not None:
+                lower = [
+                    thread_subject.subject_key if thread_subject else None,
+                    evidence_subject.subject_key if evidence_subject else None,
+                    suggestion,
+                ]
+                return _RoutePlan(
+                    "handle",
+                    handle_subject,
+                    handle_conflicts=handle_conflicts,
+                    disagreement=_disagrees(handle_subject, lower),
+                )
+            if thread_subject is not None:
+                lower = [
+                    evidence_subject.subject_key if evidence_subject else None,
+                    suggestion,
+                ]
+                return _RoutePlan(
+                    "thread",
+                    thread_subject.subject_key,
+                    handle_conflicts=handle_conflicts,
+                    disagreement=_disagrees(thread_subject.subject_key, lower),
+                )
+            if evidence_subject is not None:
+                return _RoutePlan(
+                    "evidence",
+                    evidence_subject.subject_key,
+                    handle_conflicts=handle_conflicts,
+                    disagreement=_disagrees(
+                        evidence_subject.subject_key,
+                        [suggestion],
+                    ),
+                )
+            if suggestion is not None:
+                return _RoutePlan(
+                    "model",
+                    suggestion,
+                    handle_conflicts=handle_conflicts,
+                )
+            candidates = self._routing_candidates(
+                card,
+                canonical_subjects,
+                subjects,
+                merges,
+            )
+
+        if not candidates:
+            return _RoutePlan("new", handle_conflicts=handle_conflicts)
+        prompt = build_adjudication_prompt(card, candidates)
+        raw = self._write_gateway.complete(
+            system=prompt.system,
+            user=prompt.user,
+            response_schema=prompt.response_schema,
+        )
+        gated = gate_adjudication(
+            raw,
+            card=card,
+            candidates=candidates,
+            confidence_threshold=(
+                self.profile.identity.adjudication_confidence_threshold
+            ),
+        )
+        if gated.outcome == "attach":
+            return _RoutePlan(
+                "model",
+                gated.subject_key,
+                tuple(candidates),
+                handle_conflicts=handle_conflicts,
+            )
+        if gated.outcome == "new":
+            return _RoutePlan(
+                "new",
+                candidates=tuple(candidates),
+                handle_conflicts=handle_conflicts,
+            )
+        return _RoutePlan(
+            "review",
+            candidates=tuple(candidates),
+            reasons=gated.reasons,
+            handle_conflicts=handle_conflicts,
+        )
+
+    def _handle_route_targets(
+        self,
+        card: EpisodeCard,
+        record_by_id: dict[str, Record],
+        edges: dict[str, str],
+    ) -> set[str]:
+        matches = scan_handles(self.profile, card.title, card.source_refs)
+        refs_by_id = {ref.source_id: ref for ref in card.source_refs}
+        for source_ref in card.source_refs:
+            record = record_by_id.get(source_ref.source_id)
+            content = (
+                record.content
+                if record is not None
+                else source_ref.excerpt
+            )
+            if not content:
+                continue
+            matches.extend(
+                scan_handles(
+                    self.profile,
+                    content,
+                    [refs_by_id[source_ref.source_id]],
+                )
+            )
+        active = {
+            (item.handle_type, item.normalized_value): _canonical_subject_key(
+                item.subject_key,
+                edges,
+            )
+            for item in self.store.active_subject_handles(card.scope_id)
+        }
+        return {
+            active[(match.handle_type, match.normalized_value)]
+            for match in matches
+            if (match.handle_type, match.normalized_value) in active
+        }
+
+    def _routing_candidates(
+        self,
+        card: EpisodeCard,
+        canonical_subjects: list[SubjectRecord],
+        original_subjects: list[SubjectRecord],
+        merges: list[SubjectMerge],
+    ) -> list[AdjudicationCandidate]:
+        edges = _merge_edges(merges)
+        memory_cards = {
+            item.subject_key: item
+            for item in self.store.memory_cards(card.scope_id)
+        }
+        aliases: dict[str, list[str]] = {}
+        original_by_key = {item.subject_key: item for item in original_subjects}
+        for subject in original_subjects:
+            target = _canonical_subject_key(subject.subject_key, edges)
+            if target != subject.subject_key:
+                title = subject.title
+                if title != original_by_key[target].title:
+                    aliases.setdefault(target, []).append(title)
+        for values in aliases.values():
+            values.sort(key=lambda value: value.encode("utf-8"))
+
+        handles: dict[str, list[str]] = {}
+        for handle in self.store.active_subject_handles(card.scope_id):
+            target = _canonical_subject_key(handle.subject_key, edges)
+            handles.setdefault(target, []).append(
+                f"{handle.handle_type}:{handle.handle_value}"
+            )
+        for values in handles.values():
+            values.sort(key=lambda value: value.encode("utf-8"))
+
+        evidence: dict[str, list[tuple[datetime, bytes, str]]] = {}
+        for assertion in self.store.assertions(card.scope_id):
+            target = _canonical_subject_key(assertion.subject_key, edges)
+            for source_ref in assertion.source_refs:
+                if source_ref.excerpt:
+                    evidence.setdefault(target, []).append(
+                        (
+                            as_utc(assertion.valid_from),
+                            assertion.assertion_id.encode("utf-8"),
+                            source_ref.excerpt,
+                        )
+                    )
+
+        recalled: list[tuple[int, AdjudicationCandidate]] = []
+        for subject in canonical_subjects:
+            if subject.subject_type != self.profile.primary_subject.type:
+                continue
+            if not self._subject_open_from_cards(
+                subject.subject_key,
+                list(memory_cards.values()),
+            ):
+                continue
+            projected = memory_cards.get(subject.subject_key)
+            current = projected.current if projected is not None else {}
+            recent = _bounded_recent_evidence(
+                evidence.get(subject.subject_key, [])
+            )
+            candidate = AdjudicationCandidate(
+                subject_key=subject.subject_key,
+                title=subject.title,
+                aliases=aliases.get(subject.subject_key, []),
+                handles=handles.get(subject.subject_key, []),
+                status=current.get("status"),
+                next_step=current.get("next_step"),
+                participants=_as_list(current.get("participated_by")),
+                recent_evidence=recent,
+            )
+            recalled.append((candidate_score(card, candidate), candidate))
+
+        positive = sorted(
+            (item for item in recalled if item[0] > 0),
+            key=lambda item: (-item[0], item[1].subject_key.encode("utf-8")),
+        )
+        selected = positive[:5]
+        if len(selected) < 3:
+            selected_keys = {item.subject_key for _, item in selected}
+            zero = sorted(
+                (
+                    item
+                    for item in recalled
+                    if item[1].subject_key not in selected_keys
+                ),
+                key=lambda item: item[1].subject_key.encode("utf-8"),
+            )
+            selected.extend(zero[: 3 - len(selected)])
+        return [candidate for _, candidate in selected[:5]]
+
+    def _subject_open_from_cards(
+        self,
+        subject_key: str,
+        cards: list[Any],
+    ) -> bool:
+        completion = self.profile.completion
+        if completion is None:
+            return True
+        card = next(
+            (item for item in cards if item.subject_key == subject_key),
+            None,
+        )
+        if card is None:
+            return True
+        return card.current.get(completion.predicate) not in set(
+            completion.completed_values
+        )
+
+    def _apply_route_plan(
+        self,
+        card: EpisodeCard,
+        plan: _RoutePlan,
+        *,
+        record_by_id: dict[str, Record],
+    ) -> tuple[list[Assertion], _HandleCounts, _RouteCounts]:
+        handles = _HandleCounts()
+        routes = _RouteCounts(
+            route_disagreements=int(plan.disagreement),
+        )
+        if plan.duplicate:
+            return [], _HandleCounts(), _RouteCounts()
+        if plan.route == "review":
+            handles.conflicts = plan.handle_conflicts
+            routes.route_review = 1
+            item = ReviewItem(
+                scope_id=card.scope_id,
+                review_id="review_" + stable_hash([card.scope_id, card.card_id]),
+                card_json=card.model_dump(mode="json"),
+                reasons=list(plan.reasons),
+                candidates_json=[
+                    candidate.model_dump(mode="json")
+                    for candidate in plan.candidates
+                ],
+                created_at=self._clock(),
+            )
+            self.store.add_review_item(item)
+            self.store.record_gate_report(
+                card.scope_id,
+                accepted=0,
+                rejections={},
+                handle_conflicts=handles.conflicts,
+                route_counts=routes.to_dict(),
+            )
+            return [], handles, routes
+
+        existing = self.store.subjects(card.scope_id)
+        merges = self.store.subject_merges(card.scope_id)
+        if plan.route == "trusted":
+            routed_card = card
+            subject, _ = resolve_subject(routed_card, self.profile, existing)
+        elif plan.subject_key is not None:
+            match = next(
+                (item for item in existing if item.subject_key == plan.subject_key),
+                None,
+            )
+            if match is None:
+                raise ValueError(
+                    f"routed subject_key {plan.subject_key!r} no longer exists"
+                )
+            subject = attach_subject(match, card)
+        else:
+            subject = new_subject(card, self.profile, existing)
+        subject = _canonicalized_subject(subject, existing, merges)
+        self.store.upsert_subject(subject)
+        recorded_at = self._clock()
+        assertions = extract_card(
+            card,
+            subject.subject_key,
+            subject.subject_type,
+            self.profile,
+            recorded_at,
+        )
+        emitted = [
+            assertion
+            for assertion in assertions
+            if self.store.add_assertion(assertion)
+        ]
+        self.store.enqueue_distill(
+            card,
+            subject_key=subject.subject_key,
+            subject_type=subject.subject_type,
+        )
+        bound = self._bind_card_handles(
+            card,
+            subject.subject_key,
+            record_by_id,
+            bound_at=recorded_at,
+        )
+        handles.add(bound)
+        handles.conflicts = max(handles.conflicts, plan.handle_conflicts)
+        self.store.mark_card(
+            card.scope_id,
+            card.card_id,
+            stable_hash(card.model_dump(mode="json")),
+        )
+        if plan.route != "trusted":
+            setattr(routes, f"route_{plan.route}", 1)
+        self.store.record_gate_report(
+            card.scope_id,
+            accepted=0,
+            rejections={},
+            handle_conflicts=handles.conflicts,
+            route_counts=routes.to_dict(),
+        )
+        self._rebuild(card.scope_id)
+        return emitted, handles, routes
 
     def _bind_card_handles(
         self,
@@ -524,12 +961,13 @@ class Engine:
         refs_by_id = {ref.source_id: ref for ref in card.source_refs}
         for source_ref in card.source_refs:
             record = record_by_id.get(source_ref.source_id)
-            if record is None:
+            content = record.content if record is not None else source_ref.excerpt
+            if not content:
                 continue
             matches.extend(
                 scan_handles(
                     self.profile,
-                    record.content,
+                    content,
                     [refs_by_id[source_ref.source_id]],
                 )
             )
@@ -711,6 +1149,109 @@ class Engine:
                     update={"subject_key": canonical_key}
                 )
         return sorted(result.values(), key=_handle_sort_key)
+
+    def review_items(self, scope_id: str) -> list[ReviewItem]:
+        return self.store.review_items(scope_id)
+
+    def resolve_review(
+        self,
+        scope_id: str,
+        review_id: str,
+        *,
+        action: str,
+        subject_key: str | None = None,
+        source_refs: list[SourceRef | dict[str, Any]],
+    ) -> ReviewItem:
+        if action not in {"attach", "new"}:
+            raise ValueError("review action MUST be 'attach' or 'new'")
+        if action == "attach" and not subject_key:
+            raise ValueError("attach review action requires subject_key")
+        if action == "new" and subject_key is not None:
+            raise ValueError("new review action MUST NOT include subject_key")
+        refs = _source_refs(source_refs, operation="review resolutions")
+        with self.store.transaction():
+            item = self.store.review_item(scope_id, review_id)
+            if item is None:
+                raise ResourceNotFoundError(f"unknown review_id: {review_id}")
+            if item.resolved_at is not None:
+                raise ReviewConflictError(
+                    f"review_id {review_id!r} is already resolved"
+                )
+            original_card = EpisodeCard.model_validate(item.card_json)
+            combined_refs = _stable_source_refs(
+                [*original_card.source_refs, *refs]
+            )
+            card = original_card.model_copy(
+                update={"source_refs": combined_refs}
+            )
+            existing = self.store.subjects(scope_id)
+            merges = self.store.subject_merges(scope_id)
+            if action == "attach":
+                canonical_key = self.canonical_subject_key(
+                    scope_id,
+                    subject_key or "",
+                )
+                match = next(
+                    (
+                        subject
+                        for subject in existing
+                        if subject.subject_key == canonical_key
+                    ),
+                    None,
+                )
+                if match is None:
+                    raise ResourceNotFoundError(
+                        f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+                    )
+                subject = attach_subject(match, card)
+            else:
+                subject = new_subject(card, self.profile, existing)
+            subject = _canonicalized_subject(subject, existing, merges)
+            self.store.upsert_subject(subject)
+            resolved_at = self._clock()
+            assertions = extract_card(
+                card,
+                subject.subject_key,
+                subject.subject_type,
+                self.profile,
+                resolved_at,
+                origin=Origin.human,
+            )
+            for assertion in assertions:
+                self.store.add_assertion(assertion)
+            for source_ref in refs:
+                self.store.observe_source(scope_id, source_ref)
+            self.store.enqueue_distill(
+                card,
+                subject_key=subject.subject_key,
+                subject_type=subject.subject_type,
+            )
+            self._bind_card_handles(
+                card,
+                subject.subject_key,
+                {},
+                bound_at=resolved_at,
+            )
+            self.store.mark_card(
+                scope_id,
+                original_card.card_id,
+                stable_hash(original_card.model_dump(mode="json")),
+            )
+            resolution = {
+                "action": action,
+                "subject_key": subject.subject_key,
+                "source_refs": [
+                    ref.model_dump(mode="json") for ref in refs
+                ],
+            }
+            resolved = self.store.resolve_review_item(
+                scope_id,
+                review_id,
+                resolved_at=resolved_at,
+                resolution=resolution,
+            )
+            self._rebuild(scope_id)
+            return resolved
 
     def subject_is_active(self, scope_id: str, subject_key: str) -> bool:
         if not self.subject_exists(scope_id, subject_key):
@@ -898,8 +1439,15 @@ class Engine:
             ),
         )
         anchors = []
-        for card in cards[:DEFAULT_MAX_ANCHORS]:
+        for card in cards:
             status = card.current.get("status")
+            completion = self.profile.completion
+            if (
+                completion is not None
+                and card.current.get(completion.predicate)
+                in completion.completed_values
+            ):
+                continue
             last_active_at = activity.get(card.subject_key, card.updated_at)
             anchors.append(
                 SubjectAnchor(
@@ -909,6 +1457,8 @@ class Engine:
                     last_active_at=last_active_at,
                 )
             )
+            if len(anchors) == DEFAULT_MAX_ANCHORS:
+                break
         return anchors
 
     def _staging_context(
@@ -982,6 +1532,7 @@ class Engine:
                 item.assertion_id for item in self.store.assertions(scope_id)
             }
             cards_produced = gate_accepted = handle_conflicts = 0
+            task_routes = _RouteCounts()
             gate_rejected: dict[str, int] = {}
             failed = False
             last_error: str | None = None
@@ -999,6 +1550,14 @@ class Engine:
                         gate_rejected, record_report.drop_reasons
                     )
                     handle_conflicts += record_report.handle_conflicts
+                    task_routes.add(
+                        _RouteCounts(
+                            **{
+                                name: getattr(record_report, name)
+                                for name in ROUTE_COUNTER_NAMES
+                            }
+                        )
+                    )
                 elif row.kind == "cards":
                     cards = [
                         EpisodeCard.model_validate(item)
@@ -1046,6 +1605,7 @@ class Engine:
                     gate_accepted=gate_accepted,
                     gate_rejected=gate_rejected,
                     handle_conflicts=handle_conflicts,
+                    route_counts=task_routes.to_dict(),
                     last_error=last_error,
                 )
             processed.append(row.task_id)
@@ -2039,6 +2599,30 @@ def _stable_source_refs(values: Iterable[SourceRef]) -> list[SourceRef]:
             continue
         seen.add(value.source_id)
         result.append(value)
+    return result
+
+
+def _disagrees(winner: str, lower: Iterable[str | None]) -> bool:
+    return any(value is not None and value != winner for value in lower)
+
+
+def _bounded_recent_evidence(
+    values: list[tuple[datetime, bytes, str]],
+    *,
+    limit: int = 300,
+) -> str:
+    ordered = sorted(values, key=lambda item: (item[0], item[1]), reverse=True)
+    result = ""
+    seen: set[str] = set()
+    for _, _, excerpt in ordered:
+        if excerpt in seen:
+            continue
+        seen.add(excerpt)
+        separator = "\n" if result else ""
+        remaining = limit - len(result) - len(separator)
+        if remaining <= 0:
+            break
+        result += separator + excerpt[:remaining]
     return result
 
 

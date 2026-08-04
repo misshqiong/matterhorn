@@ -365,6 +365,16 @@ class MergeEvidence(StrictModel):
 
 class IdentityDefinition(StrictModel):
     merge_evidence: MergeEvidence = Field(default_factory=MergeEvidence)
+    adjudication_confidence_threshold: float = 0.6
+
+    @field_validator("adjudication_confidence_threshold")
+    @classmethod
+    def adjudication_confidence_range(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError(
+                "adjudication_confidence_threshold MUST be in [0, 1]"
+            )
+        return value
 
 
 class CompletionDefinition(StrictModel):
@@ -542,6 +552,30 @@ class SubjectHandle(StrictModel):
         return self
 
 
+class ReviewItem(StrictModel):
+    scope_id: str = Field(min_length=1)
+    review_id: str = Field(min_length=1)
+    card_json: dict[str, Any]
+    reasons: list[str]
+    candidates_json: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    resolved_at: datetime | None = None
+    resolution_json: dict[str, Any] | None = None
+
+    @field_validator("reasons")
+    @classmethod
+    def reasons_must_not_be_empty(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("review reasons MUST be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def resolution_is_complete(self) -> ReviewItem:
+        if (self.resolved_at is None) != (self.resolution_json is None):
+            raise ValueError("review resolution state MUST be complete")
+        return self
+
+
 class ProjectionStats(StrictModel):
     scope_id: str
     predicate: str
@@ -552,7 +586,14 @@ class GateStatistics(StrictModel):
     scope_id: str
     accepted: int = 0
     rejections: dict[str, int] = Field(default_factory=dict)
-    handle_conflicts: int = Field(default=0, exclude_if=lambda value: value == 0)
+    handle_conflicts: int = 0
+    route_handle: int = 0
+    route_thread: int = 0
+    route_evidence: int = 0
+    route_model: int = 0
+    route_new: int = 0
+    route_review: int = 0
+    route_disagreements: int = 0
 
 
 class TaskStatus(str, Enum):
@@ -570,7 +611,14 @@ class TaskReceipt(StrictModel):
 class TaskGate(StrictModel):
     accepted: int = 0
     rejected: dict[str, int] = Field(default_factory=dict)
-    handle_conflicts: int = Field(default=0, exclude_if=lambda value: value == 0)
+    handle_conflicts: int = 0
+    route_handle: int = 0
+    route_thread: int = 0
+    route_evidence: int = 0
+    route_model: int = 0
+    route_new: int = 0
+    route_review: int = 0
+    route_disagreements: int = 0
 
 
 class TaskResult(StrictModel):
@@ -617,6 +665,13 @@ class AddRecordsReport(StrictModel):
     handles_bound: int = 0
     handles_already_bound: int = 0
     handle_conflicts: int = 0
+    route_handle: int = 0
+    route_thread: int = 0
+    route_evidence: int = 0
+    route_model: int = 0
+    route_new: int = 0
+    route_review: int = 0
+    route_disagreements: int = 0
     sync_positions: list[SyncPosition] = Field(default_factory=list)
 
 

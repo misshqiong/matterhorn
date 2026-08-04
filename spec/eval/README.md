@@ -55,8 +55,12 @@ Fixture mode MUST send these responses through the ordinary built-in Record
 extractor and Engine pipeline. Because these fixtures measure Record routing,
 the fixture gateway MUST answer semantic-distillation response schemas with
 the deterministic empty response `{candidates:[]}`; those calls do not consume
-the extractor response list. Live mode MUST instead use the configured
-production gateway for every extraction and semantic call.
+the extractor response list. Until the dataset gains dedicated adjudication
+fixtures, fixture mode MUST answer the section 23 adjudication schema with a
+deterministic `abstain`; this also does not consume the extractor list and makes
+the measured abstention cost explicit. Live mode MUST instead use the
+configured production gateway for every extraction, adjudication, and semantic
+call.
 
 ## Produced evidence and alignment
 
@@ -119,14 +123,19 @@ Rates with a zero denominator MUST be JSON `null` and print as `n/a`.
   Message. Report `{valid,total,rate}` with `rate = valid / total`.
 - **`title_match_rate`.** Report aligned pairs passing the title rule as
   `{matched,total,rate}` with `rate = matched / total`.
-- **`zero_model_route_rate`.** The report key MUST exist and MUST be JSON `null`
-  in Phase 0. It becomes meaningful only when a later routing phase defines a
-  zero-model route.
+- **`zero_model_route_rate`.** Read the Engine's persisted counters after the
+  case and compute `(route_handle + route_thread + route_evidence) /
+  (route_handle + route_thread + route_evidence + route_model + route_new +
+  route_review)`. Review-queued cards are included in the denominator. A zero
+  denominator produces JSON `null`. Aggregate reports MUST sum all six route
+  counters across cases before dividing.
 
 Every case and aggregate report MUST also contain `matters_expected`,
 `matters_produced`, `cards_accepted`, total `gate_rejections`, and gate
-rejection counts by reason. Aggregate metric rates MUST be micro-averages:
-sum case numerators and denominators, then divide.
+rejection counts by reason, all six route counters, and `review_queued`.
+Aggregate metric rates MUST be micro-averages: sum case numerators and
+denominators, then divide.
+The plain-text case table MUST include `review_queued` as its own column.
 
 ## Reference command and report
 

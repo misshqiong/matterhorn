@@ -1,0 +1,54 @@
+case_id: handle-routes-closed-matter
+title: Exact handle hit routes a new card to a closed matter without adjudication
+invariants: [P1, P4, P9, INV-14, INV-15]
+schema_profile: org-matters/v1
+scope_id: routing-handle-closed
+clock:
+  - "2026-08-04T08:00:00Z"
+  - "2026-08-04T08:01:00Z"
+  - "2026-08-04T08:05:00Z"
+cards:
+  - card_id: closed-order-seed
+    scope_id: routing-handle-closed
+    subject_key: closed-order
+    date: 2026-08-04
+    title: Fictional completed order
+    status: closed
+    source_refs:
+      - {source_id: closed-order-source, sent_at: "2026-08-04T07:50:00Z", sender: Dana Reyes}
+handle_operations:
+  - operation: bind
+    subject_key: closed-order
+    handle_type: order
+    handle_value: "Order 0068001"
+    source_refs:
+      - {source_id: closed-order-handle, sent_at: "2026-08-04T08:01:00Z", sender: Dana Reyes}
+record_batches:
+  - records:
+      - record_id: routing-handle-closed:refund:r1
+        container_id: routing-handle-closed:refund
+        sent_at: "2026-08-04T08:04:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "A refund was requested for Order 0068001."
+record_model_responses:
+  - cards:
+      - date: "2026-08-04"
+        title: Fictional refund request
+        progress: Refund request received.
+        source_ids: [routing-handle-closed:refund:r1]
+expect:
+  record_reports:
+    - {route_handle: 1, route_model: 0, route_review: 0}
+  assertions:
+    - {subject_key: closed-order, predicate: status, object_value: closed}
+    - {subject_key: closed-order, predicate: progress, object_value: Refund request received.}
+  intervals:
+    - {subject_key: closed-order, predicate: status, object_value: closed}
+    - {subject_key: closed-order, predicate: progress, object_value: Refund request received.}
+  subject_count: 1
+  gate_statistics:
+    scope_id: routing-handle-closed
+    accepted: 0
+    rejections: {}
+    route_handle: 1
+  queries: []

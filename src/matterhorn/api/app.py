@@ -41,6 +41,9 @@ from matterhorn.api.models import (
     MatterListResponse,
     QuickMessageRequest,
     RawIngestRequest,
+    ReviewItemResponse,
+    ReviewListResponse,
+    ReviewResolveInput,
     ScopeListResponse,
     SubjectHandleBindInput,
     SubjectHandleListResponse,
@@ -541,6 +544,32 @@ def create_app(
             subject_key=subject_key,
             handle_type=handle_type,
             normalized_value=normalized_value,
+            source_refs=payload.source_refs,
+        )
+
+    @app.get(
+        "/v1/scopes/{scope_id}/reviews",
+        response_model=ReviewListResponse,
+        summary="List pending identity-routing reviews",
+    )
+    def review_items(scope_id: str):
+        return service.review_items(scope_id=scope_id)
+
+    @app.post(
+        "/v1/scopes/{scope_id}/reviews/{review_id}/resolve",
+        response_model=ReviewItemResponse,
+        summary="Resolve one pending identity-routing review",
+    )
+    def resolve_review(
+        scope_id: str,
+        review_id: str,
+        payload: ReviewResolveInput,
+    ):
+        return service.resolve_review(
+            scope_id=scope_id,
+            review_id=review_id,
+            action=payload.action,
+            subject_key=payload.subject_key,
             source_refs=payload.source_refs,
         )
 

@@ -655,7 +655,18 @@ def test_keyless_console_sample_uses_packaged_fixture(tmp_path) -> None:
             )
             receipt = response.json()
             assert receipt["status"] == "completed"
-            assert receipt["gate"] == {"accepted": 1, "rejected": {}}
+            assert receipt["gate"] == {
+                "accepted": 1,
+                "rejected": {},
+                "handle_conflicts": 0,
+                "route_handle": 0,
+                "route_thread": 0,
+                "route_evidence": 0,
+                "route_model": 0,
+                "route_new": 1,
+                "route_review": 0,
+                "route_disagreements": 0,
+            }
             matters = (await client.get("/v1/scopes/demo/matters")).json()
             assert matters[0]["title"] == "octo-org Console launch"
 
@@ -713,6 +724,11 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             "last-opened card",
             'id="merge-form"',
             'id="merge-target"',
+            'id="review-list"',
+            'id="review-count"',
+            "data-review-action",
+            "/reviews/",
+            "reviewCount",
             "matterhorn.console.sender",
             "/merges`",
             "又名",
@@ -748,6 +764,8 @@ def test_ingest_rate_limit_and_openapi_paths(tmp_path) -> None:
                 "/v1/scopes/{scope_id}/matters/{subject_key}",
                 "/v1/scopes/{scope_id}/merges",
                 "/v1/scopes/{scope_id}/merges/{source_subject_key}/unmerge",
+                "/v1/scopes/{scope_id}/reviews",
+                "/v1/scopes/{scope_id}/reviews/{review_id}/resolve",
                 "/v1/scopes/{scope_id}/chat",
                 "/v1/console/config",
             ]:

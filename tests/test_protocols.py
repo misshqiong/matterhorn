@@ -19,6 +19,17 @@ from matterhorn.engine import Engine
 
 class ExtractingGateway:
     def complete(self, **kwargs) -> str:
+        if kwargs["response_schema"].get("$id") == (
+            "matterhorn-identity-adjudication/v1"
+        ):
+            return json.dumps(
+                {
+                    "decision": "new",
+                    "subject_key": None,
+                    "confidence": 1.0,
+                    "evidence_source_ids": [],
+                }
+            )
         payload = json.loads(kwargs["user"])
         if "records" not in payload:
             return json.dumps({"candidates": []})
@@ -162,7 +173,18 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
             engine.flush("s")
             task = await client.get(f"/v1/tasks/{task_id}")
             assert task.status_code == 200
-            assert task.json()["gate"] == {"accepted": 1, "rejected": {}}
+            assert task.json()["gate"] == {
+                "accepted": 1,
+                "rejected": {},
+                "handle_conflicts": 0,
+                "route_handle": 0,
+                "route_thread": 0,
+                "route_evidence": 0,
+                "route_model": 0,
+                "route_new": 1,
+                "route_review": 0,
+                "route_disagreements": 0,
+            }
             assert task.json()["attempts"] == 0
             assert task.json()["last_error"] is None
             waited_messages = await client.post(

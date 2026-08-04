@@ -624,7 +624,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=67 failed=0 total=67" in completed.stdout
+    assert "SUMMARY passed=73 failed=0 total=73" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:
@@ -723,10 +723,12 @@ def test_eval_cli_runs_fixture_case_and_writes_parseable_json(
     report = json.loads(report_path.read_text(encoding="utf-8"))
 
     assert "case_id | matters_expected | matters_produced" in completed.stdout
-    assert "simple-single-matter | 1 | 1 | 1 | 0 | 0/1 (0.000)" in completed.stdout
+    assert "simple-single-matter | 1 | 1 | 1 | 0 | 0 | 0/1 (0.000)" in (
+        completed.stdout
+    )
     assert report["provider"] == "fixture-file"
     assert report["cases"][0]["metrics"]["over_split"]["count"] == 0
-    assert report["aggregate"]["metrics"]["zero_model_route_rate"] is None
+    assert report["aggregate"]["metrics"]["zero_model_route_rate"] == 0.0
 
 
 def test_eval_cli_metric_failures_still_exit_zero(monkeypatch, tmp_path) -> None:
@@ -746,7 +748,7 @@ def test_eval_cli_metric_failures_still_exit_zero(monkeypatch, tmp_path) -> None
     )
     assert completed.returncode == 0
     assert (
-        "interleaved-three-matters | 3 | 1 | 1 | 1 | "
+        "interleaved-three-matters | 3 | 1 | 1 | 1 | 0 | "
         "0/3 (0.000) | 1/1 (1.000)"
     ) in completed.stdout
 
@@ -906,6 +908,14 @@ def test_init_config_and_five_minute_commands_work_offline(tmp_path) -> None:
     assert json.loads(task.stdout)["gate"] == {
         "accepted": 1,
         "rejected": {},
+        "handle_conflicts": 0,
+        "route_handle": 0,
+        "route_thread": 0,
+        "route_evidence": 0,
+        "route_model": 0,
+        "route_new": 1,
+        "route_review": 0,
+        "route_disagreements": 0,
     }
 
     repeated = subprocess.run(

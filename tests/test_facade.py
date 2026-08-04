@@ -20,6 +20,17 @@ class FacadeGateway:
 
     def complete(self, **kwargs) -> str:
         self.calls += 1
+        if kwargs["response_schema"].get("$id") == (
+            "matterhorn-identity-adjudication/v1"
+        ):
+            return json.dumps(
+                {
+                    "decision": "new",
+                    "subject_key": None,
+                    "confidence": 1.0,
+                    "evidence_source_ids": [],
+                }
+            )
         payload = json.loads(kwargs["user"])
         if "records" not in payload:
             return json.dumps({"candidates": []})
@@ -109,7 +120,11 @@ def test_add_is_llm_free_and_task_survives_restart(tmp_path) -> None:
             "status": "completed",
             "cards_produced": 1,
             "new_assertions": 3,
-            "gate": {"accepted": 1, "rejected": {}},
+            "gate": {
+                "accepted": 1,
+                "rejected": {},
+                "route_new": 1,
+            },
         }
     )
     second.store.close()

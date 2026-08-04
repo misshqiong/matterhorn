@@ -1,0 +1,83 @@
+case_id: resolve-review-attach-replay
+title: Human review attachment ingests once and replay preserves resolution
+invariants: [P5, P7, P8, P9, INV-3, INV-15]
+schema_profile: org-matters/v1
+scope_id: routing-review-resolve
+clock:
+  - "2026-08-04T13:00:00Z"
+  - "2026-08-04T13:01:00Z"
+  - "2026-08-04T13:02:00Z"
+  - "2026-08-04T13:03:00Z"
+cards:
+  - card_id: resolve-atlas-seed
+    scope_id: routing-review-resolve
+    subject_key: resolve-atlas
+    date: 2026-08-04
+    title: Fictional Atlas acceptance
+    status: open
+    source_refs:
+      - {source_id: resolve-atlas-source, sent_at: "2026-08-04T12:50:00Z", sender: Dana Reyes, excerpt: "Atlas acceptance remains open."}
+  - card_id: resolve-beacon-seed
+    scope_id: routing-review-resolve
+    subject_key: resolve-beacon
+    date: 2026-08-04
+    title: Fictional Beacon acceptance
+    status: open
+    source_refs:
+      - {source_id: resolve-beacon-source, sent_at: "2026-08-04T12:51:00Z", sender: Ellis Stone, excerpt: "Beacon acceptance remains open."}
+record_batches:
+  - records:
+      - record_id: routing-review-resolve:updates:r1
+        container_id: routing-review-resolve:updates
+        sent_at: "2026-08-04T13:02:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "This is the Atlas acceptance follow-up."
+record_model_responses:
+  - cards:
+      - date: "2026-08-04"
+        title: Atlas acceptance follow-up
+        progress: Human confirmed the fictional acceptance follow-up.
+        source_ids: [routing-review-resolve:updates:r1]
+adjudication_model_responses:
+  - decision: abstain
+    subject_key: null
+    confidence: 0.45
+    evidence_source_ids: [routing-review-resolve:updates:r1]
+review_operations:
+  - review_id: review_accb53565aa6f225fa1f67075d9ffd9decd5c79dcc521b0e42acb24776e77070
+    action: attach
+    subject_key: resolve-atlas
+    source_refs:
+      - {source_id: review-human-resolution, sent_at: "2026-08-04T13:03:00Z", sender: Dana Reyes, excerpt: "Attach this held card to Atlas acceptance."}
+  - review_id: review_accb53565aa6f225fa1f67075d9ffd9decd5c79dcc521b0e42acb24776e77070
+    action: attach
+    subject_key: resolve-atlas
+    source_refs:
+      - {source_id: review-human-resolution, sent_at: "2026-08-04T13:03:00Z", sender: Dana Reyes}
+    expect_error: already resolved
+expect:
+  record_reports:
+    - {route_review: 1, assertions_emitted: 0}
+  assertions:
+    - {subject_key: resolve-atlas, predicate: status, object_value: open, origin: model}
+    - subject_key: resolve-atlas
+      predicate: progress
+      object_value: Human confirmed the fictional acceptance follow-up.
+      origin: human
+      source_refs:
+        - {source_id: routing-review-resolve:updates:r1, sent_at: "2026-08-04T13:02:00.000000Z", sender: Dana Reyes, excerpt: "This is the Atlas acceptance follow-up.", uri: null}
+        - {source_id: review-human-resolution, sent_at: "2026-08-04T13:03:00.000000Z", sender: Dana Reyes, excerpt: "Attach this held card to Atlas acceptance.", uri: null}
+    - {subject_key: resolve-beacon, predicate: status, object_value: open, origin: model}
+  intervals:
+    - {subject_key: resolve-atlas, predicate: status, object_value: open, origin: model}
+    - {subject_key: resolve-atlas, predicate: progress, object_value: Human confirmed the fictional acceptance follow-up., origin: human}
+    - {subject_key: resolve-beacon, predicate: status, object_value: open, origin: model}
+  subject_count: 2
+  gate_statistics:
+    scope_id: routing-review-resolve
+    accepted: 0
+    rejections: {}
+    route_review: 1
+  review_items: []
+  replay_events_emitted: 0
+  queries: []

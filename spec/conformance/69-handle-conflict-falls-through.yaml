@@ -1,0 +1,74 @@
+case_id: handle-conflict-falls-through
+title: Conflicting handle owners are counted and routing falls through
+invariants: [P1, P4, P9, INV-14, INV-15]
+schema_profile: org-matters/v1
+scope_id: routing-handle-conflict
+clock:
+  - "2026-08-04T09:00:00Z"
+  - "2026-08-04T09:01:00Z"
+  - "2026-08-04T09:02:00Z"
+  - "2026-08-04T09:03:00Z"
+  - "2026-08-04T09:05:00Z"
+cards:
+  - card_id: conflict-a-seed
+    scope_id: routing-handle-conflict
+    subject_key: conflict-a
+    date: 2026-08-04
+    title: Fictional Atlas issue
+    status: open
+    source_refs:
+      - {source_id: conflict-a-source, sent_at: "2026-08-04T08:50:00Z", sender: Dana Reyes}
+  - card_id: conflict-b-seed
+    scope_id: routing-handle-conflict
+    subject_key: conflict-b
+    date: 2026-08-04
+    title: Fictional Beacon order
+    status: open
+    source_refs:
+      - {source_id: conflict-b-source, sent_at: "2026-08-04T08:51:00Z", sender: Ellis Stone}
+handle_operations:
+  - operation: bind
+    subject_key: conflict-a
+    handle_type: issue
+    handle_value: OCT-6901
+    source_refs:
+      - {source_id: conflict-a-handle, sent_at: "2026-08-04T09:02:00Z", sender: Dana Reyes}
+  - operation: bind
+    subject_key: conflict-b
+    handle_type: order
+    handle_value: "Order 0069002"
+    source_refs:
+      - {source_id: conflict-b-handle, sent_at: "2026-08-04T09:03:00Z", sender: Ellis Stone}
+record_batches:
+  - records:
+      - record_id: routing-handle-conflict:note:r1
+        container_id: routing-handle-conflict:note
+        sent_at: "2026-08-04T09:04:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "OCT-6901 and Order 0069002 were both quoted in the fictional note."
+record_model_responses:
+  - cards:
+      - date: "2026-08-04"
+        title: Fictional Atlas follow-up
+        progress: The conflicting references need manual cleanup.
+        source_ids: [routing-handle-conflict:note:r1]
+        subject_key: conflict-a
+expect:
+  record_reports:
+    - {handle_conflicts: 1, route_handle: 0, route_model: 1}
+  assertions:
+    - {subject_key: conflict-a, predicate: status, object_value: open}
+    - {subject_key: conflict-a, predicate: progress, object_value: The conflicting references need manual cleanup.}
+    - {subject_key: conflict-b, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: conflict-a, predicate: status, object_value: open}
+    - {subject_key: conflict-a, predicate: progress, object_value: The conflicting references need manual cleanup.}
+    - {subject_key: conflict-b, predicate: status, object_value: open}
+  subject_count: 2
+  gate_statistics:
+    scope_id: routing-handle-conflict
+    accepted: 0
+    rejections: {}
+    handle_conflicts: 1
+    route_model: 1
+  queries: []

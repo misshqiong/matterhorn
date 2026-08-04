@@ -273,7 +273,7 @@ def test_backfill_preserves_pre_merge_evidence_ownership(tmp_path) -> None:
     ].subject_key == "duplicate"
 
 
-def test_message_flush_exposes_handle_conflicts_in_task_gate(tmp_path) -> None:
+def test_message_flush_routes_a_repeated_handle_before_new_identity(tmp_path) -> None:
     gateway = SequenceGateway(
         [
             {
@@ -324,8 +324,13 @@ def test_message_flush_exposes_handle_conflicts_in_task_gate(tmp_path) -> None:
 
     task = engine.task(receipt.task_id)
     assert task.status.value == "completed"
-    assert task.gate.handle_conflicts == 1
-    assert engine.gate_statistics("fictional-team").handle_conflicts == 1
+    assert task.gate.handle_conflicts == 0
+    assert task.gate.route_new == 1
+    assert task.gate.route_handle == 1
+    statistics = engine.gate_statistics("fictional-team")
+    assert statistics.handle_conflicts == 0
+    assert statistics.route_new == 1
+    assert statistics.route_handle == 1
 
 
 def test_rest_handle_bind_unbind_and_detail_are_additive(tmp_path) -> None:

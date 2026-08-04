@@ -137,6 +137,12 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   subject in a merge chain MUST read and look up as a union on the canonical
   subject; unmerge MUST restore the original per-subject view. Replay MUST
   reproduce the complete active and revoked binding state.
+- **INV-15 — Deterministic identity routing.** The handle, thread, and shared-
+  evidence rungs of section 23 MUST be reproducible from committed Store state
+  and the accepted card alone. Model adjudication MUST occur only after those
+  rungs miss, and an attach outcome MUST pass the independent deterministic
+  candidate, evidence, and confidence gate. Replay MUST NOT rerun routing or
+  any gateway call: persisted assertions already carry their resolved subject.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -263,9 +269,10 @@ A profile is a YAML or JSON object. Unknown fields MUST be rejected.
 | `schema` | string | required | Stable profile/version identifier. |
 | `subjects` | non-empty array | required | Each entry has required unique string `type`, optional nullable `parent` naming another declared type, and boolean `primary` default `false`. At most one is primary; otherwise the first is primary. |
 | `predicates` | non-empty array | required | Names MUST be unique. See below. |
-| `identity` | object | default `{}` | Contains `merge_evidence`. |
+| `identity` | object | default `{}` | Contains routing and merge policy. |
 | `identity.merge_evidence.min_shared_sources` | integer >= 1 | default `2` | Absolute merge threshold. |
 | `identity.merge_evidence.or_share_ratio` | number in `(0,1]` | default `0.5` | New-card evidence share threshold. |
+| `identity.adjudication_confidence_threshold` | number in `[0,1]` | default `0.6` | Minimum confidence for a rung-4 attach decision. |
 | `handle_patterns` | array | default `[]` | Ordered conservative structured-identifier patterns. Each entry has a required unique `handle_type`, required regular-expression `pattern`, and optional `normalization` options. |
 | `completion` | object or null | default null | Optional registered `predicate` and string array `completed_values`. |
 | `semantic` | object | default `{}` | Semantic extraction policy. |
@@ -374,6 +381,14 @@ null. Handle rows are historical assertions: bind appends a row, unbind marks
 the active row revoked with mandatory provenance, and neither operation may
 silently delete a row.
 
+A ReviewItem contains `scope_id`, deterministic `review_id`, the complete
+validated held `card_json`, a non-empty ordered `reasons` array,
+`candidates_json` containing exactly the rich rung-4 candidates that were
+offered, `created_at`, nullable `resolved_at`, and nullable `resolution_json`.
+The row is pending exactly when `resolved_at` is null. The held card MUST NOT
+be persisted as a subject, assertion, interval, MemoryCard, or distillation
+queue item before resolution.
+
 A ChangeEvent contains required deterministic `event_id`, `event_type`,
 `scope_id`, `subject_key`, registered `predicate`, nullable JSON `old_value`
 and `new_value`, `valid_from`, `recorded_at`, `origin`, and ordered unique
@@ -428,29 +443,31 @@ Record-derived assertions, the card ID participates only through the explicit
 and re-ingest is a no-op, while a changed/edited Record produces a different
 deterministic card and assertion.
 
-## 7. Exact subject identity algorithm
+## 7. Subject identity primitives
 
 Normalize a title by lowercasing, replacing every Unicode punctuation or symbol
 character with a space, collapsing whitespace, and trimming it.
 
-For each card, resolve in this strict order:
+Section 23 is the authoritative routing algorithm for every accepted card.
+This section defines the deterministic matching and construction primitives
+used by that ladder; it MUST NOT be interpreted as a competing priority order.
 
-1. If `subject_key` is non-null, use it. Create that subject if it is absent.
-2. If `thread_id` is non-null, exact-match that thread boundary among subjects
+1. A trusted explicit `subject_key` from the direct EpisodeCard API or a
+   connector-deterministic stamp uses or creates that exact subject before the
+   ladder. A Record extractor's model-supplied anchor key is not trusted by
+   this rule and is governed by section 23 rung 4.
+2. For thread continuation, if `thread_id` is non-null, exact-match that thread boundary among subjects
    of the profile's primary type. On multiple matches choose lexicographically
    smallest key.
-3. For a non-null `thread_id`, compute source-ID overlap with every existing
-   primary subject using the rule below. This is the only cross-thread merge
-   path; normalized-title equality MUST NOT merge two thread-bound cards.
-4. If the thread-bound card did not merge, create or reuse the exact key
+3. Shared-evidence matching computes source-ID overlap with every existing
+   primary subject using the rule below. Normalized-title equality alone MUST
+   NOT attach a card.
+4. New-subject construction for a thread-bound card creates or reuses the exact key
    `sub_` plus the first 20 lowercase hex characters of SHA-256 over canonical
    JSON `[scope_id, primary_subject_type, "thread", thread_id]`. Persist the
    thread boundary on that subject.
-5. For a card with null `thread_id`, exact-match normalized title among
-   subjects of the profile's primary type. On multiple matches choose
-   lexicographically smallest key.
-6. Otherwise compute source-ID overlap with each existing primary-type subject.
-   Define `shared = count(card source IDs intersect subject source IDs)` and
+5. Shared-evidence eligibility defines
+   `shared = count(card source IDs intersect subject source IDs)` and
    `ratio = shared / len(card.source_refs)`. Merge if and only if:
 
    ```text
@@ -463,7 +480,10 @@ For each card, resolve in this strict order:
    new card's only message. The ratio branch remains a valid relaxation when
    `min_shared_sources > 2`. Among eligible matches choose maximum shared
    count, then lexicographically greatest key.
-7. Otherwise create a new deterministic subject key.
+6. New-subject construction for a card with null `thread_id` creates the
+   existing deterministic key derived from scope, primary type, normalized
+   title, sorted source IDs, and card ID. It MUST NOT reuse another subject
+   merely because the normalized titles are equal.
 
 The thread key in step 4 is a cross-language conformance field. Other generated
 key formats are not cross-language fields unless a case provides `subject_key`;
@@ -709,7 +729,15 @@ response have exactly:
   "last_error": string | null,
   "gate": {
     "accepted": integer,
-    "rejected": {reason_code: count}
+    "rejected": {reason_code: count},
+    "handle_conflicts": integer,
+    "route_handle": integer,
+    "route_thread": integer,
+    "route_evidence": integer,
+    "route_model": integer,
+    "route_new": integer,
+    "route_review": integer,
+    "route_disagreements": integer
   }
 }
 ```
@@ -724,7 +752,8 @@ five attempts MUST remain failed and MUST NOT be selected again. A semantic
 retry policy.
 
 The gate object MUST aggregate the task's Record-to-card and semantic gate
-outcomes without borrowing prior scope counters. Repeating an identical
+outcomes plus its section 23 routing counters without borrowing prior scope
+counters. Repeating an identical
 Message batch MUST create a new receipt, but the observation ledger and
 assertion IDs MUST make the later completed task report zero new assertions.
 
@@ -836,7 +865,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-14`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-15`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
@@ -849,14 +878,16 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `merge_operations` | Optional ordered merge/unmerge mappings. Each contains `operation`, source key, merge-only target key, `valid_from`, non-empty `source_refs`, and optional `expect_error` for an operation-level rejection. |
 | `handle_normalization_cases` | Optional ordered `{handle_type,value,normalized_value}` mappings evaluated without persistence. |
 | `handle_operations` | Optional ordered human bind/unbind mappings. Bind names `subject_key`, `handle_type`, `handle_value`, and non-empty `source_refs`; unbind names `handle_type`, `normalized_value`, and non-empty `source_refs`. |
+| `adjudication_model_responses` | Optional ordered list of closed section 23 adjudication responses, consumed only by calls whose response schema is the routing schema. |
 | `model_responses` | Optional ordered list of closed response objects returned once per queued card during `dream()`. Absence means the semantic path is not run. |
+| `review_operations` | Optional ordered pending-review resolutions with `review_id`, `action`, optional `subject_key`, non-empty `source_refs`, and optional `expect_error`. |
 | `expect_error` | Optional validation/error substring. If present, the case succeeds only on that rejection. |
 | `expect.assertions` | Expected assertion mappings. |
 | `expect.intervals` | Expected interval mappings; `supporting_assertion_ids`, when compared, is an order-sensitive exact list. |
 | `expect.queries` | `{name,args,result}` query checks. |
 | `expect.subject_count` | Optional exact subject count. |
 | `expect.conflicts_resolved` | Optional predicate-to-count map. |
-| `expect.gate_statistics` | Optional exact `{scope_id, accepted, rejections}` counter object. |
+| `expect.gate_statistics` | Optional partial gate-counter object; declared fields compare exactly, including any declared route counters. |
 | `expect.dream_report` | Optional partial field mapping checked against the first `dream()` report. |
 | `expect.second_dream` | Optional partial field mapping checked after identical card re-ingest and a second `dream()`. |
 | `expect.record_reports` | Optional ordered partial mappings checked against first-pass `add_records` reports. |
@@ -870,6 +901,8 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.handle_bindings` | Optional partial-field exact multiset of all active and revoked SubjectHandle rows. |
 | `expect.subject_handles` | Optional mapping from subject key to its exact active canonicalized handle list. |
 | `expect.handle_lookups` | Optional ordered lookup mappings with `handle_type` or null, `value`, and an exact list of partial canonical SubjectHandle results. |
+| `expect.review_items` | Optional partial-field exact multiset of pending or resolved ReviewItems. |
+| `expect.adjudication_calls` | Optional ordered checks of the exact offered candidate subject keys and partial rich candidate payloads. |
 | `expect.matters` | Optional partial-field exact multiset of ergonomic canonical Matters, including aliases. |
 | `expect.export_replay_identity` | When true, the ownership export immediately before and after replay MUST be byte-identical. |
 | `expect.replay_events_emitted` | Optional exact replay new-event count; event cases use zero. |
@@ -1005,8 +1038,11 @@ inclusive.
 The gate MUST return a structured `GateReport` containing accepted candidates,
 rejections with reason and candidate when parseable, accepted count, rejected
 count, and per-reason counts. The store MUST accumulate accepted and
-per-reason rejection counters by scope. `gate_statistics(scope_id)` MUST
-return `{scope_id, accepted, rejections}` without calling a gateway.
+per-reason rejection counters by scope, plus `handle_conflicts`,
+`route_handle`, `route_thread`, `route_evidence`, `route_model`, `route_new`,
+`route_review`, and `route_disagreements` from section 23.
+`gate_statistics(scope_id)` MUST return all of those fields with `scope_id`,
+`accepted`, and `rejections` without calling a gateway.
 
 ## 15. Protocol surfaces
 
@@ -1039,7 +1075,8 @@ names the `matterhorn[mcp]` extra.
 
 The Python facade MUST expose `add`, `matters`, `flush`, `task`, `add_cards`,
 `query.*`, `correct`, `merge_subjects`, `unmerge_subjects`, `bind_handle`,
-`unbind_handle`, `subject_handles`, `handle_lookup`, and
+`unbind_handle`, `subject_handles`, `handle_lookup`, `review_items`,
+`resolve_review`, and
 advanced/internal `add_records`. `matters(scope_id)` MUST return
 projection-derived objects with at least `title`, `status`, `owners`,
 `participants`, `blocked_by`, `next_step`, `due`, `subject_key`, and
@@ -1097,6 +1134,8 @@ POST /v1/scopes/{scope_id}/merges/{source_subject_key}/unmerge
 GET  /v1/scopes/{scope_id}/subjects/{subject_key}/handles
 POST /v1/scopes/{scope_id}/subjects/{subject_key}/handles
 POST /v1/scopes/{scope_id}/subjects/{subject_key}/handles/{handle_type}/{normalized_value}/unbind
+GET  /v1/scopes/{scope_id}/reviews
+POST /v1/scopes/{scope_id}/reviews/{review_id}/resolve
 GET  /v1/tasks/{task_id}
 ```
 
@@ -1111,6 +1150,18 @@ The handle bind request contains `handle_type`, `handle_value`, and non-empty
 unbind path is an ownership guard and MUST resolve to the active binding's
 canonical subject. Matter detail responses MUST add active canonicalized
 `handles`. All handle reads are P4 zero-model reads.
+
+The review-resolution request contains `action` (`attach` or `new`), nullable
+`subject_key`, and non-empty `source_refs`. `attach` requires an existing
+subject key; `new` forbids one. A successful resolution returns the resolved
+ReviewItem. Resolving an already resolved review MUST return a structured
+409 conflict and MUST NOT ingest the card twice.
+
+The Console MUST present pending ReviewItems in its ledger-paper operating
+surface with card title and summary, one attach button per offered candidate,
+and a create-new action. It MUST use only the two public review REST endpoints.
+The existing five-second wall poll MUST include the pending review count in its
+change detector and refresh the Review section after a resolution.
 
 The old `/v1/add_episode_cards`-style RPC endpoints MUST NOT be exposed, and
 wire protocols MUST NOT retain legacy aliases. Each request and response MUST
@@ -1200,11 +1251,13 @@ literal two-card example with one attached card and one new card.
 After decoding and before EpisodeCard validation, a modern Record extractor
 MUST keep a model-supplied `subject_key` if and only if it exactly equals one
 of the offered anchor keys. It MUST silently replace every other supplied key
-with null so the card falls back to section 7 identity; it MUST NOT reject an
-otherwise valid card for that fabrication. A deterministic connector-stamped
+with null so the card falls back to section 23 routing; it MUST NOT reject an
+otherwise valid card for that fabrication. The retained key is a model-tier
+suggestion only: section 23 rungs 1–3 MUST run first, and a disagreement loses
+to the deterministic route and is counted. A deterministic connector-stamped
 key, including the server-derived mail conversation key, MUST override any
-model-supplied anchor key. Legacy non-Record ChatMessage extraction retains its
-existing permissive behavior.
+model-supplied anchor key as rung 0. Legacy non-Record ChatMessage extraction
+retains its existing permissive behavior.
 
 Every proposed card MUST pass the ordinary closed EpisodeCard validation.
 Rejection of one card MUST NOT abort other valid cards from the response. A
@@ -1428,6 +1481,13 @@ read-side results. Evaluation scores are measurements and MUST NOT be treated
 as conformance gates. Distributed artifacts MUST include the eval README, case
 YAML, and sibling scripted-response YAML.
 
+For one case, `zero_model_route_rate` MUST be
+`(route_handle + route_thread + route_evidence) /
+(route_handle + route_thread + route_evidence + route_model + route_new +
+route_review)`. Review-queued cards are therefore included in the denominator.
+When the denominator is zero the metric is null. Aggregate evaluation MUST sum
+the six counters before applying the same formula.
+
 ## 22. Subject handles
 
 The topic library is the existing `subjects` table plus a `subject_handles`
@@ -1519,9 +1579,130 @@ normalization, and bind to the subject owning that evidence with
 reports `bound`, `skipped-conflict`, and `already-bound`; unchanged repeated
 runs MUST bind nothing new.
 
-Phase 1 creates, maintains, and exposes the handle registry only. It MUST NOT
-change section 7 subject identity resolution, the Record extraction prompt, or
-the model subject-key gate. Handle-based routing begins in a later phase.
+Phase 1 created, maintained, and exposed the handle registry. Section 23 now
+uses that retained registry as the highest ordinary routing rung. The Record
+extraction prompt and offered-anchor mechanism remain in place until a later
+phase; only the authority of an extracted `subject_key` changes as specified
+below.
+
+## 23. Identity routing
+
+Every accepted card MUST resolve through this priority ladder, with the first
+hit winning. Human corrections, subject merge/split decisions, and human
+handle bind/unbind assertions outrank every rung. A connector-deterministic
+identity stamp, including the server-derived mail conversation key, is rung 0
+alongside those human decisions and MUST be applied before the ladder. A
+trusted explicit key supplied through the direct EpisodeCard API retains the
+same existing override behavior. Neither rung-0 path is reported as a ladder
+route.
+
+1. **Exact handle hit, zero model.** Scan the card title and only its cited
+   Record contents, represented by the copied SourceRef excerpts, with the
+   active profile's ordered `handle_patterns` and section 22 normalization.
+   Resolve every active binding through the active merge graph. If all matched
+   bindings name one canonical subject, route to it even when section 7.3 says
+   it is closed. If distinct matched handles name different canonical
+   subjects, do not route on this rung, increment `handle_conflicts` once, and
+   continue.
+2. **Thread continuation, zero model.** Apply the exact thread-boundary match
+   from section 7 among canonical primary subjects. Closed subjects remain
+   eligible.
+3. **Shared evidence, zero model.** Apply INV-5 and section 7's unchanged
+   threshold and tie-break. Closed subjects remain eligible.
+4. **Model tier.** This rung is reached only when rungs 1–3 miss. A valid
+   model-supplied `subject_key` from Record extraction short-circuits a second
+   gateway call if and only if it exactly equals one of the extractor's offered
+   anchors; it is counted as `route_model`. Otherwise perform the lexical
+   candidate recall and one adjudication call below. Closed subjects MUST NOT
+   be offered here; the handle rung is the only ordinary route back into a
+   closed matter.
+5. **New or review.** A clean adjudication decision of `new`, or an empty
+   candidate set, MUST use section 7's deterministic new-subject construction
+   and increment `route_new`. An explicit `abstain`, malformed response, or
+   attach decision rejected by the deterministic gate MUST enqueue the card
+   for review, ingest none of it, and increment `route_review`.
+
+The extraction prompt MUST retain its current SubjectAnchor mechanism. An
+extracted offered-anchor `subject_key` is only a model-tier suggestion: rungs
+1–3 MUST be evaluated first. When a deterministic rung wins and the suggestion
+names another subject, the deterministic subject wins and
+`route_disagreements` increments once. More generally, implementations MUST
+evaluate already-available lower deterministic matches and the extraction
+suggestion without additional gateway calls; if any would name a different
+subject than the winning higher rung, increment `route_disagreements` once for
+that card. A lower-rung disagreement MUST NOT change the route.
+
+Lexical recall MUST consider only canonical open primary matters. Tokenize by
+concatenating the fields below, applying section 7 title normalization, and
+taking the set of non-empty whitespace-delimited tokens. The card tokens come
+from its title plus cited SourceRef excerpts. Candidate tokens come from the
+subject title, aliases, active handle values, and recent evidence excerpts.
+The score is the integer set-intersection size. Order positive-scoring matters
+by descending score, then UTF-8-bytewise ascending `subject_key`, and offer at
+most five. If fewer than three matters score positively, append zero-scoring
+open matters in bytewise key order until three are offered or none remain.
+Thus an available pool normally yields three to five candidates; an empty open
+pool yields zero and goes directly to rung 5. For each candidate, stable-union
+the newest evidence excerpts up to 300 Unicode characters total.
+
+The dedicated adjudication prompt MUST carry the complete card title, summary
+fields, participants, and real cited source IDs. For every offered candidate it
+MUST carry `subject_key`, `title`, `aliases`, active handles as `type:value`,
+current `status`, `next_step`, `participants`, and the bounded recent evidence
+excerpt text. Title-only anchors are forbidden. The gateway response schema is
+closed and has exactly:
+
+```json
+{
+  "decision": "attach" | "new" | "abstain",
+  "subject_key": "string or null",
+  "confidence": 0.0,
+  "evidence_source_ids": ["string"]
+}
+```
+
+The prompt MUST include this pinned literal example:
+
+```json
+{"decision":"attach","subject_key":"matter-204","confidence":0.86,
+ "evidence_source_ids":["chat:release:r17"]}
+```
+
+After decoding, an independent deterministic gate MUST require an `attach`
+subject key to be one of the exact offered candidate keys, every unique
+`evidence_source_ids` member to name a real source cited by the card, at least
+one such evidence ID, and confidence greater than or equal to
+`identity.adjudication_confidence_threshold`. `new` MUST have a null subject
+key; its confidence does not gate creation, and its evidence list MAY be empty
+but any supplied ID MUST still name a real cited card source. `abstain` MUST
+have a null subject key. Any unknown field, wrong type,
+invalid enum, invalid subject, untraceable or empty attach evidence,
+out-of-range confidence, below-threshold attach, or malformed JSON MUST be
+treated as abstention and queued, never as `new`.
+
+Review rows MUST survive restart in both Stores. `review_id` is `review_` plus
+lowercase SHA-256 of canonical JSON `[scope_id, card_id]`; enqueue of the same
+held card is idempotent, while reuse of that ID with changed payload MUST fail.
+`review_items(scope_id)` returns pending rows in `(created_at, review_id)`
+bytewise order. `resolve_review(..., action="attach")` requires an existing
+canonical subject. `action="new"` forbids `subject_key` and uses section 7's
+normal new-subject construction. Both actions ingest the held card with
+assertion `origin=human`; assertion evidence is the stable union of the held
+card SourceRefs followed by the mandatory resolution SourceRefs. They then set
+`resolved_at` and `resolution_json` in the same transaction. Resolving an
+already resolved item is a conflict error and MUST NOT ingest twice. Replay
+retains pending and resolved review rows and never reroutes them.
+
+Every winning rung increments exactly one of `route_handle`, `route_thread`,
+`route_evidence`, `route_model`, `route_new`, or `route_review`. These counters,
+plus `handle_conflicts` and `route_disagreements`, MUST be persisted in
+`gate_stats`, returned by `gate_statistics`, and included in the enclosing
+task gate or direct `AddRecordsReport`. Exact observation re-ingest MUST
+increment none of them. Counter updates and the chosen route, subject write or
+review enqueue MUST commit atomically in the card-application transaction.
+Candidate reads MUST use a short Store transaction; the adjudication gateway
+call MUST execute with no Store lock or transaction held; final routing and
+ingest MUST use another short transaction.
 
 ## 中文摘要
 

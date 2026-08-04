@@ -34,18 +34,13 @@ def resolve_subject(
         )
 
     if card.thread_id is not None:
-        thread_matches = [
-            item
-            for item in existing
-            if item.subject_type == subject_type and card.thread_id in item.thread_ids
-        ]
-        if thread_matches:
-            chosen = min(thread_matches, key=lambda item: item.subject_key)
+        chosen = thread_match(card, profile, existing)
+        if chosen is not None:
             return _with_evidence(chosen, sources, threads), False
 
-        evidence_match = _evidence_match(card, profile, existing, sources)
-        if evidence_match is not None:
-            return _with_evidence(evidence_match, sources, threads), False
+        matched_evidence = evidence_match(card, profile, existing)
+        if matched_evidence is not None:
+            return _with_evidence(matched_evidence, sources, threads), False
 
         digest = stable_hash(
             [card.scope_id, subject_type, "thread", card.thread_id]
@@ -76,34 +71,42 @@ def resolve_subject(
         chosen = min(title_matches, key=lambda item: item.subject_key)
         return _with_evidence(chosen, sources, threads), False
 
-    evidence_match = _evidence_match(card, profile, existing, sources)
-    if evidence_match is not None:
-        return _with_evidence(evidence_match, sources, threads), False
+    matched_evidence = evidence_match(card, profile, existing)
+    if matched_evidence is not None:
+        return _with_evidence(matched_evidence, sources, threads), False
 
     digest = stable_hash(
         [card.scope_id, subject_type, normalized, sorted(sources), card.card_id]
     )[:20]
     return (
-        SubjectRecord(
-            card.scope_id,
-            f"sub_{digest}",
-            subject_type,
-            card.title,
-            normalized,
-            sources,
-            thread_ids=threads,
-        ),
+        new_subject(card, profile, existing, digest=digest),
         True,
     )
 
 
-def _evidence_match(
+def thread_match(
     card: EpisodeCard,
     profile: SchemaProfile,
     existing: list[SubjectRecord],
-    sources: frozenset[str],
+) -> SubjectRecord | None:
+    if card.thread_id is None:
+        return None
+    matches = [
+        item
+        for item in existing
+        if item.subject_type == profile.primary_subject.type
+        and card.thread_id in item.thread_ids
+    ]
+    return min(matches, key=lambda item: item.subject_key) if matches else None
+
+
+def evidence_match(
+    card: EpisodeCard,
+    profile: SchemaProfile,
+    existing: list[SubjectRecord],
 ) -> SubjectRecord | None:
     subject_type = profile.primary_subject.type
+    sources = frozenset(ref.source_id for ref in card.source_refs)
     thresholds = profile.identity.merge_evidence
     evidence_matches: list[tuple[int, SubjectRecord]] = []
     for item in existing:
@@ -122,6 +125,61 @@ def _evidence_match(
         evidence_matches,
         key=lambda pair: (pair[0], pair[1].subject_key),
     )[1]
+
+
+def attach_subject(record: SubjectRecord, card: EpisodeCard) -> SubjectRecord:
+    return _with_evidence(
+        record,
+        frozenset(ref.source_id for ref in card.source_refs),
+        (
+            frozenset([card.thread_id])
+            if card.thread_id is not None
+            else frozenset()
+        ),
+    )
+
+
+def new_subject(
+    card: EpisodeCard,
+    profile: SchemaProfile,
+    existing: list[SubjectRecord],
+    *,
+    digest: str | None = None,
+) -> SubjectRecord:
+    subject_type = profile.primary_subject.type
+    sources = frozenset(ref.source_id for ref in card.source_refs)
+    threads = (
+        frozenset([card.thread_id])
+        if card.thread_id is not None
+        else frozenset()
+    )
+    if card.thread_id is not None:
+        generated = stable_hash(
+            [card.scope_id, subject_type, "thread", card.thread_id]
+        )[:20]
+    else:
+        generated = digest or stable_hash(
+            [
+                card.scope_id,
+                subject_type,
+                normalize_title(card.title),
+                sorted(sources),
+                card.card_id,
+            ]
+        )[:20]
+    key = f"sub_{generated}"
+    match = next((item for item in existing if item.subject_key == key), None)
+    if match is not None:
+        return attach_subject(match, card)
+    return SubjectRecord(
+        card.scope_id,
+        key,
+        subject_type,
+        card.title,
+        normalize_title(card.title),
+        sources,
+        thread_ids=threads,
+    )
 
 
 def _with_evidence(

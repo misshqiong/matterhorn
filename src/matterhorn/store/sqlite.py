@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
+from typing import Any
 
 from matterhorn.canonical import canonical_json, derive_event_id, instant_text
 from matterhorn.contracts import (
@@ -22,6 +23,7 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     Record,
+    ReviewItem,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -33,6 +35,7 @@ from matterhorn.contracts import (
 )
 from matterhorn.store.base import (
     MAX_TASK_ATTEMPTS,
+    ROUTE_COUNTER_NAMES,
     DistillQueueItem,
     QuerySubjectRow,
     QueryValueRow,
@@ -205,6 +208,19 @@ CREATE TABLE IF NOT EXISTS distill_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_distill_queue_scope
     ON distill_queue(scope_id, card_id);
+CREATE TABLE IF NOT EXISTS review_queue (
+    scope_id TEXT NOT NULL,
+    review_id TEXT NOT NULL,
+    card_json TEXT NOT NULL,
+    reasons TEXT NOT NULL,
+    candidates_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resolution_json TEXT,
+    PRIMARY KEY (scope_id, review_id)
+);
+CREATE INDEX IF NOT EXISTS idx_review_queue_pending
+    ON review_queue(scope_id, resolved_at, created_at, review_id COLLATE BINARY);
 CREATE TABLE IF NOT EXISTS gate_stats (
     scope_id TEXT NOT NULL,
     counter TEXT NOT NULL,
@@ -225,6 +241,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     gate_accepted INTEGER NOT NULL DEFAULT 0,
     gate_rejected_json TEXT NOT NULL DEFAULT '{}',
     handle_conflicts INTEGER NOT NULL DEFAULT 0,
+    route_handle INTEGER NOT NULL DEFAULT 0,
+    route_thread INTEGER NOT NULL DEFAULT 0,
+    route_evidence INTEGER NOT NULL DEFAULT 0,
+    route_model INTEGER NOT NULL DEFAULT 0,
+    route_new INTEGER NOT NULL DEFAULT 0,
+    route_review INTEGER NOT NULL DEFAULT 0,
+    route_disagreements INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT
 );
@@ -317,6 +340,12 @@ class SQLiteStore:
                 "ALTER TABLE tasks ADD COLUMN handle_conflicts "
                 "INTEGER NOT NULL DEFAULT 0"
             )
+        for counter in ROUTE_COUNTER_NAMES:
+            if counter not in task_columns:
+                self.connection.execute(
+                    f"ALTER TABLE tasks ADD COLUMN {counter} "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
         columns = {
             row["name"]
             for row in self.connection.execute("PRAGMA table_info(intervals)")
@@ -381,6 +410,7 @@ class SQLiteStore:
                 "webhook_deliveries",
                 "events",
                 "tasks",
+                "review_queue",
                 "distill_queue",
                 "gate_stats",
                 "projection_stats",
@@ -407,6 +437,7 @@ class SQLiteStore:
             "subject_merges",
             "subject_handles",
             "tasks",
+            "review_queue",
             "events",
             "ingested_cards",
             "record_observations",
@@ -437,6 +468,7 @@ class SQLiteStore:
                 UNION ALL SELECT scope_id FROM memory_cards
                 UNION ALL SELECT scope_id FROM projection_stats
                 UNION ALL SELECT scope_id FROM distill_queue
+                UNION ALL SELECT scope_id FROM review_queue
                 UNION ALL SELECT scope_id FROM gate_stats
                 UNION ALL SELECT scope_id FROM tasks
                 UNION ALL SELECT scope_id FROM events
@@ -1144,6 +1176,87 @@ class SQLiteStore:
             "SELECT COUNT(*) AS n FROM distill_queue WHERE scope_id=?", (scope_id,)
         ).fetchone()["n"]
 
+    def add_review_item(self, item: ReviewItem) -> bool:
+        existing = self.review_item(item.scope_id, item.review_id)
+        if existing is not None:
+            comparable = ("card_json", "reasons", "candidates_json")
+            if any(getattr(existing, field) != getattr(item, field) for field in comparable):
+                raise ValueError(
+                    f"review_id {item.review_id!r} was reused with another payload"
+                )
+            return False
+        self.connection.execute(
+            """
+            INSERT INTO review_queue(
+              scope_id,review_id,card_json,reasons,candidates_json,
+              created_at,resolved_at,resolution_json
+            ) VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (
+                item.scope_id,
+                item.review_id,
+                canonical_json(item.card_json),
+                canonical_json(item.reasons),
+                canonical_json(item.candidates_json),
+                instant_text(item.created_at),
+                instant_text(item.resolved_at) if item.resolved_at else None,
+                (
+                    canonical_json(item.resolution_json)
+                    if item.resolution_json is not None
+                    else None
+                ),
+            ),
+        )
+        return True
+
+    def review_item(self, scope_id: str, review_id: str) -> ReviewItem | None:
+        row = self.connection.execute(
+            "SELECT * FROM review_queue WHERE scope_id=? AND review_id=?",
+            (scope_id, review_id),
+        ).fetchone()
+        return self._row_to_review_item(row) if row is not None else None
+
+    def review_items(
+        self, scope_id: str, *, pending_only: bool = True
+    ) -> list[ReviewItem]:
+        sql = "SELECT * FROM review_queue WHERE scope_id=?"
+        if pending_only:
+            sql += " AND resolved_at IS NULL"
+        sql += " ORDER BY created_at,review_id COLLATE BINARY"
+        return [
+            self._row_to_review_item(row)
+            for row in self.connection.execute(sql, (scope_id,))
+        ]
+
+    def resolve_review_item(
+        self,
+        scope_id: str,
+        review_id: str,
+        *,
+        resolved_at: datetime,
+        resolution: dict[str, Any],
+    ) -> ReviewItem:
+        cursor = self.connection.execute(
+            """
+            UPDATE review_queue SET resolved_at=?,resolution_json=?
+            WHERE scope_id=? AND review_id=? AND resolved_at IS NULL
+            """,
+            (
+                instant_text(resolved_at),
+                canonical_json(resolution),
+                scope_id,
+                review_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            existing = self.review_item(scope_id, review_id)
+            if existing is None:
+                raise KeyError(f"unknown review_id: {review_id}")
+            raise ValueError(f"review_id {review_id!r} is already resolved")
+        resolved = self.review_item(scope_id, review_id)
+        assert resolved is not None
+        return resolved
+
     def record_gate_report(
         self,
         scope_id: str,
@@ -1151,10 +1264,15 @@ class SQLiteStore:
         accepted: int,
         rejections: dict[str, int],
         handle_conflicts: int = 0,
+        route_counts: dict[str, int] | None = None,
     ) -> None:
         counters = {
             "ACCEPTED": accepted,
             "HANDLE_CONFLICTS": handle_conflicts,
+            **{
+                counter.upper(): (route_counts or {}).get(counter, 0)
+                for counter in ROUTE_COUNTER_NAMES
+            },
             **rejections,
         }
         self.connection.executemany(
@@ -1182,6 +1300,10 @@ class SQLiteStore:
             scope_id=scope_id,
             accepted=counters.pop("ACCEPTED", 0),
             handle_conflicts=counters.pop("HANDLE_CONFLICTS", 0),
+            **{
+                counter: counters.pop(counter.upper(), 0)
+                for counter in ROUTE_COUNTER_NAMES
+            },
             rejections=counters,
         )
 
@@ -1275,6 +1397,7 @@ class SQLiteStore:
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
         handle_conflicts: int = 0,
+        route_counts: dict[str, int] | None = None,
         last_error: str | None = None,
     ) -> None:
         cursor = self.connection.execute(
@@ -1282,6 +1405,8 @@ class SQLiteStore:
             UPDATE tasks SET
               status=?,cards_produced=?,new_assertions=?,
               gate_accepted=?,gate_rejected_json=?,handle_conflicts=?,
+              route_handle=?,route_thread=?,route_evidence=?,route_model=?,
+              route_new=?,route_review=?,route_disagreements=?,
               attempts=attempts + CASE WHEN ?=? THEN 1 ELSE 0 END,
               last_error=CASE
                 WHEN ?=? THEN ?
@@ -1297,6 +1422,7 @@ class SQLiteStore:
                 gate_accepted,
                 canonical_json(gate_rejected or {}),
                 handle_conflicts,
+                *((route_counts or {}).get(counter, 0) for counter in ROUTE_COUNTER_NAMES),
                 status.value,
                 TaskStatus.failed.value,
                 status.value,
@@ -1845,7 +1971,25 @@ class SQLiteStore:
                     accepted=row["gate_accepted"],
                     rejected=json.loads(row["gate_rejected_json"]),
                     handle_conflicts=row["handle_conflicts"],
+                    **{counter: row[counter] for counter in ROUTE_COUNTER_NAMES},
                 ),
+            ),
+        )
+
+    @staticmethod
+    def _row_to_review_item(row: sqlite3.Row) -> ReviewItem:
+        return ReviewItem(
+            scope_id=row["scope_id"],
+            review_id=row["review_id"],
+            card_json=json.loads(row["card_json"]),
+            reasons=json.loads(row["reasons"]),
+            candidates_json=json.loads(row["candidates_json"]),
+            created_at=row["created_at"],
+            resolved_at=row["resolved_at"],
+            resolution_json=(
+                json.loads(row["resolution_json"])
+                if row["resolution_json"] is not None
+                else None
             ),
         )
 

@@ -50,6 +50,8 @@ record_model_responses:
         status: open
         occurred_at: "2026-07-29T09:00:00Z"
         source_ids: ["CRED:1699887654.123456"]
+adjudication_model_responses:
+  - {decision: new, subject_key: null, confidence: 0.9, evidence_source_ids: ["CRED:1699887654.123456"]}
 expect:
   record_reports:
     - records_processed: 2

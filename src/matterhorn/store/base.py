@@ -17,6 +17,7 @@ from matterhorn.contracts import (
     MemoryCard,
     ProjectionStats,
     Record,
+    ReviewItem,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -27,6 +28,15 @@ from matterhorn.contracts import (
 )
 
 MAX_TASK_ATTEMPTS = 5
+ROUTE_COUNTER_NAMES = (
+    "route_handle",
+    "route_thread",
+    "route_evidence",
+    "route_model",
+    "route_new",
+    "route_review",
+    "route_disagreements",
+)
 
 
 def _locked(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -257,6 +267,23 @@ class Store(Protocol):
 
     def distill_queue_count(self, scope_id: str) -> int: ...
 
+    def add_review_item(self, item: ReviewItem) -> bool: ...
+
+    def review_item(self, scope_id: str, review_id: str) -> ReviewItem | None: ...
+
+    def review_items(
+        self, scope_id: str, *, pending_only: bool = True
+    ) -> list[ReviewItem]: ...
+
+    def resolve_review_item(
+        self,
+        scope_id: str,
+        review_id: str,
+        *,
+        resolved_at: datetime,
+        resolution: dict[str, Any],
+    ) -> ReviewItem: ...
+
     def record_gate_report(
         self,
         scope_id: str,
@@ -264,6 +291,7 @@ class Store(Protocol):
         accepted: int,
         rejections: dict[str, int],
         handle_conflicts: int = 0,
+        route_counts: dict[str, int] | None = None,
     ) -> None: ...
 
     def gate_statistics(self, scope_id: str) -> GateStatistics: ...
@@ -300,6 +328,7 @@ class Store(Protocol):
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
         handle_conflicts: int = 0,
+        route_counts: dict[str, int] | None = None,
         last_error: str | None = None,
     ) -> None: ...
 

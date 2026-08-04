@@ -1,0 +1,61 @@
+case_id: thread-beats-model-suggestion
+title: Thread continuation beats a contradicting offered-anchor suggestion
+invariants: [P1, P4, P9, INV-13, INV-15]
+schema_profile: org-matters/v1
+scope_id: routing-thread
+clock:
+  - "2026-08-04T10:00:00Z"
+  - "2026-08-04T10:01:00Z"
+  - "2026-08-04T10:05:00Z"
+cards:
+  - card_id: thread-a-seed
+    scope_id: routing-thread
+    subject_key: thread-a
+    thread_id: routing-thread:conv:t1
+    date: 2026-08-04
+    title: Fictional threaded release
+    status: open
+    source_refs:
+      - {source_id: thread-a-source, sent_at: "2026-08-04T09:50:00Z", sender: Dana Reyes}
+  - card_id: thread-b-seed
+    scope_id: routing-thread
+    subject_key: thread-b
+    date: 2026-08-04
+    title: Fictional alternate release
+    status: open
+    source_refs:
+      - {source_id: thread-b-source, sent_at: "2026-08-04T09:51:00Z", sender: Ellis Stone}
+record_batches:
+  - records:
+      - record_id: routing-thread:conv:r1
+        container_id: routing-thread:conv
+        thread_id: routing-thread:conv:t1
+        sent_at: "2026-08-04T10:04:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "The threaded fictional release passed verification."
+record_model_responses:
+  - cards:
+      - date: "2026-08-04"
+        title: Fictional release verification
+        progress: Thread verification passed.
+        source_ids: [routing-thread:conv:r1]
+        subject_key: thread-b
+expect:
+  record_reports:
+    - {route_thread: 1, route_model: 0, route_disagreements: 1}
+  assertions:
+    - {subject_key: thread-a, predicate: status, object_value: open}
+    - {subject_key: thread-a, predicate: progress, object_value: Thread verification passed.}
+    - {subject_key: thread-b, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: thread-a, predicate: status, object_value: open}
+    - {subject_key: thread-a, predicate: progress, object_value: Thread verification passed.}
+    - {subject_key: thread-b, predicate: status, object_value: open}
+  subject_count: 2
+  gate_statistics:
+    scope_id: routing-thread
+    accepted: 0
+    rejections: {}
+    route_thread: 1
+    route_disagreements: 1
+  queries: []

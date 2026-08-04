@@ -1,0 +1,80 @@
+case_id: adjudication-abstains-to-review
+title: Low-confidence and malformed adjudication queue cards without ingest
+invariants: [P1, P3, P5, P9, INV-15]
+schema_profile: org-matters/v1
+scope_id: routing-review-low
+clock:
+  - "2026-08-04T12:00:00Z"
+  - "2026-08-04T12:01:00Z"
+  - "2026-08-04T12:02:00Z"
+  - "2026-08-04T12:03:00Z"
+cards:
+  - card_id: review-atlas-seed
+    scope_id: routing-review-low
+    subject_key: review-atlas
+    date: 2026-08-04
+    title: Fictional Atlas rollout
+    status: open
+    source_refs:
+      - {source_id: review-atlas-source, sent_at: "2026-08-04T11:50:00Z", sender: Dana Reyes, excerpt: "Atlas rollout remains open."}
+  - card_id: review-beacon-seed
+    scope_id: routing-review-low
+    subject_key: review-beacon
+    date: 2026-08-04
+    title: Fictional Beacon rollout
+    status: open
+    source_refs:
+      - {source_id: review-beacon-source, sent_at: "2026-08-04T11:51:00Z", sender: Ellis Stone, excerpt: "Beacon rollout remains open."}
+record_batches:
+  - records:
+      - record_id: routing-review-low:updates:r1
+        container_id: routing-review-low:updates
+        sent_at: "2026-08-04T12:02:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "Atlas rollout follow-up may belong to the prior matter."
+      - record_id: routing-review-low:updates:r2
+        container_id: routing-review-low:updates
+        sent_at: "2026-08-04T12:03:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "Beacon rollout follow-up may belong to the prior matter."
+record_model_responses:
+  - cards:
+      - date: "2026-08-04"
+        title: Atlas rollout follow-up
+        progress: This low-confidence card must wait.
+        source_ids: [routing-review-low:updates:r1]
+      - date: "2026-08-04"
+        title: Beacon rollout follow-up
+        progress: This malformed-response card must wait.
+        source_ids: [routing-review-low:updates:r2]
+adjudication_model_responses:
+  - decision: attach
+    subject_key: review-atlas
+    confidence: 0.59
+    evidence_source_ids: [routing-review-low:updates:r1]
+  - not-json
+expect:
+  record_reports:
+    - {route_review: 2, assertions_emitted: 0}
+  assertions:
+    - {subject_key: review-atlas, predicate: status, object_value: open}
+    - {subject_key: review-beacon, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: review-atlas, predicate: status, object_value: open}
+    - {subject_key: review-beacon, predicate: status, object_value: open}
+  subject_count: 2
+  gate_statistics:
+    scope_id: routing-review-low
+    accepted: 0
+    rejections: {}
+    route_review: 2
+  review_items:
+    - review_id: review_6aa3bf23fe81733cfd593c24ded2daf8a9b04d3c724288af08e9517462839bfa
+      reasons: [LOW_CONFIDENCE]
+      card_json: {title: Atlas rollout follow-up}
+      resolved_at: null
+    - review_id: review_7158d33605638b49a67e5128c9445f66762ccd789b15d387ee87a795cf5e1ce8
+      reasons: [MALFORMED_RESPONSE]
+      card_json: {title: Beacon rollout follow-up}
+      resolved_at: null
+  queries: []

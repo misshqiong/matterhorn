@@ -263,6 +263,12 @@
     .matter-facts { display: grid; grid-template-columns: 4.5rem 1fr; gap: .25rem .45rem; margin: 0; }
     .matter-facts dt { color: var(--faint); font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
     .matter-facts dd { margin: 0; font: 12px var(--serif); }
+    .review-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
+    .review-item { border-top: 1px solid var(--rule-strong); padding-top: .6rem; }
+    .review-item:first-child { border-top: 0; padding-top: 0; }
+    .review-summary { margin: .28rem 0 .45rem; color: var(--muted); font: 12px var(--serif); }
+    .review-actions { display: flex; flex-wrap: wrap; gap: .3rem; }
+    .review-actions .button { padding: .28rem .45rem; font-size: 9px; }
     .overdue { color: var(--red); font-weight: 700; }
     .empty { color: var(--faint); font: italic 13px var(--serif); }
     .detail-values { list-style: none; margin: 0; padding: 0; }
@@ -504,6 +510,14 @@
           <select id="chat-scope"><option value="">No scopes yet</option></select>
           <p class="help">Follows a single wall filter or the last-opened card.</p>
         </section>
+        <section class="sheet" aria-labelledby="review-title">
+          <div class="sheet-head">
+            <div><p class="eyebrow">Human identity decision</p><h2 id="review-title">Review</h2></div>
+            <span class="badge" id="review-count">0</span>
+          </div>
+          <ul class="review-list" id="review-list"><li class="empty">No cards awaiting review.</li></ul>
+          <p class="status-line" id="review-status" role="status"></p>
+        </section>
         <section class="sheet" id="chat-panel" aria-labelledby="chat-title" hidden>
           <div class="sheet-head">
             <div><h2 id="chat-title">Chat</h2><p class="muted">Provider reasoning over scoped deterministic tools</p></div>
@@ -569,7 +583,8 @@
     const state = {
       scopes: [], filter: "all", matters: [], detail: null, selected: "",
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
-      queryResult: null, activity: [], connections: null
+      queryResult: null, activity: [], connections: null,
+      reviews: [], reviewCount: 0
     };
     const mailPresets = {
       gmail: { host: "imap.gmail.com", port: 993, ssl: true },
@@ -645,6 +660,64 @@
       const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
       state.matters = await api(`/v1/matters${query}`);
       renderMatters();
+    }
+
+    async function fetchReviews(scopes = state.scopes) {
+      const batches = await Promise.all(scopes.map(async (scope) => {
+        const items = await api(`/v1/scopes/${encodeURIComponent(scope)}/reviews`);
+        return items.map((item) => ({ ...item, scope_id: scope }));
+      }));
+      return batches.flat().sort((left, right) => left.created_at.localeCompare(right.created_at)
+        || left.review_id.localeCompare(right.review_id));
+    }
+
+    async function loadReviews() {
+      state.reviews = await fetchReviews();
+      state.reviewCount = state.reviews.length;
+      renderReviews();
+    }
+
+    function renderReviews() {
+      byId("review-count").textContent = state.reviewCount;
+      byId("review-list").innerHTML = state.reviews.length
+        ? state.reviews.map((item) => {
+            const card = item.card_json || {};
+            const summary = card.progress || card.status || card.next_step || "No summary supplied.";
+            const candidates = (item.candidates_json || []).map((candidate) =>
+              `<button type="button" class="button secondary" data-review-action="attach" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-subject="${escapeHtml(candidate.subject_key)}">Attach to ${escapeHtml(candidate.title)}</button>`
+            ).join("");
+            return `<li class="review-item"><span class="scope-chip">${escapeHtml(item.scope_id)}</span><h3>${escapeHtml(card.title || "Untitled card")}</h3><p class="review-summary">${escapeHtml(summary)}</p><p class="help">${escapeHtml((item.reasons || []).join(" · "))}</p><div class="review-actions">${candidates}<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button></div></li>`;
+          }).join("")
+        : '<li class="empty">No cards awaiting review.</li>';
+    }
+
+    async function resolveReview(button) {
+      const action = button.dataset.reviewAction;
+      const scope = button.dataset.reviewScope;
+      const subject = button.dataset.reviewSubject || null;
+      const sender = localStorage.getItem("matterhorn.console.sender") || "Console operator";
+      const now = new Date().toISOString();
+      button.disabled = true;
+      try {
+        await api(`/v1/scopes/${encodeURIComponent(scope)}/reviews/${encodeURIComponent(button.dataset.reviewId)}/resolve`, {
+          method: "POST",
+          body: JSON.stringify({
+            action,
+            subject_key: subject,
+            source_refs: [{
+              source_id: `console:${crypto.randomUUID()}`,
+              sent_at: now,
+              sender,
+              excerpt: action === "attach" ? `Console review attached this card to ${subject}.` : "Console review created a new matter."
+            }]
+          })
+        });
+        setStatus("review-status", "Review resolved.", "success");
+        await Promise.all([loadReviews(), loadMatters(), loadActivity()]);
+      } catch (error) {
+        button.disabled = false;
+        setStatus("review-status", error.message, "error");
+      }
     }
 
     function detailHtml(detail) {
@@ -1042,15 +1115,24 @@
 
     async function pollWall() {
       // Keep the wall live without re-render churn: only touch the DOM on change.
-      const scopes = await api("/v1/scopes");
+      let scopes = await api("/v1/scopes");
       if (JSON.stringify(scopes) !== JSON.stringify(state.scopes)) {
         await loadScopes(state.chatScope);
+        scopes = state.scopes;
       }
       const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
       const matters = await api(`/v1/matters${query}`);
       if (JSON.stringify(matters) !== JSON.stringify(state.matters)) {
         state.matters = matters;
         renderMatters();
+      }
+      const reviews = await fetchReviews(scopes);
+      const reviewCount = reviews.length;
+      if (reviewCount !== state.reviewCount
+          || JSON.stringify(reviews) !== JSON.stringify(state.reviews)) {
+        state.reviews = reviews;
+        state.reviewCount = reviewCount;
+        renderReviews();
       }
     }
 
@@ -1155,6 +1237,10 @@
       const card = event.target.closest("[data-subject]");
       if (card) loadDetail(card.dataset.scope, card.dataset.subject);
     });
+    byId("review-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-review-action]");
+      if (button) resolveReview(button);
+    });
     byId("detail-dialog").addEventListener("click", (event) => {
       const correct = event.target.closest(".correct-value");
       if (correct) { openCorrection(correct); return; }
@@ -1210,7 +1296,7 @@
     byId("correction-sender").value = localStorage.getItem("matterhorn.console.sender") || "";
     updateQueryFields();
     applyMailPreset();
-    Promise.all([loadScopes(), loadMatters(), loadChatConfig(), loadMailAccounts(), loadActivity(), loadConnections()]).catch((error) => {
+    Promise.all([loadScopes().then(() => loadReviews()), loadMatters(), loadChatConfig(), loadMailAccounts(), loadActivity(), loadConnections()]).catch((error) => {
       byId("hub-state").className = "badge danger";
       byId("top-summary").textContent = error.message;
     });
