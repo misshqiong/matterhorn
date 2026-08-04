@@ -62,6 +62,22 @@ Scope: <code>dev</code>
 
 </details>
 
+## Hub resilience
+
+- Status: <code>done</code>
+- Owners: —
+- Blocked by: —
+- Next step: —
+- Due: —
+
+<details>
+<summary>Timeline</summary>
+
+- <code>2026-08-04T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:1cbf62dd40ddfb79cb513e7269e6252e9cc4d360](<https://github.com/misshqiong/matterhorn/commit/1cbf62dd40ddfb79cb513e7269e6252e9cc4d360>)
+
+</details>
+
 ## Add hands-on acceptance manual
 
 - Status: <code>done</code>
@@ -108,7 +124,7 @@ Scope: <code>dev</code>
 
 ## Spec-first: normative SPEC.md and golden conformance suite
 
-- Status: <code>pending</code>
+- Status: <code>done</code>
 - Owners: —
 - Blocked by: —
 - Next step: —
@@ -123,6 +139,8 @@ Scope: <code>dev</code>
   - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>)
 - <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"pending"</code>
   - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>)
+- <code>2026-08-03T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:d238c076f61ad78dfc76449bd459d33f0ecd30c2](<https://github.com/misshqiong/matterhorn/commit/d238c076f61ad78dfc76449bd459d33f0ecd30c2>)
 
 </details>
 
