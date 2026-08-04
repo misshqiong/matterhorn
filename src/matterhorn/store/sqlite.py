@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS evidence_sources (
     revoked_at TEXT,
     PRIMARY KEY (scope_id, source_id)
 );
+CREATE TABLE IF NOT EXISTS person_names (
+    scope_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (scope_id, person_id)
+);
 CREATE TABLE IF NOT EXISTS sync_positions (
     scope_id TEXT NOT NULL,
     container_id TEXT NOT NULL,
@@ -421,6 +428,7 @@ class SQLiteStore:
                 "subject_merges",
                 "subject_handles",
                 "subjects",
+                "person_names",
                 "sync_positions",
                 "evidence_sources",
                 "staged_records",
@@ -795,6 +803,49 @@ class SQLiteStore:
             (scope_id,),
         )
         return [SyncPosition.model_validate(dict(row)) for row in rows]
+
+    def upsert_person_names(
+        self,
+        scope_id: str,
+        names: dict[str, str],
+        *,
+        seen_at: datetime,
+    ) -> None:
+        if not names:
+            return
+        seen_text = instant_text(seen_at)
+        self.connection.executemany(
+                """
+                INSERT INTO person_names(
+                  scope_id,person_id,display_name,last_seen_at
+                ) VALUES(?,?,?,?)
+                ON CONFLICT(scope_id,person_id) DO UPDATE SET
+                  display_name=CASE
+                    WHEN excluded.last_seen_at >= person_names.last_seen_at
+                      THEN excluded.display_name
+                    ELSE person_names.display_name
+                  END,
+                  last_seen_at=CASE
+                    WHEN excluded.last_seen_at >= person_names.last_seen_at
+                      THEN excluded.last_seen_at
+                    ELSE person_names.last_seen_at
+                  END
+                """,
+                [
+                    (scope_id, person_id, display_name, seen_text)
+                    for person_id, display_name in sorted(names.items())
+                ],
+            )
+
+    def person_names(self, scope_id: str) -> dict[str, str]:
+        rows = self.connection.execute(
+            """
+            SELECT person_id, display_name FROM person_names
+            WHERE scope_id=? ORDER BY person_id COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return {row["person_id"]: row["display_name"] for row in rows}
 
     def delete_sync_position(self, scope_id: str, container_id: str) -> bool:
         cursor = self.connection.execute(

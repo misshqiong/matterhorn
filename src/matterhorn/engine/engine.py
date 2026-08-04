@@ -118,6 +118,8 @@ class Matter:
     subject_key: str
     aliases: list[str]
     updated_at: datetime | None
+    owners_display: list[Any] | None = None
+    participants_display: list[Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -129,6 +131,8 @@ class Matter:
             "next_step": self.next_step,
             "due": self.due,
             "subject_key": self.subject_key,
+            "owners_display": self.owners_display or self.owners,
+            "participants_display": self.participants_display or self.participants,
             "aliases": self.aliases,
             "updated_at": self.updated_at,
         }
@@ -532,6 +536,26 @@ class Engine:
                     *(record for record, _ in observations),
                 ]
             }
+            # Person directory: ids stay the identity in assertions; names are
+            # display data, registered whenever a record author carries one.
+            names = {
+                record.author.id: record.author.display_name
+                for record, _ in observations
+                if record.author.display_name
+                and record.author.display_name != record.author.id
+            }
+            for card in cards:
+                for participant in card.participants:
+                    display = getattr(participant, "display_name", None)
+                    if display and display != participant.id:
+                        names[participant.id] = display
+            if names:
+                # Deterministic stamp without consuming the engine clock
+                # (conformance clocks are finite iterators).
+                seen_at = max(
+                    _record_observed_at(record) for record, _ in observations
+                )
+                self.store.upsert_person_names(scope_id, names, seen_at=seen_at)
             for record, observation_hash in observations:
                 self.store.observe_source(
                     scope_id,
@@ -1494,6 +1518,7 @@ class Engine:
 
         result = []
         aliases = self._subject_aliases(scope_id)
+        names = self.store.person_names(scope_id)
         updated_at: dict[str, datetime] = {}
         for assertion in _canonicalized_assertions(
             self.store.assertions(scope_id),
@@ -1515,6 +1540,14 @@ class Engine:
                     due=current.get("due_at"),
                     subject_key=subject.subject_key,
                     aliases=aliases.get(subject.subject_key, []),
+                    owners_display=[
+                        names.get(str(item), item)
+                        for item in _as_list(current.get("owned_by"))
+                    ],
+                    participants_display=[
+                        names.get(str(item), item)
+                        for item in _as_list(current.get("participated_by"))
+                    ],
                     updated_at=updated_at.get(subject.subject_key),
                 )
             )

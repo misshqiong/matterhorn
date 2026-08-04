@@ -738,3 +738,49 @@ def test_thread_identity_precedes_title_and_cross_thread_merge_needs_two_sources
         ]
     )
     assert len(engine.query.list_matters("s")) == 2
+
+
+def test_participants_display_resolves_person_names(tmp_path) -> None:
+    import json as _json
+
+    from matterhorn import Engine
+
+    class NamedGateway:
+        def complete(self, **kwargs):
+            payload = _json.loads(kwargs["user"])
+            if "records" not in payload:
+                return _json.dumps({"candidates": []})
+            return _json.dumps(
+                {
+                    "cards": [
+                        {
+                            "date": "2026-08-04",
+                            "title": "Fictional naming matter",
+                            "status": "open",
+                            "participants": [
+                                {"id": "u-42", "display_name": "Dana Reyes"}
+                            ],
+                            "source_ids": ["m1"],
+                        }
+                    ]
+                }
+            )
+
+    engine = Engine(tmp_path / "names.db", llm=NamedGateway())
+    engine.add(
+        "named",
+        [
+            {
+                "id": "m1",
+                "sender": {"id": "u-42", "name": "Dana Reyes"},
+                "text": "Fictional update from Dana.",
+                "sent_at": "2026-08-04T09:00:00Z",
+                "conversation_id": "room",
+            }
+        ],
+        wait=True,
+    )
+    matter = engine.matters("named")[0]
+    assert matter.participants == ["u-42"]  # ids stay the identity
+    assert matter.participants_display == ["Dana Reyes"]  # names are display
+    assert engine.store.person_names("named") == {"u-42": "Dana Reyes"}

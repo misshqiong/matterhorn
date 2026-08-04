@@ -195,6 +195,8 @@ class MatterResponse(StrictModel):
     subject_key: str
     aliases: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
+    owners_display: list[Any] = Field(default_factory=list)
+    participants_display: list[Any] = Field(default_factory=list)
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
@@ -231,6 +233,7 @@ class MatterDetailResponse(StrictModel):
     subject_key: str
     subject_type: str
     title: str
+    person_names: dict[str, str] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
     handles: list[SubjectHandleResponse] = Field(default_factory=list)
     current: list[ValueResponse]

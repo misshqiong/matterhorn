@@ -290,7 +290,7 @@
     .timeline-panel { margin-top: .9rem; padding-top: .75rem; border-top: 2px double var(--rule); }
     .timeline-panel h3 { margin: 0 0 .55rem; font-size: 14px; }
     .matter-timeline { list-style: none; margin: 0; padding: 0 0 0 .7rem; border-left: 1px solid var(--rule-strong); }
-    .timeline-entry { position: relative; display: grid; grid-template-columns: 6.3rem minmax(0, 1fr); gap: .65rem; padding: .15rem 0 .75rem .65rem; }
+    .timeline-entry { position: relative; display: grid; grid-template-columns: 7.6rem minmax(0, 1fr); gap: .65rem; padding: .15rem 0 .75rem .65rem; }
     .timeline-entry::before { content: ""; position: absolute; left: -.92rem; top: .38rem; width: .36rem; height: .36rem; border: 1px solid var(--ink); border-radius: 50%; background: var(--sheet); }
     .timeline-date { color: var(--faint); font: 10px var(--mono); }
     .timeline-value { margin-top: .12rem; font: 13px var(--serif); }
@@ -814,10 +814,14 @@
     }
 
     function detailHtml(detail) {
+      const personNames = detail.person_names || {};
+      const withNames = (value) => Array.isArray(value)
+        ? value.map((item) => personNames[item] || item)
+        : (personNames[value] || value);
       const values = detail.current.length
         ? detail.current.map((value) => `<li>
             <span class="predicate">${escapeHtml(value.predicate)}</span>
-            <span>${escapeHtml(displayValue(value.value))}<div class="evidence">${escapeHtml(value.origin)} · ${escapeHtml(value.evidence_status)} · ${escapeHtml((value.source_ids || []).join(", "))}</div></span>
+            <span>${escapeHtml(displayValue(withNames(value.value)))}<div class="evidence">${escapeHtml(value.origin)} · ${escapeHtml(value.evidence_status)} · ${escapeHtml((value.source_ids || []).join(", "))}</div></span>
             <button type="button" class="correct-value" data-predicate="${escapeHtml(value.predicate)}" data-value="${escapeHtml(JSON.stringify(value.value))}">correct</button>
           </li>`).join("")
         : '<li class="empty">No current values.</li>';
@@ -829,7 +833,7 @@
             `<span class="handle-chip" title="${escapeHtml(handle.handle_type)}">${escapeHtml(handle.handle_value)}</span>`
           ).join("")}</div>`
         : "";
-      const timeline = timelineHtml(detail);
+      const timeline = timelineHtml(detail, personNames);
       const mergeTargets = state.matters.filter((matter) =>
         matter.scope_id === detail.scope_id && matter.subject_key !== detail.subject_key
       );
@@ -850,7 +854,7 @@
         ${aliases}${handles}<ul class="detail-values">${values}</ul>${timeline}${mergeControl}`;
     }
 
-    function timelineHtml(detail) {
+    function timelineHtml(detail, personNames = {}) {
       const tracked = new Set(["status", "progress", "outcome"]);
       const entries = Object.entries(detail.timeline || {})
         .filter(([predicate]) => tracked.has(predicate))
@@ -881,8 +885,9 @@
                 }).join("")
               : `<div class="timeline-source">${escapeHtml((entry.source_ids || []).join(", "))}</div>`;
             const date = new Date(entry.valid_from);
-            const label = Number.isNaN(date.valueOf()) ? entry.valid_from : date.toLocaleDateString();
-            return `<li class="timeline-entry"><time class="timeline-date" datetime="${escapeHtml(entry.valid_from)}">${escapeHtml(label)}</time><div><span class="predicate">${escapeHtml(entry.predicate)}</span>${convChip}<div class="timeline-value clamp clamp-value">${escapeHtml(displayValue(entry.value))}</div>${sources}</div></li>`;
+            const two = (n) => String(n).padStart(2, "0");
+            const label = Number.isNaN(date.valueOf()) ? entry.valid_from : `${date.getMonth() + 1}/${date.getDate()} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+            return `<li class="timeline-entry"><time class="timeline-date" datetime="${escapeHtml(entry.valid_from)}">${escapeHtml(label)}</time><div><span class="predicate">${escapeHtml(entry.predicate)}</span>${convChip}<div class="timeline-value clamp clamp-value">${escapeHtml(displayValue(personNames[entry.value] || entry.value))}</div>${sources}</div></li>`;
           }).join("")
         : '<li class="empty">No status or progress history yet.</li>';
       return `<section class="timeline-panel"><h3>Timeline</h3><ol class="matter-timeline">${rows}</ol></section>`;
@@ -902,7 +907,7 @@
               <div class="matter-top"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span></span></div>
               <h3>${escapeHtml(matter.title)}</h3>
               <dl class="matter-facts">
-                <dt>Owners</dt><dd>${escapeHtml(compactValue(matter.owners))}</dd>
+                <dt>Owners</dt><dd>${escapeHtml(compactValue(matter.owners_display || matter.owners))}</dd>
                 <dt>Due</dt><dd class="${overdue ? "overdue" : ""}">${escapeHtml(dueDate && !Number.isNaN(dueDate.valueOf()) ? dueDate.toLocaleString() : "—")}</dd>
                 <dt>Next</dt><dd>${escapeHtml(compactValue(matter.next_step))}</dd>
               </dl>
