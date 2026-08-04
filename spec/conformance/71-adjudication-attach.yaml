@@ -57,10 +57,9 @@ expect:
   record_reports:
     - {route_model: 1, route_review: 0}
   adjudication_calls:
-    - candidate_keys: [atlas-matter, beacon-matter]
+    - candidate_keys: [atlas-matter]
       candidates:
         - {subject_key: atlas-matter, title: Fictional Atlas launch, status: open, next_step: Verify the launch checklist.}
-        - {subject_key: beacon-matter, title: Fictional Beacon migration, status: open}
   assertions:
     - {subject_key: atlas-matter, predicate: status, object_value: open}
     - {subject_key: atlas-matter, predicate: next_step, object_value: Verify the launch checklist.}

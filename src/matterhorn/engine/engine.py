@@ -822,23 +822,16 @@ class Engine:
             )
             recalled.append((candidate_score(card, candidate), candidate))
 
+        # Only lexically related candidates are offered. Zero-score filler
+        # candidates created false dilemmas: a genuinely NEW topic faced a
+        # lineup of unrelated matters, the adjudicator abstained, the card
+        # queued for review, and the topic could never form a matter — every
+        # later batch repeated the loop. No positive candidate → clean new.
         positive = sorted(
             (item for item in recalled if item[0] > 0),
             key=lambda item: (-item[0], item[1].subject_key.encode("utf-8")),
         )
-        selected = positive[:5]
-        if len(selected) < 3:
-            selected_keys = {item.subject_key for _, item in selected}
-            zero = sorted(
-                (
-                    item
-                    for item in recalled
-                    if item[1].subject_key not in selected_keys
-                ),
-                key=lambda item: item[1].subject_key.encode("utf-8"),
-            )
-            selected.extend(zero[: 3 - len(selected)])
-        return [candidate for _, candidate in selected[:5]]
+        return [candidate for _, candidate in positive[:5]]
 
     def _subject_open_from_cards(
         self,

@@ -1671,10 +1671,12 @@ from its title plus cited SourceRef excerpts. Candidate tokens come from the
 subject title, aliases, active handle values, and recent evidence excerpts.
 The score is the integer set-intersection size. Order positive-scoring matters
 by descending score, then UTF-8-bytewise ascending `subject_key`, and offer at
-most five. If fewer than three matters score positively, append zero-scoring
-open matters in bytewise key order until three are offered or none remain.
-Thus an available pool normally yields three to five candidates; an empty open
-pool yields zero and goes directly to rung 5. For each candidate, stable-union
+most five. Zero-scoring matters MUST NOT be offered: adjudication exists to
+resolve ambiguity among lexically related candidates, and a lineup of
+unrelated matters manufactures a false dilemma — the adjudicator abstains, the
+card is queued for review, no matter forms, and every later batch on the same
+new topic repeats the loop. When no matter scores positively the card proceeds
+directly to rung 5 as a clean new subject. For each candidate, stable-union
 the newest evidence excerpts up to 300 Unicode characters total.
 
 The dedicated adjudication prompt MUST carry the complete card title, summary

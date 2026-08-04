@@ -619,11 +619,19 @@ def _run_message_batches(
             instant = flush["at"]
             if not isinstance(instant, datetime):
                 instant = datetime.fromisoformat(instant)
-            reports = engine.flush_quiet_at(
-                flush["quiet_period_minutes"],
-                instant,
-                max_batch_delay_minutes=flush["max_batch_delay_minutes"],
-            )
+            reports = [
+                report
+                for report in engine.flush_quiet_at(
+                    flush["quiet_period_minutes"],
+                    instant,
+                    max_batch_delay_minutes=flush["max_batch_delay_minutes"],
+                )
+                # flush_quiet is store-global; on a shared backend (the
+                # PostgreSQL conformance database) another case's leftover
+                # scope may also be due. Cases are scope-namespaced, so only
+                # this case's reports are part of its contract.
+                if report.scope_id == case["scope_id"]
+            ]
         else:
             raise ConformanceFailure(
                 f"unknown message batch flush mode {flush.get('mode')!r}"
