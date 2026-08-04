@@ -93,6 +93,7 @@ from matterhorn.store.base import MAX_TASK_ATTEMPTS, ROUTE_COUNTER_NAMES
 Clock = Callable[[], datetime]
 DEFAULT_MAX_ANCHORS = 40
 DEFAULT_STAGING_RETENTION_DAYS = 7
+DEFAULT_MAX_BATCH_DELAY_MINUTES = 5
 DEFAULT_CONTEXT_MAX_RECORDS = 20
 DEFAULT_CONTEXT_MAX_CHARS = 4000
 SUBJECT_MERGE_PREDICATE = "subject_merge"
@@ -116,6 +117,7 @@ class Matter:
     due: Any
     subject_key: str
     aliases: list[str]
+    updated_at: datetime | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +130,7 @@ class Matter:
             "due": self.due,
             "subject_key": self.subject_key,
             "aliases": self.aliases,
+            "updated_at": self.updated_at,
         }
 
 
@@ -174,6 +177,7 @@ class _RoutePlan:
 
 class Engine:
     DEFAULT_STAGING_RETENTION_DAYS = DEFAULT_STAGING_RETENTION_DAYS
+    DEFAULT_MAX_BATCH_DELAY_MINUTES = DEFAULT_MAX_BATCH_DELAY_MINUTES
     DEFAULT_CONTEXT_MAX_RECORDS = DEFAULT_CONTEXT_MAX_RECORDS
     DEFAULT_CONTEXT_MAX_CHARS = DEFAULT_CONTEXT_MAX_CHARS
 
@@ -187,6 +191,7 @@ class Engine:
         gateway: LlmGateway | None = None,
         extractor: RecordExtractor | None = None,
         staging_retention_days: float = DEFAULT_STAGING_RETENTION_DAYS,
+        max_batch_delay_minutes: float = DEFAULT_MAX_BATCH_DELAY_MINUTES,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -197,6 +202,9 @@ class Engine:
         self._extractor = extractor
         self.staging_retention_days = validate_staging_retention_days(
             staging_retention_days
+        )
+        self.max_batch_delay_minutes = validate_max_batch_delay_minutes(
+            max_batch_delay_minutes
         )
         self.query = QueryService(
             self.store,
@@ -1493,6 +1501,14 @@ class Engine:
 
         result = []
         aliases = self._subject_aliases(scope_id)
+        updated_at: dict[str, datetime] = {}
+        for assertion in _canonicalized_assertions(
+            self.store.assertions(scope_id),
+            self.store.subject_merges(scope_id),
+        ):
+            previous = updated_at.get(assertion.subject_key)
+            if previous is None or assertion.recorded_at > previous:
+                updated_at[assertion.subject_key] = assertion.recorded_at
         for subject in self.query.list_matters(scope_id):
             current = subject.current
             result.append(
@@ -1506,6 +1522,7 @@ class Engine:
                     due=current.get("due_at"),
                     subject_key=subject.subject_key,
                     aliases=aliases.get(subject.subject_key, []),
+                    updated_at=updated_at.get(subject.subject_key),
                 )
             )
         return result
@@ -1623,28 +1640,53 @@ class Engine:
             ),
         )
 
-    def flush_quiet(self, quiet_period_minutes: float = 10) -> list[FlushReport]:
+    def flush_quiet(
+        self,
+        quiet_period_minutes: float = 10,
+        *,
+        max_batch_delay_minutes: float | None = None,
+    ) -> list[FlushReport]:
         if quiet_period_minutes < 0:
             raise ValueError("quiet_period_minutes MUST be non-negative")
-        cutoff = self._clock() - timedelta(minutes=quiet_period_minutes)
+        maximum_delay = validate_max_batch_delay_minutes(
+            self.max_batch_delay_minutes
+            if max_batch_delay_minutes is None
+            else max_batch_delay_minutes
+        )
+        reference = self._clock()
+        quiet_cutoff = reference - timedelta(minutes=quiet_period_minutes)
+        delay_cutoff = reference - timedelta(minutes=maximum_delay)
         return [
             self.flush(scope_id)
             for scope_id in self.store.quiet_scopes(
-                cutoff,
+                quiet_cutoff,
+                delay_cutoff=delay_cutoff,
                 max_attempts=MAX_TASK_ATTEMPTS,
             )
         ]
 
     def flush_quiet_at(
-        self, quiet_period_minutes: float, instant: datetime
+        self,
+        quiet_period_minutes: float,
+        instant: datetime,
+        *,
+        max_batch_delay_minutes: float | None = None,
     ) -> list[FlushReport]:
         if quiet_period_minutes < 0:
             raise ValueError("quiet_period_minutes MUST be non-negative")
-        cutoff = as_utc(instant) - timedelta(minutes=quiet_period_minutes)
+        maximum_delay = validate_max_batch_delay_minutes(
+            self.max_batch_delay_minutes
+            if max_batch_delay_minutes is None
+            else max_batch_delay_minutes
+        )
+        reference = as_utc(instant)
+        quiet_cutoff = reference - timedelta(minutes=quiet_period_minutes)
+        delay_cutoff = reference - timedelta(minutes=maximum_delay)
         return [
             self.flush(scope_id)
             for scope_id in self.store.quiet_scopes(
-                cutoff,
+                quiet_cutoff,
+                delay_cutoff=delay_cutoff,
                 max_attempts=MAX_TASK_ATTEMPTS,
             )
         ]
@@ -2474,6 +2516,20 @@ def validate_staging_retention_days(value: object) -> float:
         ) from error
     if not math.isfinite(parsed) or parsed <= 0:
         raise ValueError("staging retention days MUST be a positive finite number")
+    return parsed
+
+
+def validate_max_batch_delay_minutes(value: object) -> float:
+    if isinstance(value, bool):
+        raise TypeError("max batch delay minutes MUST be a positive finite number")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "max batch delay minutes MUST be a positive finite number"
+        ) from error
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError("max batch delay minutes MUST be a positive finite number")
     return parsed
 
 

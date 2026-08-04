@@ -97,6 +97,13 @@ class RecordObservationRow:
 
 
 @dataclass(frozen=True)
+class StagedRecordRow:
+    scope_id: str
+    record: Record
+    staged_at: str
+
+
+@dataclass(frozen=True)
 class QuerySubjectRow:
     subject_key: str
     subject_type: str
@@ -164,6 +171,10 @@ class Store(Protocol):
         thread_id: str | None,
         exclude_record_ids: list[str],
     ) -> list[Record]: ...
+
+    def recent_staged(
+        self, scope_id: str | None, *, limit: int
+    ) -> list[StagedRecordRow]: ...
 
     def purge_staged_records(self, scope_id: str, *, before: datetime) -> int: ...
 
@@ -334,8 +345,9 @@ class Store(Protocol):
 
     def quiet_scopes(
         self,
-        cutoff: datetime,
+        quiet_cutoff: datetime,
         *,
+        delay_cutoff: datetime | None = None,
         max_attempts: int = MAX_TASK_ATTEMPTS,
     ) -> list[str]: ...
 

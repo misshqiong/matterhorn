@@ -203,6 +203,12 @@ def test_staging_retention_must_be_positive_and_finite(
         Engine(tmp_path / "invalid-retention.db", staging_retention_days=retention)
 
 
+@pytest.mark.parametrize("delay", [0, -1, float("inf"), float("nan"), True])
+def test_max_batch_delay_must_be_positive_and_finite(tmp_path, delay) -> None:
+    with pytest.raises((TypeError, ValueError), match="positive finite"):
+        Engine(tmp_path / "invalid-delay.db", max_batch_delay_minutes=delay)
+
+
 def test_wait_returns_completed_result_inline(tmp_path) -> None:
     result = Engine(
         tmp_path / "wait.db",
@@ -462,6 +468,25 @@ def test_quiet_period_flushes_only_old_pending_message_scopes(tmp_path) -> None:
     receipt = engine.add("team", [_message()])
     reports = engine.flush_quiet(10)
     assert [report.scope_id for report in reports] == ["team"]
+    assert engine.task(receipt.task_id).status == TaskStatus.completed
+
+
+def test_max_batch_delay_flushes_busy_scope_but_not_fresh_task(tmp_path) -> None:
+    now = datetime(2026, 8, 4, 9, tzinfo=UTC)
+    engine = Engine(
+        tmp_path / "deadline.db",
+        llm=FacadeGateway(),
+        clock=lambda: now,
+        max_batch_delay_minutes=5,
+    )
+    message = _message(sent_at=now.isoformat())
+    receipt = engine.add("busy-team", [message])
+
+    assert engine.flush_quiet_at(10, now + timedelta(minutes=4)) == []
+    assert engine.task(receipt.task_id).status == TaskStatus.pending
+
+    reports = engine.flush_quiet_at(10, now + timedelta(minutes=5))
+    assert [report.scope_id for report in reports] == ["busy-team"]
     assert engine.task(receipt.task_id).status == TaskStatus.completed
 
 

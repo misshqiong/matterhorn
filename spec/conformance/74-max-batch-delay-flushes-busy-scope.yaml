@@ -1,0 +1,32 @@
+case_id: max-batch-delay-flushes-busy-scope
+title: An old pending batch flushes while its conversation is still active
+invariants: [P1, P9, INV-6]
+schema_profile: org-matters/v1
+scope_id: fictional-busy-deadline
+clock:
+  - "2026-08-04T09:00:00Z"
+  - "2026-08-04T09:06:00Z"
+cards: []
+message_batches:
+  - messages:
+      - id: busy-old
+        conversation_id: continuous-room
+        sender: {id: dana, name: Dana Reyes}
+        text: "Fictional continuous-room work is still active."
+        sent_at: "2026-08-04T09:00:00Z"
+    flush:
+      mode: quiet
+      at: "2026-08-04T09:06:00Z"
+      quiet_period_minutes: 10
+      max_batch_delay_minutes: 5
+message_model_responses:
+  - {cards: []}
+expect:
+  task_results:
+    - {status: completed, cards_produced: 0, new_assertions: 0}
+  flush_reports:
+    - [{scope_id: fictional-busy-deadline, tasks_processed: 1}]
+  assertions: []
+  intervals: []
+  subject_count: 0
+  queries: []

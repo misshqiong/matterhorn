@@ -45,6 +45,7 @@ from matterhorn.api.models import (
     ReviewListResponse,
     ReviewResolveInput,
     ScopeListResponse,
+    StreamListResponse,
     SubjectHandleBindInput,
     SubjectHandleListResponse,
     SubjectHandleResponse,
@@ -81,6 +82,7 @@ def create_app(
     engine: Any = None,
     service: MatterhornService | None = None,
     quiet_period_minutes: float | None = None,
+    max_batch_delay_minutes: float | None = None,
     daily_flush_at: str | None = None,
     scheduler_clock: Any = None,
     scheduler_poll_seconds: float = 30,
@@ -131,6 +133,7 @@ def create_app(
             ServiceScheduler(
                 service.engine,
                 quiet_period_minutes=quiet_period_minutes,
+                max_batch_delay_minutes=max_batch_delay_minutes,
                 daily_flush_at=daily_flush_at,
                 clock=scheduler_clock,
             )
@@ -266,6 +269,22 @@ def create_app(
     )
     def scopes():
         return service.list_scopes()
+
+    @app.get(
+        "/v1/stream",
+        response_model=StreamListResponse,
+        summary="Read the newest non-revoked staged Records across scopes",
+    )
+    def stream(limit: int = 50):
+        return service.recent_stream(limit=limit)
+
+    @app.get(
+        "/v1/scopes/{scope_id}/stream",
+        response_model=StreamListResponse,
+        summary="Read the newest non-revoked staged Records in one scope",
+    )
+    def scoped_stream(scope_id: str, limit: int = 50):
+        return service.recent_stream(scope_id=scope_id, limit=limit)
 
     @app.get(
         "/v1/events",

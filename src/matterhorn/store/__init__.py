@@ -3,6 +3,7 @@ from matterhorn.store.base import (
     QuerySubjectRow,
     QueryValueRow,
     RecordObservationRow,
+    StagedRecordRow,
     Store,
     TaskRow,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "QueryValueRow",
     "RecordObservationRow",
     "SQLiteStore",
+    "StagedRecordRow",
     "Store",
     "TaskRow",
 ]

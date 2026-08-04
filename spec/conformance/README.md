@@ -15,7 +15,7 @@ store view for the case's `scope_id`.
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
 | `cards` | yes | Ordered EpisodeCard mappings, validated exactly as SPEC section 3.3. |
-| `message_batches` | no | Ordered `{messages}` batches passed to `add`, each followed by `flush`. |
+| `message_batches` | no | Ordered `{messages}` batches passed to `add`, each followed by `flush`. A batch may instead declare `flush: {mode: quiet, at, quiet_period_minutes, max_batch_delay_minutes}` to run deadline-aware quiet selection at the injected instant. |
 | `message_model_responses` | no | Ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
 | `record_batches` | no | Ordered `{records, cursors?, backfill?, batch_size?, purge_staging_at?}` mappings. A `purge_staging_at` RFC 3339 instant runs the configured retention purge immediately before that batch. |
 | `record_model_responses` | no | Ordered Record-to-card response fixtures, one per extractor call over unseen, non-revoked Records. |
@@ -109,6 +109,8 @@ fixture queue.
 | `second_record_reports` | Ordered partial reports after exact Record re-ingest. |
 | `task_results` | Ordered partial task results for first-pass Message batches. |
 | `second_task_results` | Ordered partial results after exact Message re-add. |
+| `flush_reports` | Ordered lists of partial FlushReport mappings from first-pass Message batch flush selection. |
+| `second_flush_reports` | Equivalent report lists after exact Message re-add. |
 | `extraction_calls` | Ordered calls, each with exact ordered `context` and `records` lists of partial Record mappings. `context` may be omitted to assert the empty list. |
 | `staging_purge_counts` | Exact ordered deleted-row counts for `record_batches` that declare `purge_staging_at`. |
 | `events` | Partial ChangeEvent mappings compared as an exact multiset. |

@@ -606,6 +606,29 @@ def test_cli_rejects_invalid_staging_retention_environment(tmp_path) -> None:
     assert "MATTERHORN_STAGING_RETENTION_DAYS" in completed.stderr
 
 
+def test_cli_rejects_invalid_max_batch_delay_environment(tmp_path) -> None:
+    environment = dict(os.environ)
+    environment["MATTERHORN_MAX_BATCH_DELAY"] = "not-a-number"
+    completed = subprocess.run(
+        _command("matters", "fictional-team", "--db", str(tmp_path / "x.db")),
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        env=environment,
+    )
+
+    assert completed.returncode == 2
+    assert "MATTERHORN_MAX_BATCH_DELAY" in completed.stderr
+
+
+def test_service_launches_document_max_batch_delay_option_and_environment() -> None:
+    for command_name in ["serve", "console"]:
+        command = _cli_metadata(command_name)
+        option = _parameter(command, "max_batch_delay_minutes")
+        assert "--max-batch-delay-minutes" in option.opts
+        assert "MATTERHORN_MAX_BATCH_DELAY" in (option.help or "")
+
+
 def test_dream_help_documents_environment_credentials() -> None:
     command = _cli_metadata("dream")
     help_text = " ".join(
@@ -624,7 +647,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=73 failed=0 total=73" in completed.stdout
+    assert "SUMMARY passed=75 failed=0 total=75" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

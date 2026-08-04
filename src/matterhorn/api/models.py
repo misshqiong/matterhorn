@@ -194,6 +194,7 @@ class MatterResponse(StrictModel):
     due: Any = None
     subject_key: str
     aliases: list[str] = Field(default_factory=list)
+    updated_at: datetime | None = None
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
@@ -209,6 +210,20 @@ class UnifiedMatterListResponse(RootModel[list[UnifiedMatterResponse]]):
 
 
 class ScopeListResponse(RootModel[list[str]]):
+    pass
+
+
+class StreamItemResponse(StrictModel):
+    scope_id: str
+    container_id: str
+    sender: str
+    sent_at: datetime
+    content: str
+    record_id: str
+    staged_at: datetime
+
+
+class StreamListResponse(RootModel[list[StreamItemResponse]]):
     pass
 
 

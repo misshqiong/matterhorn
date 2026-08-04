@@ -282,17 +282,19 @@ conversation without creating a duplicate.
 
 Service mode exposes resource-style REST endpoints under
 `/v1/scopes/{scope_id}` and persistent tasks under `/v1/tasks/{task_id}`.
-`mh serve` alone runs quiet-period auto-flush (10 minutes by default);
-it can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
+`mh serve` and `mh console` run quiet-period auto-flush (10 minutes by default)
+with a five-minute maximum batch delay so busy conversations cannot starve.
+Use `--max-batch-delay-minutes` or `MATTERHORN_MAX_BATCH_DELAY` to override it.
+Service mode can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 63
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 75
 language-neutral golden cases include the Message door, conversation-scoped
 rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=73 failed=0 total=73
+SUMMARY passed=75 failed=0 total=75
 ```
 
 ### Extraction quality evaluation

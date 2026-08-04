@@ -96,6 +96,55 @@ def test_staging_upserts_latest_record_and_reads_deterministic_context(tmp_path)
     ]
 
 
+def test_recent_staged_orders_across_scopes_and_excludes_revoked(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "recent-staging.db")
+    sent_at = datetime(2026, 8, 4, 9, tzinfo=UTC)
+
+    def record(
+        record_id: str,
+        *,
+        container_id: str,
+        sent_offset: int = 0,
+        revoked: bool = False,
+    ) -> Record:
+        observed = sent_at + timedelta(minutes=sent_offset)
+        return Record(
+            record_id=f"{container_id}:{record_id}",
+            native_id=record_id,
+            container_id=container_id,
+            sent_at=observed,
+            author={"id": "dana", "display_name": "Dana Reyes", "kind": "human"},
+            content=f"Fictional stream item {record_id}.",
+            revoked_at=observed + timedelta(minutes=1) if revoked else None,
+            kind="revocation" if revoked else "message",
+        )
+
+    with store.transaction():
+        store.stage_records(
+            "scope-a",
+            [
+                record("a", container_id="room-a"),
+                record("z", container_id="room-a"),
+                record("revoked", container_id="room-a", revoked=True),
+            ],
+            staged_at=sent_at + timedelta(minutes=2),
+        )
+        store.stage_records(
+            "scope-b",
+            [record("new-stage", container_id="room-b", sent_offset=-5)],
+            staged_at=sent_at + timedelta(minutes=3),
+        )
+
+    assert [row.record.record_id for row in store.recent_staged(None, limit=10)] == [
+        "room-b:new-stage",
+        "room-a:z",
+        "room-a:a",
+    ]
+    assert [
+        row.record.record_id for row in store.recent_staged("scope-a", limit=1)
+    ] == ["room-a:z"]
+
+
 def test_staging_purge_deletes_only_raw_rows(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "staging-purge.db")
     sent_at = datetime(2026, 8, 1, 9, tzinfo=UTC)

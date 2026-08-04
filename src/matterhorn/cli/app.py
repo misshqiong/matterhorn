@@ -89,6 +89,7 @@ def _engine(
     schema_dir: Path | None,
     *,
     gateway: Any = None,
+    max_batch_delay_minutes: float | None = None,
 ) -> Engine:
     db = _setting(db, DEFAULT_DB, "db")
     schema = _setting(schema, DEFAULT_SCHEMA, "schema")
@@ -101,6 +102,11 @@ def _engine(
         profile,
         gateway=gateway,
         staging_retention_days=_staging_retention_days(),
+        max_batch_delay_minutes=(
+            _max_batch_delay_minutes()
+            if max_batch_delay_minutes is None
+            else max_batch_delay_minutes
+        ),
     )
 
 
@@ -119,6 +125,33 @@ def _staging_retention_days() -> float:
     except (TypeError, ValueError) as error:
         raise typer.BadParameter(
             "MATTERHORN_STAGING_RETENTION_DAYS MUST be a positive finite number"
+        ) from error
+
+
+def _max_batch_delay_minutes(
+    value: object | None = None,
+    config: dict[str, Any] | None = None,
+) -> float:
+    from matterhorn.engine.engine import (
+        DEFAULT_MAX_BATCH_DELAY_MINUTES,
+        validate_max_batch_delay_minutes,
+    )
+
+    if value is not None:
+        raw = value
+    elif "MATTERHORN_MAX_BATCH_DELAY" in os.environ:
+        raw = os.environ["MATTERHORN_MAX_BATCH_DELAY"]
+    else:
+        settings = _load_config() if config is None else config
+        raw = settings.get(
+            "max_batch_delay_minutes",
+            DEFAULT_MAX_BATCH_DELAY_MINUTES,
+        )
+    try:
+        return validate_max_batch_delay_minutes(raw)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(
+            "MATTERHORN_MAX_BATCH_DELAY MUST be a positive finite number"
         ) from error
 
 
@@ -430,6 +463,7 @@ def init_project(
                     'provider = "fixture"',
                     'fixture_path = "matterhorn-demo-gateway.json"',
                     "quiet_period_minutes = 10",
+                    "max_batch_delay_minutes = 5",
                     "",
                 ]
             ),
@@ -1443,6 +1477,13 @@ def serve(
         None,
         help="Auto-flush quiet message scopes; config default is 10 minutes.",
     ),
+    max_batch_delay_minutes: float | None = typer.Option(
+        None,
+        help=(
+            "Maximum pending-message batch age; defaults to "
+            "MATTERHORN_MAX_BATCH_DELAY, config, or 5 minutes."
+        ),
+    ),
     daily_flush_at: str | None = typer.Option(
         None,
         help="Daily UTC auto-flush time as HH:MM; may come from config.",
@@ -1465,6 +1506,10 @@ def serve(
         else float(config.get("quiet_period_minutes", 10))
     )
     daily = daily_flush_at or config.get("daily_flush_at")
+    maximum_delay = _max_batch_delay_minutes(
+        max_batch_delay_minutes,
+        config,
+    )
     webhook = webhook_url or config.get("webhook_url")
     _run_service(
         db=db,
@@ -1476,6 +1521,7 @@ def serve(
         api_key=api_key,
         model=model,
         quiet_period_minutes=quiet,
+        max_batch_delay_minutes=maximum_delay,
         daily_flush_at=daily,
         webhook_url=webhook,
         console_enabled=console,
@@ -1499,6 +1545,13 @@ def console_command(
         None,
         help="Auto-flush quiet message scopes; config default is 10 minutes.",
     ),
+    max_batch_delay_minutes: float | None = typer.Option(
+        None,
+        help=(
+            "Maximum pending-message batch age; defaults to "
+            "MATTERHORN_MAX_BATCH_DELAY, config, or 5 minutes."
+        ),
+    ),
     daily_flush_at: str | None = typer.Option(
         None,
         help="Daily UTC auto-flush time as HH:MM; may come from config.",
@@ -1520,6 +1573,10 @@ def console_command(
         if quiet_period_minutes is not None
         else float(config.get("quiet_period_minutes", 10))
     )
+    maximum_delay = _max_batch_delay_minutes(
+        max_batch_delay_minutes,
+        config,
+    )
     _run_service(
         db=db,
         schema=schema,
@@ -1530,6 +1587,7 @@ def console_command(
         api_key=api_key,
         model=model,
         quiet_period_minutes=quiet,
+        max_batch_delay_minutes=maximum_delay,
         daily_flush_at=daily_flush_at or config.get("daily_flush_at"),
         webhook_url=webhook_url or config.get("webhook_url"),
         console_enabled=True,
@@ -1548,6 +1606,7 @@ def _run_service(
     api_key: str | None,
     model: str | None,
     quiet_period_minutes: float,
+    max_batch_delay_minutes: float,
     daily_flush_at: str | None,
     webhook_url: str | None,
     console_enabled: bool,
@@ -1568,6 +1627,7 @@ def _run_service(
         schema,
         None,
         gateway=gateway,
+        max_batch_delay_minutes=max_batch_delay_minutes,
     )
     ai_environment = dict(os.environ)
     if provider is not None:
@@ -1586,6 +1646,7 @@ def _run_service(
     application = create_app(
         engine=engine,
         quiet_period_minutes=quiet_period_minutes,
+        max_batch_delay_minutes=max_batch_delay_minutes,
         daily_flush_at=daily_flush_at,
         webhook_url=webhook_url,
         console_enabled=console_enabled,

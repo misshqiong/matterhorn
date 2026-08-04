@@ -25,6 +25,7 @@ multi-tenant authentication.
 The page uses public routes only:
 
 - `GET /v1/matters` (all scopes) and `?scope=` filtering;
+- `GET /v1/stream` and scoped `/v1/scopes/{scope}/stream` raw staging reads;
 - scoped matter detail, corrections, reversible subject merges, deterministic
   query, ingest, and chat;
 - `GET /v1/events` and `GET /v1/connections`;
@@ -88,7 +89,9 @@ packaged fixture gateway.
 
 The default wall calls `GET /v1/matters` and displays every scope. Each
 ledger-paper card includes its scope tag, status stamp, owners, due date
-(overdue in red), and next step. Filter chips select All or one scope. Opening
+(overdue in red), next step, and a subtle **updated** stamp when its newest
+assertion is newer than the locally recorded seen version. Filter chips select
+All or one scope. Opening
 a card opens a modal with its scope-aware current values, evidence state/source
 IDs, aliases from merged titles, and per-value human correction action. A
 ledger-style **Timeline** flattens the chronological `status`, `progress`, and
@@ -103,14 +106,24 @@ name, reuses the correction sender preference, submits only to
 `POST /v1/scopes/{scope}/merges`, then closes and refreshes the wall.
 Correction uses its own modal, then refreshes the open detail modal and wall.
 
+Seen state is client-side only. For each scope, localStorage key
+`matterhorn.console.seen.<scope_id>` contains a JSON map from `subject_key` to
+the ISO viewer time when its detail dialog was last opened. Opening the detail
+writes that time and the next wall render clears the stamp. Matterhorn does
+not persist per-user seen state on the server.
+
 <!-- screenshot: console-detail-modal -->
 > **Screenshot placeholder:** a matter detail modal over the unified wall,
 > showing predicate values, origin, evidence state/source IDs, the progress
 > timeline, merged-title aliases, Correct actions, and the Merge into form.
 
-Activity and connections remain in a collapsible strip below the wall and
-refresh about every five seconds. The open detail and its timeline follow the
-existing detail-fetch pattern and are not refetched by that poll.
+A collapsible **Raw stream** panel below the wall tails up to 50 non-revoked
+staged messages, newest first, as monospaced time/scope/conversation/sender/
+content lines. It follows the wall's All-or-one-scope filter. Its five-second
+poll only re-renders when the newest `record_id` changes. Activity and
+connections remain in a separate collapsible strip and refresh on the same
+cycle. The open detail and its timeline follow the existing detail-fetch
+pattern and are not refetched by that poll.
 
 ### Right — consumption
 

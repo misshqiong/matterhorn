@@ -240,17 +240,19 @@ anchor。因此较早 conversation 创建的事项能在同一次 flush 接收�
 - `ingest(...)` 是 `add_cards(...)` 的弃用别名。
 
 服务模式提供 `/v1/scopes/{scope_id}` 资源式 REST 和
-`/v1/tasks/{task_id}` 持久任务。只有 `mh serve` 运行静默期自动 flush（默认
-10 分钟）；它也可按 UTC `daily_flush_at = "HH:MM"` 每日 flush，并推送事件
-webhook。嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
+`/v1/tasks/{task_id}` 持久任务。`mh serve` 与 `mh console` 运行静默期自动 flush
+（默认 10 分钟），并以默认 5 分钟 maximum batch delay 保证忙碌 conversation 不会
+饿死；可用 `--max-batch-delay-minutes` 或 `MATTERHORN_MAX_BATCH_DELAY` 覆盖。
+服务模式也可按 UTC `daily_flush_at = "HH:MM"` 每日 flush，并推送事件 webhook。
+嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
 
-唯一规范是 [spec/SPEC.md](spec/SPEC.md)。57 个语言无关 golden 用例已经覆盖
+唯一规范是 [spec/SPEC.md](spec/SPEC.md)。75 个语言无关 golden 用例已经覆盖
 消息入口、conversation-scoped rolling extraction、boundary chunk 确定性，以及
 receipt/flush 幂等重放：
 
 ```console
 $ mh conformance run
-SUMMARY passed=57 failed=0 total=57
+SUMMARY passed=75 failed=0 total=75
 ```
 
 ### 提取质量评测

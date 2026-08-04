@@ -1,0 +1,29 @@
+case_id: fresh-busy-scope-waits
+title: A fresh pending batch with recent activity does not flush early
+invariants: [P1, P9, INV-6]
+schema_profile: org-matters/v1
+scope_id: fictional-busy-fresh
+clock:
+  - "2026-08-04T09:00:00Z"
+cards: []
+message_batches:
+  - messages:
+      - id: busy-fresh
+        conversation_id: continuous-room
+        sender: {id: ellis, name: Ellis Stone}
+        text: "Fictional continuous-room work just received another update."
+        sent_at: "2026-08-04T09:00:00Z"
+    flush:
+      mode: quiet
+      at: "2026-08-04T09:04:00Z"
+      quiet_period_minutes: 10
+      max_batch_delay_minutes: 5
+expect:
+  task_results:
+    - {status: pending, cards_produced: 0, new_assertions: 0}
+  flush_reports:
+    - []
+  assertions: []
+  intervals: []
+  subject_count: 0
+  queries: []

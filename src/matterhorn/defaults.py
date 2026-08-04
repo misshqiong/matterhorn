@@ -27,6 +27,7 @@ class Engine(CoreEngine):
         gateway: LlmGateway | None = None,
         extractor: RecordExtractor | None = None,
         staging_retention_days: float = CoreEngine.DEFAULT_STAGING_RETENTION_DAYS,
+        max_batch_delay_minutes: float = CoreEngine.DEFAULT_MAX_BATCH_DELAY_MINUTES,
     ):
         super().__init__(
             store,
@@ -36,6 +37,7 @@ class Engine(CoreEngine):
             gateway=gateway,
             extractor=extractor,
             staging_retention_days=staging_retention_days,
+            max_batch_delay_minutes=max_batch_delay_minutes,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -12,6 +12,7 @@ import pytest
 from matterhorn.api import create_app
 from matterhorn.console import ConsoleSampleGateway
 from matterhorn.console.chat import ConsoleChatRunner
+from matterhorn.contracts import Record
 from matterhorn.defaults import Engine
 from matterhorn.distill import NullGateway
 from matterhorn.errors import IngestFormatError
@@ -714,6 +715,7 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             ("work", "work-launch"),
         }
         assert [item["scope_id"] for item in personal.json()] == ["personal"]
+        assert all(item["updated_at"] for item in all_matters.json())
         assert "/v1/matters" in paths
         for marker in [
             'id="matter-list"',
@@ -735,8 +737,130 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             "Timeline",
             "source_details",
             'new Set(["status", "progress", "outcome"])',
+            'id="raw-stream-panel"',
+            'id="raw-stream-list"',
+            "/v1/stream?limit=50",
+            "pollRawStream()",
+            "streamNewestRecordId",
+            'class="stamp updated"',
+            "matterhorn.console.seen.",
+            "markMatterSeen(matter)",
         ]:
             assert marker in page.text
+
+    asyncio.run(scenario())
+
+
+def test_stream_routes_filter_cap_truncate_and_exclude_revoked(tmp_path) -> None:
+    async def scenario() -> None:
+        engine = _engine(tmp_path / "stream.db")
+        base = datetime(2026, 8, 4, 9, tzinfo=UTC)
+        records = [
+            Record(
+                record_id=f"room-a:r{index:03}",
+                native_id=f"r{index:03}",
+                container_id="room-a",
+                sent_at=base + timedelta(seconds=index),
+                author={"id": "dana", "kind": "human"},
+                content="x" * 600 if index == 204 else f"Fictional item {index}.",
+            )
+            for index in range(205)
+        ]
+        revoked = Record(
+            record_id="room-a:revoked",
+            native_id="revoked",
+            container_id="room-a",
+            sent_at=base.replace(minute=10),
+            author={"id": "revoked-sender", "kind": "human"},
+            content="This revoked fictional item must not appear.",
+            revoked_at=base.replace(minute=11),
+            kind="revocation",
+        )
+        other = Record(
+            record_id="room-b:newest",
+            native_id="newest",
+            container_id="room-b",
+            sent_at=base,
+            author={
+                "id": "ellis",
+                "display_name": "Ellis Stone",
+                "kind": "human",
+            },
+            content="Newest fictional cross-scope item.",
+        )
+        with engine.store.transaction():
+            engine.store.stage_records(
+                "scope-a", [*records, revoked], staged_at=base
+            )
+            engine.store.stage_records(
+                "scope-b", [other], staged_at=base.replace(minute=20)
+            )
+
+        app = create_app(engine=engine)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://matterhorn.test"
+        ) as client:
+            all_items = (await client.get("/v1/stream?limit=999")).json()
+            scoped = (
+                await client.get("/v1/scopes/scope-a/stream?limit=1")
+            ).json()
+            paths = (await client.get("/openapi.json")).json()["paths"]
+
+        assert len(all_items) == 200
+        assert all_items[0]["record_id"] == "room-b:newest"
+        assert all_items[0]["sender"] == "Ellis Stone"
+        assert scoped[0]["record_id"] == "room-a:r204"
+        assert scoped[0]["sender"] == "dana"
+        assert len(scoped[0]["content"]) == 500
+        assert all(item["record_id"] != "room-a:revoked" for item in all_items)
+        assert "/v1/stream" in paths
+        assert "/v1/scopes/{scope_id}/stream" in paths
+
+    asyncio.run(scenario())
+
+
+def test_matter_updated_at_advances_on_new_evidence_for_existing_subject(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        current = [datetime(2026, 8, 4, 12, tzinfo=UTC)]
+        engine = Engine(
+            tmp_path / "matter-updated.db",
+            "org-matters/v1",
+            clock=lambda: current[0],
+        )
+        engine._ingest_cards_sync([_card(status="open")])
+        app = create_app(engine=engine)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://matterhorn.test"
+        ) as client:
+            first = (await client.get("/v1/matters")).json()[0]
+            current[0] = datetime(2026, 8, 4, 13, tzinfo=UTC)
+            engine._ingest_cards_sync(
+                [
+                    {
+                        **_card(status="open"),
+                        "card_id": "existing-subject-new-evidence",
+                        "progress": "A fictional reviewer reconfirmed the launch.",
+                        "source_refs": [
+                            {
+                                "source_id": "s:message-2",
+                                "sent_at": "2026-07-29T10:00:00Z",
+                                "sender": "Ellis Stone",
+                            }
+                        ],
+                    }
+                ]
+            )
+            second = (await client.get("/v1/matters")).json()[0]
+
+        assert first["updated_at"] == "2026-08-04T12:00:00Z"
+        assert second["updated_at"] == "2026-08-04T13:00:00Z"
+        assert engine.store.memory_cards("s")[0].updated_at == datetime(
+            2026, 7, 29, tzinfo=UTC
+        )
 
     asyncio.run(scenario())
 

@@ -165,6 +165,30 @@ class MatterhornService:
     def list_scopes(self) -> list[str]:
         return self.engine.store.list_scopes()
 
+    def recent_stream(
+        self,
+        *,
+        scope_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("stream limit MUST be positive")
+        rows = self.engine.store.recent_staged(scope_id, limit=min(limit, 200))
+        return [
+            {
+                "scope_id": row.scope_id,
+                "container_id": row.record.container_id,
+                "sender": (
+                    row.record.author.display_name or row.record.author.id
+                ),
+                "sent_at": row.record.sent_at,
+                "content": row.record.content[:500],
+                "record_id": row.record.record_id,
+                "staged_at": row.staged_at,
+            }
+            for row in rows
+        ]
+
     def list_matters(self, *, scope_id: str) -> list[dict[str, Any]]:
         self._require_scope(scope_id)
         return [item.to_dict() for item in self.engine.matters(scope_id)]

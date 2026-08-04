@@ -215,6 +215,13 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid message_batches"
         )
+    for batch in case.get("message_batches", []):
+        if not isinstance(batch, dict) or (
+            "flush" in batch and not isinstance(batch["flush"], dict)
+        ):
+            raise ValueError(
+                f"malformed conformance case {path}: invalid message batch flush"
+            )
     if "message_model_responses" in case and not isinstance(
         case["message_model_responses"], list
     ):
@@ -335,7 +342,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     )
     _run_handle_operations(engine, case)
     record_reports, staging_purge_counts = _run_record_batches(engine, case)
-    message_tasks = _run_message_batches(engine, case)
+    message_tasks, message_flush_reports = _run_message_batches(engine, case)
     first_dream = None
     if (
         case.get("model_responses") is not None
@@ -382,6 +389,26 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             ],
             expect["task_results"],
             "task_results",
+        )
+    if "flush_reports" in expect:
+        _equal(
+            [
+                [
+                    _project_partial(_plain(report), wanted_report)
+                    for report, wanted_report in zip(
+                        reports,
+                        wanted_reports,
+                        strict=True,
+                    )
+                ]
+                for reports, wanted_reports in zip(
+                    message_flush_reports,
+                    expect["flush_reports"],
+                    strict=True,
+                )
+            ],
+            expect["flush_reports"],
+            "flush_reports",
         )
     if "extraction_calls" in expect:
         if fixture_gateway is None:
@@ -483,7 +510,9 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         case.get("cards", []), scope_id=case["scope_id"]
     )
     second_record_reports, _ = _run_record_batches(engine, case)
-    second_message_tasks = _run_message_batches(engine, case)
+    second_message_tasks, second_message_flush_reports = _run_message_batches(
+        engine, case
+    )
     second_dream = None
     if (
         case.get("model_responses") is not None
@@ -526,6 +555,26 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             expect["second_task_results"],
             "second_task_results",
         )
+    if "second_flush_reports" in expect:
+        _equal(
+            [
+                [
+                    _project_partial(_plain(report), wanted_report)
+                    for report, wanted_report in zip(
+                        reports,
+                        wanted_reports,
+                        strict=True,
+                    )
+                ]
+                for reports, wanted_reports in zip(
+                    second_message_flush_reports,
+                    expect["second_flush_reports"],
+                    strict=True,
+                )
+            ],
+            expect["second_flush_reports"],
+            "second_flush_reports",
+        )
     for correction in case.get("corrections", []):
         engine.correct(correction)
     _equal(_snapshot(engine, case["scope_id"]), initial, "idempotent re-ingest")
@@ -555,16 +604,33 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
 
 def _run_message_batches(
     engine: Engine, case: dict[str, Any]
-) -> list[Any]:
+) -> tuple[list[Any], list[list[Any]]]:
     results = []
+    flush_reports = []
     for batch in case.get("message_batches", []):
         receipt = engine.add(
             case["scope_id"],
             batch.get("messages", []),
         )
-        engine.flush(case["scope_id"])
+        flush = batch.get("flush")
+        if flush is None:
+            reports = [engine.flush(case["scope_id"])]
+        elif flush.get("mode") == "quiet":
+            instant = flush["at"]
+            if not isinstance(instant, datetime):
+                instant = datetime.fromisoformat(instant)
+            reports = engine.flush_quiet_at(
+                flush["quiet_period_minutes"],
+                instant,
+                max_batch_delay_minutes=flush["max_batch_delay_minutes"],
+            )
+        else:
+            raise ConformanceFailure(
+                f"unknown message batch flush mode {flush.get('mode')!r}"
+            )
+        flush_reports.append(reports)
         results.append(engine.task(receipt.task_id))
-    return results
+    return results, flush_reports
 
 
 def _run_record_batches(

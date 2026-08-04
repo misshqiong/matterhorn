@@ -751,6 +751,14 @@ five attempts MUST remain failed and MUST NOT be selected again. A semantic
 `dream()` failure still makes its enclosing task fail and follows the same
 retry policy.
 
+Service-mode batching MUST be bounded by a maximum delay so a continuously
+active conversation cannot starve. A scope is due when either the newest
+pending Message time is at or before the quiet cutoff, or the oldest pending
+or retryable Message task `created_at` is at or before the maximum-delay
+cutoff. The default maximum delay is five minutes. It MUST be positive and
+finite, is independent of the quiet period, and MUST NOT be weakened by newer
+Messages arriving in the same scope.
+
 The gate object MUST aggregate the task's Record-to-card and semantic gate
 outcomes plus its section 23 routing counters without borrowing prior scope
 counters. Repeating an identical
@@ -870,7 +878,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
 | `cards` | Ordered EpisodeCard mappings. |
-| `message_batches` | Optional ordered `{messages}` batches passed through `add`, each followed by `flush`. |
+| `message_batches` | Optional ordered `{messages}` batches passed through `add`, each followed by `flush`. A batch MAY instead declare `flush: {mode: quiet, at, quiet_period_minutes, max_batch_delay_minutes}` to exercise service-mode due selection at an injected instant. |
 | `message_model_responses` | Optional ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
 | `record_batches` | Optional ordered `{records,cursors?,backfill?,batch_size?,purge_staging_at?}` batches passed to `add_records`; the optional RFC 3339 instant runs retention purge immediately before that batch. |
 | `record_model_responses` | Optional ordered closed Record-to-card responses, one per extractor call over unseen non-revoked Records. |
@@ -894,6 +902,8 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.second_record_reports` | Optional ordered partial mappings checked after exact Record re-ingest. |
 | `expect.task_results` | Optional ordered partial task-result mappings for first-pass message batches. |
 | `expect.second_task_results` | Optional ordered partial task-result mappings after exact message re-add. |
+| `expect.flush_reports` | Optional ordered lists of partial FlushReport mappings produced by first-pass Message batch flush selection. |
+| `expect.second_flush_reports` | Optional equivalent mappings after exact Message re-add. |
 | `expect.extraction_calls` | Optional ordered extractor-call mappings. Each contains exact ordered `context` and `records` lists of partial Record mappings, proving context, unit, and chunk boundaries; omitted `context` asserts an empty list. |
 | `expect.staging_purge_counts` | Optional exact ordered deleted-row counts for Record batches declaring `purge_staging_at`. |
 | `expect.events` | Optional expected ChangeEvent mappings, compared as a partial-field exact multiset. |
@@ -1080,7 +1090,11 @@ The Python facade MUST expose `add`, `matters`, `flush`, `task`, `add_cards`,
 advanced/internal `add_records`. `matters(scope_id)` MUST return
 projection-derived objects with at least `title`, `status`, `owners`,
 `participants`, `blocked_by`, `next_step`, `due`, `subject_key`, and
-`aliases`. It MUST NOT call a gateway.
+`aliases`. Public matter-list objects MUST add `updated_at`, defined as the
+newest canonicalized assertion `recorded_at` for that subject, or null when it
+has no assertion. It MUST advance when new evidence is asserted even when the
+business-effective current value is unchanged, and its computation MUST NOT
+call a gateway.
 
 `mh dream` MUST treat `--api-key` and `--base-url` as explicit overrides.
 Without an API-key override it MUST read `MATTERHORN_API_KEY` first, then
@@ -1119,8 +1133,10 @@ The REST app factory MUST expose OpenAPI and these endpoints:
 
 ```text
 GET  /healthz
+GET  /v1/stream
 POST /v1/scopes/{scope_id}/messages
 POST /v1/scopes/{scope_id}/cards
+GET  /v1/scopes/{scope_id}/stream
 GET  /v1/scopes/{scope_id}/matters
 GET  /v1/scopes/{scope_id}/query/current
 GET  /v1/scopes/{scope_id}/query/timeline
@@ -1157,6 +1173,13 @@ subject key; `new` forbids one. A successful resolution returns the resolved
 ReviewItem. Resolving an already resolved review MUST return a structured
 409 conflict and MUST NOT ingest the card twice.
 
+The stream endpoints are P4 reads over raw staging and MUST NOT call a model.
+They accept `limit`, default 50 and capped at 200, and return newest-first
+items with `scope_id`, `container_id`, display-name-or-ID `sender`, `sent_at`,
+server-truncated `content` of at most 500 characters, `record_id`, and
+`staged_at`. The unscoped endpoint spans every scope; the scoped endpoint
+applies its path scope exactly. Revoked staged Records MUST be excluded.
+
 The Console MUST present pending ReviewItems in its ledger-paper operating
 surface with card title and summary, one attach button per offered candidate,
 and a create-new action. It MUST use only the two public review REST endpoints.
@@ -1172,10 +1195,14 @@ Installing a gateway that raises on every call and invoking every read tool and
 read endpoint MUST succeed.
 
 Only service mode has quiet-period scheduling. `mh serve` MUST run a background
-loop that flushes a scope when the newest pending Message in that scope is at
-least N minutes old, where N defaults to 10 and is configurable. Embedded mode
-MUST remain host-driven through `flush()` or `wait=true`. Service mode MUST
-also accept optional `daily_flush_at = "HH:MM"` in UTC, from
+loop that flushes a scope when either the newest pending Message in that scope
+is at least N minutes old or the oldest pending-or-retryable Message task has
+reached the independently configured maximum batch delay. N defaults to 10;
+the maximum delay defaults to 5. `mh serve` and `mh console` MUST expose
+`--max-batch-delay-minutes`, and `MATTERHORN_MAX_BATCH_DELAY` MUST be accepted
+as a positive finite launch override. Embedded mode MUST remain host-driven
+through `flush()` or `wait=true`. Service mode MUST also accept optional
+`daily_flush_at = "HH:MM"` in UTC, from
 `matterhorn.toml` or `mh serve --daily-flush-at`, and flush all pending scopes
 once when that daily boundary is reached. Scheduler time MUST be injectable for
 deterministic tests. v0.6 does not expose a general cron system.
@@ -1306,6 +1333,11 @@ Both Store backends MUST provide a raw staging table keyed by
 the complete validated Record payload, and `staged_at`. It MUST index
 `(scope_id, container_id, sent_at)` and use locale-independent UTF-8 bytewise
 text ordering, including `COLLATE "C"` on PostgreSQL ordering reads.
+
+Both Stores MUST expose a bounded recent-staging read across containers with
+an optional scope filter. It MUST exclude revoked rows and order by
+`(staged_at DESC, sent_at DESC, record_id bytewise DESC)`, using `COLLATE "C"`
+for the PostgreSQL record-ID ordering and `BINARY` or equivalent for SQLite.
 
 `Engine.add()` MUST stage every validated Message-derived Record in the same
 short transaction that enqueues its task. `Engine.add_records()` MUST stage

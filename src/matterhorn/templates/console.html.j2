@@ -249,6 +249,7 @@
     .matter-card.flash { animation: flash 1.15s ease; }
     @keyframes flash { 0% { background: var(--amber-soft); } 100% { background: var(--sheet); } }
     .matter-top { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
+    .stamp-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .3rem; }
     .matter-card h3 { margin: .55rem 0 .7rem; font-size: 17px; }
     .stamp {
       border: 2px solid var(--green);
@@ -260,6 +261,7 @@
       text-transform: uppercase;
     }
     .stamp.blocked, .stamp.overdue { border-color: var(--red); color: var(--red); }
+    .stamp.updated { border-width: 1px; border-color: var(--amber); color: var(--amber); rotate: 1deg; opacity: .88; }
     .matter-facts { display: grid; grid-template-columns: 4.5rem 1fr; gap: .25rem .45rem; margin: 0; }
     .matter-facts dt { color: var(--faint); font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
     .matter-facts dd { margin: 0; font: 12px var(--serif); }
@@ -312,6 +314,20 @@
     .activity-item { border-bottom: 1px solid var(--rule); padding: .35rem 0; }
     .activity-item strong { font: 700 12.5px var(--serif); }
     .activity-meta { color: var(--faint); font: 10px var(--mono); }
+    .raw-stream-list { list-style: none; margin: .7rem 0 0; padding: 0; max-height: 34rem; overflow: auto; }
+    .raw-stream-item {
+      display: grid;
+      grid-template-columns: 5.5rem auto minmax(7rem, .65fr) minmax(5rem, .45fr) minmax(10rem, 1.8fr);
+      gap: .45rem;
+      align-items: baseline;
+      min-height: 1.45rem;
+      padding: .22rem 0;
+      border-bottom: 1px solid var(--rule);
+      font: 10.5px/1.35 var(--mono);
+    }
+    .raw-stream-time, .raw-stream-conversation { color: var(--faint); }
+    .raw-stream-conversation, .raw-stream-sender, .raw-stream-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .raw-stream-sender { color: var(--green); font-weight: 700; }
     .chat-log { max-height: 22rem; overflow: auto; }
     .chat-message { border-bottom: 1px solid var(--rule); padding: .5rem 0; }
     .chat-message p { margin: 0 0 .25rem; white-space: pre-wrap; font: 13.5px var(--serif); }
@@ -332,6 +348,8 @@
       .rail-right { grid-column: auto; grid-template-columns: 1fr; }
       .rail-right > .rail-head { grid-column: auto; }
       .hub-strip { grid-template-columns: 1fr; }
+      .raw-stream-item { grid-template-columns: 5rem auto minmax(7rem, .7fr) minmax(9rem, 1.5fr); }
+      .raw-stream-sender { display: none; }
     }
     @media (max-width: 38rem) {
       .shell { width: calc(100% - .7rem); }
@@ -487,6 +505,11 @@
           <div class="filter-bar" id="scope-list" aria-label="Scope filters"></div>
         </section>
         <div class="matter-wall" id="matter-list"><p class="empty">No matters yet.</p></div>
+        <details class="sheet" id="raw-stream-panel" open>
+          <summary><span>Raw stream</span></summary>
+          <p class="help">Newest staged messages · follows the wall scope filter · zero-model read</p>
+          <ul class="raw-stream-list" id="raw-stream-list"><li class="empty">No staged messages yet.</li></ul>
+        </details>
         <details class="sheet" id="hub-overview" open>
           <summary><span>Activity & connections</span></summary>
           <div class="hub-strip" style="margin-top:.7rem">
@@ -584,7 +607,7 @@
       scopes: [], filter: "all", matters: [], detail: null, selected: "",
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
       queryResult: null, activity: [], connections: null,
-      reviews: [], reviewCount: 0
+      reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null
     };
     const mailPresets = {
       gmail: { host: "imap.gmail.com", port: 993, ssl: true },
@@ -622,6 +645,35 @@
     };
     const accountPath = (accountId, action = "") =>
       `/v1/connectors/mail/accounts/${encodeURIComponent(accountId)}${action}`;
+    const seenStorageKey = (scope) => `matterhorn.console.seen.${scope}`;
+
+    function seenMatters(scope) {
+      try {
+        const value = JSON.parse(localStorage.getItem(seenStorageKey(scope)) || "{}");
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function isMatterUpdated(matter) {
+      if (!matter.updated_at) return false;
+      const seenAt = seenMatters(matter.scope_id)[matter.subject_key];
+      const updated = Date.parse(matter.updated_at);
+      const seen = Date.parse(seenAt || "");
+      return !Number.isFinite(seen) || (Number.isFinite(updated) && updated > seen);
+    }
+
+    function markMatterSeen(matter) {
+      if (!matter?.updated_at) return;
+      try {
+        const seen = seenMatters(matter.scope_id);
+        seen[matter.subject_key] = new Date().toISOString();
+        localStorage.setItem(seenStorageKey(matter.scope_id), JSON.stringify(seen));
+      } catch (_) {
+        // Rendering and detail reads remain usable when browser storage is disabled.
+      }
+    }
 
     async function loadScopes(preferred = null) {
       state.scopes = await api("/v1/scopes");
@@ -647,7 +699,7 @@
       state.filter = scope;
       if (scope !== "all") setWorkingScope(scope);
       renderScopeFilters();
-      await loadMatters();
+      await Promise.all([loadMatters(), loadRawStream()]);
     }
 
     function setWorkingScope(scope) {
@@ -660,6 +712,47 @@
       const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
       state.matters = await api(`/v1/matters${query}`);
       renderMatters();
+    }
+
+    function streamPath() {
+      return state.filter === "all"
+        ? "/v1/stream?limit=50"
+        : `/v1/scopes/${encodeURIComponent(state.filter)}/stream?limit=50`;
+    }
+
+    async function loadRawStream() {
+      state.rawStream = await api(streamPath());
+      state.streamNewestRecordId = state.rawStream[0]?.record_id || null;
+      renderRawStream();
+    }
+
+    function renderRawStream() {
+      const shorten = (value) => value.length > 30
+        ? `${value.slice(0, 14)}…${value.slice(-13)}` : value;
+      byId("raw-stream-list").innerHTML = state.rawStream.length
+        ? state.rawStream.map((item) => {
+            const sentAt = new Date(item.sent_at);
+            const time = Number.isNaN(sentAt.valueOf()) ? item.sent_at : sentAt.toLocaleTimeString();
+            const content = String(item.content || "").replace(/\s+/g, " ").trim();
+            return `<li class="raw-stream-item" title="${escapeHtml(item.record_id)}">
+              <time class="raw-stream-time" datetime="${escapeHtml(item.sent_at)}">${escapeHtml(time)}</time>
+              <span class="scope-chip">${escapeHtml(item.scope_id)}</span>
+              <span class="raw-stream-conversation" title="${escapeHtml(item.container_id)}">${escapeHtml(shorten(item.container_id))}</span>
+              <span class="raw-stream-sender">${escapeHtml(item.sender)}</span>
+              <span class="raw-stream-content">${escapeHtml(content)}</span>
+            </li>`;
+          }).join("")
+        : '<li class="empty">No staged messages match this scope filter.</li>';
+    }
+
+    async function pollRawStream() {
+      const items = await api(streamPath());
+      const newestRecordId = items[0]?.record_id || null;
+      if (newestRecordId !== state.streamNewestRecordId) {
+        state.rawStream = items;
+        state.streamNewestRecordId = newestRecordId;
+        renderRawStream();
+      }
     }
 
     async function fetchReviews(scopes = state.scopes) {
@@ -802,9 +895,11 @@
             const dueDate = matter.due ? new Date(matter.due) : null;
             const overdue = dueDate && !Number.isNaN(dueDate.valueOf()) && dueDate < new Date();
             const status = compactValue(matter.status);
+            const updated = isMatterUpdated(matter)
+              ? '<span class="stamp updated">updated</span>' : "";
             return `<button type="button" class="matter-card ${state.selected === key ? "active" : ""}"
                 data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
-              <div class="matter-top"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span></div>
+              <div class="matter-top"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span></span></div>
               <h3>${escapeHtml(matter.title)}</h3>
               <dl class="matter-facts">
                 <dt>Owners</dt><dd>${escapeHtml(compactValue(matter.owners))}</dd>
@@ -818,11 +913,13 @@
     }
 
     async function loadDetail(scope, subject) {
+      const matter = state.matters.find((item) => item.scope_id === scope && item.subject_key === subject);
       state.detail = await api(`/v1/scopes/${encodeURIComponent(scope)}/matters/${encodeURIComponent(subject)}`);
       state.detail.scope_id = scope;
       state.selected = `${scope}:${subject}`;
       setWorkingScope(scope);
       byId("query-subject").value = subject;
+      markMatterSeen(matter);
       renderMatters();
       byId("detail-dialog-body").innerHTML = detailHtml(state.detail);
       const dialog = byId("detail-dialog");
@@ -1110,7 +1207,7 @@
     }
 
     async function pollHub() {
-      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall()]);
+      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollRawStream()]);
     }
 
     async function pollWall() {
@@ -1296,7 +1393,7 @@
     byId("correction-sender").value = localStorage.getItem("matterhorn.console.sender") || "";
     updateQueryFields();
     applyMailPreset();
-    Promise.all([loadScopes().then(() => loadReviews()), loadMatters(), loadChatConfig(), loadMailAccounts(), loadActivity(), loadConnections()]).catch((error) => {
+    Promise.all([loadScopes().then(() => loadReviews()), loadMatters(), loadRawStream(), loadChatConfig(), loadMailAccounts(), loadActivity(), loadConnections()]).catch((error) => {
       byId("hub-state").className = "badge danger";
       byId("top-summary").textContent = error.message;
     });

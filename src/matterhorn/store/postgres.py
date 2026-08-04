@@ -43,6 +43,7 @@ from matterhorn.store.base import (
     QuerySubjectRow,
     QueryValueRow,
     RecordObservationRow,
+    StagedRecordRow,
     TaskRow,
     thread_safe_store,
 )
@@ -603,6 +604,35 @@ class PostgresStore:
             tuple(parameters),
         )
         return [Record.model_validate(row["record_json"]) for row in rows]
+
+    def recent_staged(
+        self, scope_id: str | None, *, limit: int
+    ) -> list[StagedRecordRow]:
+        if limit < 1:
+            raise ValueError("recent staged limit MUST be positive")
+        where = "WHERE revoked_at IS NULL"
+        parameters: list[Any] = []
+        if scope_id is not None:
+            where += " AND scope_id=%s"
+            parameters.append(scope_id)
+        parameters.append(limit)
+        rows = self._execute(
+            f"""
+            SELECT scope_id,record_json,staged_at FROM staged_records
+            {where}
+            ORDER BY staged_at DESC,sent_at DESC,record_id COLLATE "C" DESC
+            LIMIT %s
+            """,
+            tuple(parameters),
+        )
+        return [
+            StagedRecordRow(
+                scope_id=row["scope_id"],
+                record=Record.model_validate(row["record_json"]),
+                staged_at=instant_text(row["staged_at"]),
+            )
+            for row in rows
+        ]
 
     def purge_staged_records(self, scope_id: str, *, before: datetime) -> int:
         cursor = self._execute(
@@ -1450,8 +1480,9 @@ class PostgresStore:
 
     def quiet_scopes(
         self,
-        cutoff: datetime,
+        quiet_cutoff: datetime,
         *,
+        delay_cutoff: datetime | None = None,
         max_attempts: int = MAX_TASK_ATTEMPTS,
     ) -> list[str]:
         rows = self._execute(
@@ -1461,14 +1492,15 @@ class PostgresStore:
               status=%s OR (status=%s AND attempts < %s)
             ) AND kind='messages' AND newest_message_at IS NOT NULL
             GROUP BY scope_id
-            HAVING MAX(newest_message_at) <= %s
+            HAVING MAX(newest_message_at) <= %s OR MIN(created_at) <= %s
             ORDER BY scope_id COLLATE "C"
             """,
             (
                 TaskStatus.pending.value,
                 TaskStatus.failed.value,
                 max_attempts,
-                as_utc(cutoff),
+                as_utc(quiet_cutoff),
+                as_utc(delay_cutoff) if delay_cutoff is not None else None,
             ),
         )
         return [row["scope_id"] for row in rows]

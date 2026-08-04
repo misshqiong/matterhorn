@@ -33,11 +33,13 @@ class ServiceScheduler:
         engine: Any,
         *,
         quiet_period_minutes: float | None = None,
+        max_batch_delay_minutes: float | None = None,
         daily_flush_at: str | None = None,
         clock: Callable[[], datetime] | None = None,
     ):
         self.engine = engine
         self.quiet_period_minutes = quiet_period_minutes
+        self.max_batch_delay_minutes = max_batch_delay_minutes
         self.daily_flush_at = parse_daily_flush_at(daily_flush_at)
         self.clock = clock or engine.now
         self._last_daily_flush: date | None = None
@@ -51,7 +53,11 @@ class ServiceScheduler:
         reports = []
         if self.quiet_period_minutes is not None:
             reports.extend(
-                self.engine.flush_quiet_at(self.quiet_period_minutes, now)
+                self.engine.flush_quiet_at(
+                    self.quiet_period_minutes,
+                    now,
+                    max_batch_delay_minutes=self.max_batch_delay_minutes,
+                )
             )
         if (
             self.daily_flush_at is not None

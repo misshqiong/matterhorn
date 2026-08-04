@@ -19,7 +19,8 @@ mh console
 `mh serve --console` 挂载同一页面，`/mcp` 提供同一个九工具 hub。v1 没有多租户
 鉴权，因此默认仍只绑定 loopback。
 
-浏览器只调用公共接口：`GET /v1/matters` 与 `?scope=`、scope-aware 详情/纠错/
+浏览器只调用公共接口：`GET /v1/matters` 与 `?scope=`、`GET /v1/stream` 与 scoped
+stream、scope-aware 详情/纠错/
 可撤销主语归并/查询/摄入/Chat、`GET /v1/events`、`GET /v1/connections`、mail
 collection API 以及 AI 配置/脱敏状态/Test API。
 
@@ -73,7 +74,8 @@ timeout = 60.0
 ### 中心：统一事项墙
 
 默认调用 `GET /v1/matters` 展示全部 scope。每张 ledger-paper 卡显示 scope tag、
-status stamp、owner、due（逾期红色）与 next step。顶部 chips 可切 All 或单 scope。
+status stamp、owner、due（逾期红色）与 next step。当 subject 的最新 assertion 晚于
+本地 seen version 时，卡片还显示较淡的 **updated** stamp。顶部 chips 可切 All 或单 scope。
 点击卡片会打开 modal，展示 scope-aware 当前值、evidence 状态/source ID 以及每个值
 的人工纠错入口；被归并标题会以「又名」显示。ledger-paper 风格的 **Timeline**
 按时间展示 `status`、`progress` 以及存在时的 `outcome` 历史，每条包含生效日期、
@@ -86,12 +88,21 @@ predicate、值、来源发送者与 excerpt 摘要。数据仍来自同一个�
 `POST /v1/scopes/{scope}/merges`，成功后关闭 modal 并刷新事项墙。纠错使用第二个
 modal，提交后会刷新仍打开的详情 modal 与事项墙。
 
+seen-state 只在客户端保存：每个 scope 使用 localStorage key
+`matterhorn.console.seen.<scope_id>`，其 JSON 值是 `subject_key -> ISO time`
+映射（该时间是 viewer 打开详情的时间）。打开详情 modal 时写入该时间，下一次
+wall render 会清除 stamp；服务端不保存
+任何 per-user seen state。
+
 <!-- screenshot: console-detail-modal -->
 > **截图占位：** 统一事项墙上方的详情 modal，含 predicate value、origin、evidence
 > 状态/source ID、进度 Timeline、「又名」、Correct 与 Merge into 操作。
 
-Activity 与 Connections 保留在墙下方的可折叠 strip，约每五秒刷新；打开的详情与
-Timeline 沿用现有 detail-fetch 行为，不随这次轮询重复请求。
+事项墙下新增可折叠 **Raw stream**：以等宽字体、newest-first 展示最多 50 条未撤销
+staged message，每行含 time、scope、缩短后的 conversation、sender 与 content。
+它跟随 All/单 scope wall filter，每五秒拉取一次，并且只有 newest `record_id` 改变时
+才重新渲染。Activity 与 Connections 保留在另一条可折叠 strip 并使用同一轮询周期；
+打开的详情与 Timeline 沿用现有 detail-fetch 行为，不随这次轮询重复请求。
 
 ### 右栏：消费
 
