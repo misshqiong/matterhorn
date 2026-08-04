@@ -818,12 +818,38 @@
       const withNames = (value) => Array.isArray(value)
         ? value.map((item) => personNames[item] || item)
         : (personNames[value] || value);
-      const values = detail.current.length
-        ? detail.current.map((value) => `<li>
+      // SET predicates (participated_by, blocked_by, ...) project one current
+      // value per member; render them as ONE appended row instead of a row
+      // per person. Collapsed rows drop the per-value correct button.
+      const grouped = [];
+      for (const value of detail.current) {
+        const last = grouped[grouped.length - 1];
+        if (last && last.predicate === value.predicate) {
+          last.items.push(value);
+        } else {
+          grouped.push({ predicate: value.predicate, items: [value] });
+        }
+      }
+      const values = grouped.length
+        ? grouped.map((group) => {
+            if (group.items.length > 1) {
+              const joined = group.items
+                .map((value) => displayValue(withNames(value.value)))
+                .join(" · ");
+              const sourceIds = [...new Set(group.items.flatMap((value) => value.source_ids || []))];
+              return `<li>
+            <span class="predicate">${escapeHtml(group.predicate)}</span>
+            <span>${escapeHtml(joined)}<div class="evidence">${escapeHtml(group.items[0].origin)} · ${escapeHtml(group.items[0].evidence_status)} · ${escapeHtml(sourceIds.join(", "))}</div></span>
+            <span></span>
+          </li>`;
+            }
+            const value = group.items[0];
+            return `<li>
             <span class="predicate">${escapeHtml(value.predicate)}</span>
             <span>${escapeHtml(displayValue(withNames(value.value)))}<div class="evidence">${escapeHtml(value.origin)} · ${escapeHtml(value.evidence_status)} · ${escapeHtml((value.source_ids || []).join(", "))}</div></span>
             <button type="button" class="correct-value" data-predicate="${escapeHtml(value.predicate)}" data-value="${escapeHtml(JSON.stringify(value.value))}">correct</button>
-          </li>`).join("")
+          </li>`;
+          }).join("")
         : '<li class="empty">No current values.</li>';
       const aliases = detail.aliases?.length
         ? `<p class="detail-aliases"><strong>又名</strong> · ${escapeHtml(detail.aliases.join(" · "))}</p>`
