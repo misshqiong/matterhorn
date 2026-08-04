@@ -406,7 +406,11 @@ def build_message_prompt(
         "lifecycle phases of ONE underlying task, not separate matters. One "
         "purchase, one incident, and one change request each stay a single "
         "matter from start to finish. Emit separate cards only for genuinely "
-        "different tasks. "
+        "different tasks. Ongoing narrative — what happened in this window of "
+        "an unfinished matter — belongs in progress, which supersedes its "
+        "previous value. outcome is APPEND-forever: use it ONLY for a "
+        "conclusion, a decision reached, or a final result, never as a "
+        "per-window summary of a discussion that is still going. "
         f"schema={profile.schema_id}; "
         f"active_card_fields={canonical_json(fields)}"
     )
