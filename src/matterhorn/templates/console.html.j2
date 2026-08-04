@@ -286,6 +286,12 @@
     .timeline-value { margin-top: .12rem; font: 13px var(--serif); }
     .timeline-source { margin-top: .28rem; color: var(--muted); font: 10.5px/1.35 var(--mono); }
     .timeline-source strong { color: var(--ink); font-weight: 700; }
+    .conv-chip { display: inline-block; margin-left: .45rem; padding: 0 .35rem; border: 1px solid var(--rule); border-radius: 2px; color: var(--muted); font: 9.5px var(--mono); vertical-align: middle; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conv-chip.repeat { opacity: .45; }
+    .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
+    .clamp.clamp-value { -webkit-line-clamp: 4; }
+    .clamp.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+    .clamp:not(.open)::after { content: ""; }
     .merge-panel { margin-top: .85rem; padding-top: .75rem; border-top: 2px double var(--rule); }
     .merge-panel h3 { margin: 0 0 .45rem; font-size: 14px; }
     .evidence { color: var(--muted); font: 10.5px var(--mono); }
@@ -679,18 +685,31 @@
         .sort((left, right) => left.valid_from.localeCompare(right.valid_from)
           || left.predicate.localeCompare(right.predicate)
           || left.assertion_id.localeCompare(right.assertion_id));
+      const conversationOf = (sourceId) => {
+        if (!sourceId) return "";
+        let rest = sourceId;
+        const scopePrefix = `${detail.scope_id}:`;
+        if (rest.startsWith(scopePrefix)) rest = rest.slice(scopePrefix.length);
+        const cut = rest.lastIndexOf(":");
+        return cut > 0 ? rest.slice(0, cut) : rest;
+      };
+      let previousConv = null;
       const rows = entries.length
         ? entries.map((entry) => {
+            const conv = conversationOf(entry.source_details?.[0]?.source_id || (entry.source_ids || [])[0]);
+            const convChip = conv
+              ? `<span class="conv-chip${conv === previousConv ? " repeat" : ""}" title="${escapeHtml(conv)}">${escapeHtml(conv)}</span>`
+              : "";
+            previousConv = conv;
             const sources = entry.source_details?.length
               ? entry.source_details.map((source) => {
-                  const excerpt = source.excerpt || "No excerpt available.";
-                  const snippet = excerpt.length > 160 ? `${excerpt.slice(0, 157)}…` : excerpt;
-                  return `<div class="timeline-source"><strong>${escapeHtml(source.sender)}</strong> · ${escapeHtml(snippet)}</div>`;
+                  const excerpt = (source.excerpt || "No excerpt available.").slice(0, 2000);
+                  return `<div class="timeline-source"><strong>${escapeHtml(source.sender)}</strong> · <span class="clamp">${escapeHtml(excerpt)}</span></div>`;
                 }).join("")
               : `<div class="timeline-source">${escapeHtml((entry.source_ids || []).join(", "))}</div>`;
             const date = new Date(entry.valid_from);
             const label = Number.isNaN(date.valueOf()) ? entry.valid_from : date.toLocaleDateString();
-            return `<li class="timeline-entry"><time class="timeline-date" datetime="${escapeHtml(entry.valid_from)}">${escapeHtml(label)}</time><div><span class="predicate">${escapeHtml(entry.predicate)}</span><div class="timeline-value">${escapeHtml(displayValue(entry.value))}</div>${sources}</div></li>`;
+            return `<li class="timeline-entry"><time class="timeline-date" datetime="${escapeHtml(entry.valid_from)}">${escapeHtml(label)}</time><div><span class="predicate">${escapeHtml(entry.predicate)}</span>${convChip}<div class="timeline-value clamp clamp-value">${escapeHtml(displayValue(entry.value))}</div>${sources}</div></li>`;
           }).join("")
         : '<li class="empty">No status or progress history yet.</li>';
       return `<section class="timeline-panel"><h3>Timeline</h3><ol class="matter-timeline">${rows}</ol></section>`;
@@ -1118,6 +1137,8 @@
     byId("detail-dialog").addEventListener("click", (event) => {
       const correct = event.target.closest(".correct-value");
       if (correct) { openCorrection(correct); return; }
+      const clamp = event.target.closest(".clamp");
+      if (clamp) { clamp.classList.toggle("open"); return; }
       if (event.target.closest(".detail-close") || event.target === byId("detail-dialog")) {
         byId("detail-dialog").close();
       }

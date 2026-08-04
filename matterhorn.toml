@@ -7,4 +7,4 @@ user = "misshqiong@gmail.com"
 folder = "INBOX"
 interval = "15min"
 initial_window = 50
-scope = "demo"
+scope = "mail"
