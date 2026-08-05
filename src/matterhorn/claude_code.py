@@ -279,6 +279,17 @@ def transcript_messages(
                     "conversation_id": conversation_id,
                 }
             )
+    label = next(
+        (
+            item["text"].strip().splitlines()[0][:48]
+            for item in messages
+            if item["sender"]["id"] == "user" and item["text"].strip()
+        ),
+        None,
+    )
+    if label:
+        for item in messages:
+            item["conversation_label"] = f"cc:{label}"
     return messages
 
 

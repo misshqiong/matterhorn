@@ -235,6 +235,7 @@ class MatterDetailResponse(StrictModel):
     subject_type: str
     title: str
     person_names: dict[str, str] = Field(default_factory=dict)
+    conversation_names: dict[str, str] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
     handles: list[SubjectHandleResponse] = Field(default_factory=list)
     current: list[ValueResponse]

@@ -296,7 +296,9 @@
     .timeline-value { margin-top: .12rem; font: 13px var(--serif); }
     .timeline-source { margin-top: .28rem; color: var(--muted); font: 10.5px/1.35 var(--mono); }
     .timeline-source strong { color: var(--ink); font-weight: 700; }
-    .conv-chip { display: inline-block; margin-left: .45rem; padding: 0 .35rem; border: 1px solid var(--rule); border-radius: 2px; color: var(--muted); font: 9.5px var(--mono); vertical-align: middle; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conv-chip { display: inline-block; margin-left: .45rem; padding: 0 .35rem; border: 1px solid var(--rule); border-radius: 2px; color: var(--muted); font: 9.5px var(--mono); vertical-align: middle; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
+    .matter-facts dd { min-width: 0; overflow: hidden; }
+    .matter-facts dd .conv-chip { margin-left: 0; margin-right: .3rem; max-width: 100%; }
     .conv-chip.repeat { opacity: .45; }
     .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
     .clamp.clamp-value { -webkit-line-clamp: 4; }
@@ -888,13 +890,17 @@
         .sort((left, right) => left.valid_from.localeCompare(right.valid_from)
           || left.predicate.localeCompare(right.predicate)
           || left.assertion_id.localeCompare(right.assertion_id));
+      const convNames = detail.conversation_names || {};
       const conversationOf = (sourceId) => {
         if (!sourceId) return "";
         let rest = sourceId;
         const scopePrefix = `${detail.scope_id}:`;
         if (rest.startsWith(scopePrefix)) rest = rest.slice(scopePrefix.length);
         const cut = rest.lastIndexOf(":");
-        return cut > 0 ? rest.slice(0, cut) : rest;
+        const key = cut > 0 ? rest.slice(0, cut) : rest;
+        return convNames[key] || key.split(":").map((part) =>
+          /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$|^[0-9a-f]{16,}$/.test(part) ? part.slice(0, 8) + "…" : part
+        ).join(":");
       };
       let previousConv = null;
       const rows = entries.length

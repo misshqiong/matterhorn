@@ -241,6 +241,7 @@ class MatterhornService:
             "subject_type": subject.subject_type,
             "title": subject.title,
             "person_names": self.engine.store.person_names(scope_id),
+            "conversation_names": self.engine.store.conversation_names(scope_id),
             "aliases": self.engine._subject_aliases(scope_id).get(subject_key, []),
             "handles": [
                 item.model_dump(mode="json")

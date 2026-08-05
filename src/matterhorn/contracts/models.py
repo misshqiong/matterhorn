@@ -40,6 +40,7 @@ class Message(StrictModel):
     text: str
     sent_at: datetime
     conversation_id: str | None = None
+    conversation_label: str | None = None
     reply_to: str | None = None
 
 

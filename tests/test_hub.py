@@ -407,6 +407,7 @@ def test_session_end_posts_minimal_messages_and_session_start_prints_context(
             "text": "Ship the shared hub.",
             "sent_at": "2026-07-30T10:00:00Z",
             "conversation_id": "claude-code:session-1",
+            "conversation_label": "cc:Ship the shared hub.",
         },
         {
             "id": "claude-code:session-1:assistant-1",
@@ -414,6 +415,7 @@ def test_session_end_posts_minimal_messages_and_session_start_prints_context(
             "text": "The hub is ready.",
             "sent_at": "2026-07-30T10:01:00Z",
             "conversation_id": "claude-code:session-1",
+            "conversation_label": "cc:Ship the shared hub.",
         },
     ]
 

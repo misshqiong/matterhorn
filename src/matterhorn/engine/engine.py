@@ -242,6 +242,16 @@ class Engine:
             for message in messages
         ]
         records = [_message_to_record(scope_id, message) for message in validated]
+        conversation_labels = {
+            message.conversation_id: message.conversation_label
+            for message in validated
+            if message.conversation_id and message.conversation_label
+        }
+        if conversation_labels:
+            newest = max(message.sent_at for message in validated)
+            self.store.upsert_conversation_names(
+                scope_id, conversation_labels, seen_at=as_utc(newest)
+            )
         receipt = self._enqueue_task(
             scope_id=scope_id,
             kind="messages",
@@ -1531,6 +1541,7 @@ class Engine:
             subject.subject_key: subject.source_ids
             for subject in self.store.subjects(scope_id)
         }
+        conversation_names = self.store.conversation_names(scope_id)
         updated_at: dict[str, datetime] = {}
         for assertion in _canonicalized_assertions(
             self.store.assertions(scope_id),
@@ -1563,6 +1574,7 @@ class Engine:
                     sources_display=_conversation_labels(
                         scope_id,
                         evidence_by_subject.get(subject.subject_key, frozenset()),
+                        names=conversation_names,
                     ),
                     updated_at=updated_at.get(subject.subject_key),
                 )
@@ -2589,8 +2601,22 @@ def validate_max_batch_delay_minutes(value: object) -> float:
     return parsed
 
 
+_OPAQUE_SEGMENT = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$|^[0-9a-f]{16,}$")
+
+
+def _shorten_opaque_segments(key: str) -> str:
+    return ":".join(
+        f"{part[:8]}…" if _OPAQUE_SEGMENT.match(part) else part
+        for part in key.split(":")
+    )
+
+
 def _conversation_labels(
-    scope_id: str, source_ids: frozenset[str] | set[str], *, limit: int = 3
+    scope_id: str,
+    source_ids: frozenset[str] | set[str],
+    *,
+    names: dict[str, str] | None = None,
+    limit: int = 3,
 ) -> list[str]:
     """Deterministic source-conversation labels from evidence record ids.
 
@@ -2606,7 +2632,15 @@ def _conversation_labels(
         cut = rest.rfind(":")
         if cut <= 0:
             continue
-        labels.add(rest[:cut])
+        key = rest[:cut]
+        # Hook message ids embed the conversation prefix, so a record id can
+        # yield an "X:X" doubled key; collapse it back to the conversation.
+        segments = key.split(":")
+        half = len(segments) // 2
+        if half and len(segments) == half * 2 and segments[:half] == segments[half:]:
+            key = ":".join(segments[:half])
+        named = (names or {}).get(key)
+        labels.add(named if named else _shorten_opaque_segments(key))
     ordered = sorted(labels, key=lambda item: item.encode("utf-8"))
     if len(ordered) > limit:
         return ordered[:limit] + [f"+{len(ordered) - limit}"]

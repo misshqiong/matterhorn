@@ -98,6 +98,13 @@ CREATE TABLE IF NOT EXISTS person_names (
     last_seen_at TEXT NOT NULL,
     PRIMARY KEY (scope_id, person_id)
 );
+CREATE TABLE IF NOT EXISTS conversation_names (
+    scope_id TEXT NOT NULL,
+    conversation_key TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (scope_id, conversation_key)
+);
 CREATE TABLE IF NOT EXISTS sync_positions (
     scope_id TEXT NOT NULL,
     container_id TEXT NOT NULL,
@@ -429,6 +436,7 @@ class SQLiteStore:
                 "subject_handles",
                 "subjects",
                 "person_names",
+                "conversation_names",
                 "sync_positions",
                 "evidence_sources",
                 "staged_records",
@@ -846,6 +854,49 @@ class SQLiteStore:
             (scope_id,),
         )
         return {row["person_id"]: row["display_name"] for row in rows}
+
+    def upsert_conversation_names(
+        self,
+        scope_id: str,
+        names: dict[str, str],
+        *,
+        seen_at: datetime,
+    ) -> None:
+        if not names:
+            return
+        seen_text = instant_text(seen_at)
+        self.connection.executemany(
+            """
+            INSERT INTO conversation_names(
+              scope_id,conversation_key,display_name,last_seen_at
+            ) VALUES(?,?,?,?)
+            ON CONFLICT(scope_id,conversation_key) DO UPDATE SET
+              display_name=CASE
+                WHEN excluded.last_seen_at >= conversation_names.last_seen_at
+                  THEN excluded.display_name
+                ELSE conversation_names.display_name
+              END,
+              last_seen_at=CASE
+                WHEN excluded.last_seen_at >= conversation_names.last_seen_at
+                  THEN excluded.last_seen_at
+                ELSE conversation_names.last_seen_at
+              END
+            """,
+            [
+                (scope_id, key, display_name, seen_text)
+                for key, display_name in sorted(names.items())
+            ],
+        )
+
+    def conversation_names(self, scope_id: str) -> dict[str, str]:
+        rows = self.connection.execute(
+            """
+            SELECT conversation_key, display_name FROM conversation_names
+            WHERE scope_id=? ORDER BY conversation_key COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return {row["conversation_key"]: row["display_name"] for row in rows}
 
     def delete_sync_position(self, scope_id: str, container_id: str) -> bool:
         cursor = self.connection.execute(
