@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from contextlib import asynccontextmanager
 from datetime import datetime
 from email import policy
@@ -794,6 +795,10 @@ def create_app(
             .joinpath("templates/console.html.j2")
             .read_text(encoding="utf-8")
         )
+        # Deterministic UI version: changes exactly when the page assets
+        # change, so open tabs can detect a redeploy and offer a reload —
+        # a restart without UI changes never nags.
+        asset_version = hashlib.sha256(template.encode("utf-8")).hexdigest()[:12]
 
         @app.get("/", include_in_schema=False)
         def console_root():
@@ -802,6 +807,10 @@ def create_app(
         @app.get("/console", response_class=HTMLResponse, include_in_schema=False)
         def console_page():
             return HTMLResponse(template)
+
+        @app.get("/v1/console/version")
+        def console_version() -> dict[str, str]:
+            return {"version": asset_version}
 
     # Keep the MCP SDK's own /mcp route exact and last so public REST routes
     # remain authoritative while sharing one ASGI process and one store owner.

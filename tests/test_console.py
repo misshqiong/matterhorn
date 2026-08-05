@@ -1060,3 +1060,19 @@ def _chat_response(
             )
 
     return asyncio.run(scenario())
+
+
+def test_console_version_endpoint_is_stable_and_page_carries_banner(tmp_path) -> None:
+    from fastapi.testclient import TestClient
+
+    from matterhorn import Engine
+    from matterhorn.api.app import create_app
+
+    client = TestClient(create_app(engine=Engine(tmp_path / "ver.db"), console_enabled=True))
+    first = client.get("/v1/console/version").json()
+    second = client.get("/v1/console/version").json()
+    assert first == second
+    assert len(first["version"]) == 12
+    page = client.get("/console").text
+    assert "stale-banner" in page
+    assert "pollAssetVersion" in page

@@ -300,6 +300,8 @@
     .matter-facts dd { min-width: 0; overflow: hidden; }
     .matter-facts dd .conv-chip { margin-left: 0; margin-right: .3rem; max-width: 100%; }
     .conv-chip.repeat { opacity: .45; }
+    #stale-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: none; padding: .5rem 1rem; background: var(--ink); color: var(--sheet); font: 12px var(--mono); text-align: center; cursor: pointer; }
+    #stale-banner.show { display: block; }
     .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; cursor: pointer; }
     .clamp.clamp-value { -webkit-line-clamp: 4; }
     .clamp.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
@@ -363,6 +365,7 @@
   </style>
 </head>
 <body>
+  <div id="stale-banner" role="button">界面已更新 — 点击刷新加载新版本</div>
   <div class="shell">
     <header class="topbar">
       <div>
@@ -609,7 +612,7 @@
       scopes: [], filter: "all", matters: [], detail: null, selected: "",
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
       queryResult: null, activity: [], connections: null,
-      reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null
+      reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null
     };
     const mailPresets = {
       gmail: { host: "imap.gmail.com", port: 993, ssl: true },
@@ -1245,7 +1248,18 @@
     }
 
     async function pollHub() {
-      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollRawStream()]);
+      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollRawStream(), pollAssetVersion()]);
+    }
+
+    async function pollAssetVersion() {
+      // First poll records the baseline; a later mismatch means the hub was
+      // redeployed with UI changes — offer a reload instead of silently
+      // running stale scripts against new data.
+      const payload = await api("/v1/console/version");
+      if (!state.assetVersion) { state.assetVersion = payload.version; return; }
+      if (payload.version !== state.assetVersion) {
+        byId("stale-banner").classList.add("show");
+      }
     }
 
     async function pollWall() {
@@ -1418,6 +1432,7 @@
       setStatus("feed-status", "Fictional Dana Reyes / octo-org sample loaded.");
     });
     byId("refresh-matters").addEventListener("click", loadMatters);
+    byId("stale-banner").addEventListener("click", () => window.location.reload());
     byId("correction-form").addEventListener("submit", submitCorrection);
     byId("cancel-correction").addEventListener("click", () => byId("correction-dialog").close());
     byId("chat-form").addEventListener("submit", askChat);
