@@ -1,0 +1,79 @@
+case_id: critical-handle-linkage
+title: Critical linkage enforces digit guards then longest value and subject tie breaks
+invariants: [INV-14, INV-17]
+schema_profile: org-matters/v1
+scope_id: octo-critical-link
+clock:
+  - "2026-08-05T08:40:00Z"
+  - "2026-08-05T08:41:00Z"
+  - "2026-08-05T08:42:00Z"
+  - "2026-08-05T08:43:00Z"
+  - "2026-08-05T08:44:00Z"
+  - "2026-08-05T08:45:00Z"
+cards:
+  - card_id: closed-alpha
+    scope_id: octo-critical-link
+    subject_key: alpha-matter
+    date: 2026-08-05
+    title: Closed alpha matter
+    status: closed
+    source_refs: [{source_id: alpha-source, sent_at: "2026-08-05T08:00:00Z", sender: Dana Reyes}]
+  - card_id: beta-card
+    scope_id: octo-critical-link
+    subject_key: beta-matter
+    date: 2026-08-05
+    title: Beta matter
+    source_refs: [{source_id: beta-source, sent_at: "2026-08-05T08:01:00Z", sender: Ellis Stone}]
+  - card_id: zeta-card
+    scope_id: octo-critical-link
+    subject_key: zeta-matter
+    date: 2026-08-05
+    title: Zeta matter
+    source_refs: [{source_id: zeta-source, sent_at: "2026-08-05T08:02:00Z", sender: Morgan Lee}]
+signal_config:
+  identity_handles: [Dana]
+handle_operations:
+  - operation: bind
+    subject_key: alpha-matter
+    handle_type: pull_request
+    handle_value: "PR #1000"
+    source_refs: [{source_id: alpha-handle, sent_at: "2026-08-05T08:10:00Z", sender: Dana Reyes}]
+  - operation: bind
+    subject_key: beta-matter
+    handle_type: order
+    handle_value: "order 1000"
+    source_refs: [{source_id: beta-handle, sent_at: "2026-08-05T08:11:00Z", sender: Ellis Stone}]
+  - operation: bind
+    subject_key: zeta-matter
+    handle_type: issue
+    handle_value: OCT-42
+    source_refs: [{source_id: zeta-handle, sent_at: "2026-08-05T08:12:00Z", sender: Morgan Lee}]
+record_batches:
+  - records:
+      - record_id: critical-room:r1
+        container_id: critical-room
+        sent_at: "2026-08-05T08:50:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "Dana noted bare 1000 without a critical prefix."
+      - record_id: critical-room:r2
+        container_id: critical-room
+        sent_at: "2026-08-05T08:51:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "Dana reopened #1000 for review."
+      - record_id: critical-room:r3
+        container_id: critical-room
+        sent_at: "2026-08-05T08:52:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "Dana compared #1000 with OCT-42."
+record_model_responses:
+  - {cards: []}
+expect:
+  signals:
+    - {record_id: critical-room:r1, kind: mention_of_self, subject_key: null}
+    - {record_id: critical-room:r2, kind: mention_of_self, subject_key: alpha-matter}
+    - {record_id: critical-room:r3, kind: mention_of_self, subject_key: zeta-matter}
+  assertions:
+    - {subject_key: alpha-matter, predicate: status, object_value: closed}
+  intervals:
+    - {subject_key: alpha-matter, predicate: status, object_value: closed, valid_to: null}
+  queries: []

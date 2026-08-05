@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from email import policy
 from email.parser import BytesParser
 from importlib import resources
@@ -22,6 +22,7 @@ from matterhorn.api.models import (
     AIConfigRequest,
     AIStatusResponse,
     AITestResponse,
+    BriefResponse,
     ChatRequest,
     ChatResponse,
     ConnectionsResponse,
@@ -40,12 +41,17 @@ from matterhorn.api.models import (
     MailSyncResponse,
     MatterDetailResponse,
     MatterListResponse,
+    MatterSeenInput,
+    MatterSeenResponse,
     QuickMessageRequest,
     RawIngestRequest,
     ReviewItemResponse,
     ReviewListResponse,
     ReviewResolveInput,
     ScopeListResponse,
+    SignalAckInput,
+    SignalListResponse,
+    SignalResponse,
     StreamListResponse,
     SubjectHandleBindInput,
     SubjectHandleListResponse,
@@ -419,6 +425,56 @@ def create_app(
     )
     def all_matters(scope: str | None = None):
         return service.all_matters(scope_id=scope)
+
+    @app.get(
+        "/v1/console/brief",
+        response_model=BriefResponse,
+        summary="Read the deterministic signals, activity, and quiet briefing",
+    )
+    def console_brief(
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ):
+        now = service.engine.now().astimezone(UTC)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return service.brief(
+            window_start=window_start or today,
+            window_end=window_end or (today + timedelta(days=1)),
+            console_groups=console_groups or {},
+        )
+
+    @app.post(
+        "/v1/matters/{subject_key}/seen",
+        response_model=MatterSeenResponse,
+        summary="Advance one matter's read watermark",
+    )
+    def matter_seen(subject_key: str, payload: MatterSeenInput):
+        return service.set_seen(
+            scope_id=payload.scope_id,
+            subject_key=subject_key,
+            last_seen_at=payload.last_seen_at,
+        )
+
+    @app.get(
+        "/v1/signals",
+        response_model=SignalListResponse,
+        summary="List deterministic staged-record signals",
+    )
+    def signals(scope: str | None = None, status: str | None = None):
+        return service.signals(scope_id=scope, status=status)
+
+    @app.post(
+        "/v1/signals/ack",
+        response_model=SignalResponse,
+        summary="Terminally acknowledge one signal",
+    )
+    def acknowledge_signal(payload: SignalAckInput):
+        return service.acknowledge_signal(
+            scope_id=payload.scope_id,
+            record_id=payload.record_id,
+            kind=payload.kind,
+            acked_at=payload.acked_at,
+        )
 
     @app.get(
         "/v1/scopes/{scope_id}/matters/{subject_key}",

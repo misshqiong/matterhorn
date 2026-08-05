@@ -7,7 +7,7 @@ import threading
 import tomllib
 import uuid
 import webbrowser
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -91,6 +91,41 @@ def _console_groups(config: dict[str, Any]) -> dict[str, list[str]]:
         raise typer.BadParameter(str(error)) from error
 
 
+def _signal_settings(config: dict[str, Any]) -> dict[str, Any]:
+    identity = config.get("identity", {})
+    signals = config.get("signals", {})
+    if not isinstance(identity, dict):
+        raise typer.BadParameter("[identity] MUST be a TOML table")
+    if not isinstance(signals, dict):
+        raise typer.BadParameter("[signals] MUST be a TOML table")
+
+    def string_list(table: dict[str, Any], key: str, label: str) -> list[str]:
+        value = table.get(key, [])
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) and item for item in value
+        ):
+            raise typer.BadParameter(f"{label} MUST be an array of non-empty strings")
+        return value
+
+    def positive_int(key: str, default: int) -> int:
+        value = signals.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise typer.BadParameter(f"[signals] {key} MUST be a positive integer")
+        return value
+
+    return {
+        "identity_handles": string_list(identity, "handles", "[identity] handles"),
+        "machine_senders": string_list(
+            signals, "machine_senders", "[signals] machine_senders"
+        ),
+        "alert_keywords": string_list(
+            signals, "alert_keywords", "[signals] alert_keywords"
+        ),
+        "hot_min_authors": positive_int("hot_min_authors", 3),
+        "hot_min_messages": positive_int("hot_min_messages", 5),
+    }
+
+
 def _engine(
     db: str,
     schema: str,
@@ -100,6 +135,7 @@ def _engine(
     max_batch_delay_minutes: float | None = None,
     min_batch_messages: int | None = None,
 ) -> Engine:
+    config = _load_config()
     db = _setting(db, DEFAULT_DB, "db")
     schema = _setting(schema, DEFAULT_SCHEMA, "schema")
     try:
@@ -121,6 +157,7 @@ def _engine(
             if min_batch_messages is None
             else min_batch_messages
         ),
+        **_signal_settings(config),
     )
 
 
@@ -626,6 +663,49 @@ def matters(
 
     result = _engine(db, schema, schema_dir).matters(_scope(scope_id))
     _print([item.to_dict() for item in result])
+
+
+@app.command("brief")
+def brief_command(
+    window_start: datetime | None = typer.Option(None),
+    window_end: datetime | None = typer.Option(None),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Print today's zero-model signals, matter activity, and quiet threads."""
+
+    engine = _engine(db, schema, schema_dir)
+    now = engine.now().astimezone(UTC)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    result = engine.brief(
+        window_start or today,
+        window_end or (today + timedelta(days=1)),
+        console_groups=_console_groups(_load_config()),
+    )
+    typer.echo("需要我")
+    if not result["needs_me"]:
+        typer.echo("  none")
+    for item in result["needs_me"]:
+        label = item["title"] or item["matched_text"] or item["record_id"]
+        typer.echo(f"  - [{item['reason']}] {item['scope_id']}: {label}")
+    typer.echo("Groups")
+    for group in result["groups"]:
+        counts = group["counts"]
+        titles = ", ".join(item["title"] for item in group["matters"]) or "none"
+        typer.echo(
+            f"  {group['name']}: touched={counts['touched']} "
+            f"completed={counts['completed']} blocked={counts['blocked']} | {titles}"
+        )
+    typer.echo("Quiet")
+    if not result["quiet"]:
+        typer.echo("  none")
+    for item in result["quiet"]:
+        hot = " hot" if item["hot"] else ""
+        typer.echo(
+            f"  {item['scope_id']}/{item['container_id']}: "
+            f"messages={item['message_count']} authors={item['distinct_authors']}{hot}"
+        )
 
 
 @handles_app.command("backfill")

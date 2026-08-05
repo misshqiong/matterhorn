@@ -1,0 +1,24 @@
+case_id: signal-mention-fires
+title: A configured identity handle emits one deterministic mention signal
+invariants: [INV-17]
+schema_profile: org-matters/v1
+scope_id: octo-signal-mention
+clock: ["2026-08-05T08:00:00Z"]
+cards: []
+signal_config:
+  identity_handles: [Dana]
+record_batches:
+  - records:
+      - record_id: mention-room:r1
+        container_id: mention-room
+        sent_at: "2026-08-05T08:05:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "@Dana, the fictional octo-org review is ready."
+record_model_responses:
+  - {cards: []}
+expect:
+  signals:
+    - {record_id: mention-room:r1, kind: mention_of_self, matched_text: Dana, subject_key: null, status: open}
+  assertions: []
+  intervals: []
+  queries: []

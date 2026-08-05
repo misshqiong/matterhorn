@@ -1,0 +1,32 @@
+case_id: machine-alert-two-condition-gate
+title: Machine alerts require both a machine sender and an alert keyword
+invariants: [INV-17]
+schema_profile: org-matters/v1
+scope_id: octo-machine-alert
+clock: ["2026-08-05T08:20:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: audit-room:r1
+        container_id: audit-room
+        sent_at: "2026-08-05T08:20:00Z"
+        author: {id: no-reply, display_name: Octo Monitor, kind: bot}
+        content: "Security alert for the fictional sandbox."
+      - record_id: audit-room:r2
+        container_id: audit-room
+        sent_at: "2026-08-05T08:21:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "Security alert wording in a human message."
+      - record_id: audit-room:r3
+        container_id: audit-room
+        sent_at: "2026-08-05T08:22:00Z"
+        author: {id: notification, display_name: Octo Monitor, kind: bot}
+        content: "The fictional sandbox check completed normally."
+record_model_responses:
+  - {cards: []}
+expect:
+  signals:
+    - {record_id: audit-room:r1, kind: machine_alert, matched_text: alert, status: open}
+  assertions: []
+  intervals: []
+  queries: []

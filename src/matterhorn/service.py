@@ -191,7 +191,78 @@ class MatterhornService:
 
     def list_matters(self, *, scope_id: str) -> list[dict[str, Any]]:
         self._require_scope(scope_id)
-        return [item.to_dict() for item in self.engine.matters(scope_id)]
+        result = []
+        for item in self.engine.matters(scope_id):
+            payload = item.to_dict()
+            watermark = self.engine.store.read_watermark(
+                scope_id,
+                item.subject_key,
+            )
+            payload["unseen"] = (
+                item.updated_at is not None and item.updated_at > watermark
+                if watermark is not None
+                else None
+            )
+            result.append(payload)
+        return result
+
+    def brief(
+        self,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        console_groups: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
+        return self.engine.brief(
+            window_start,
+            window_end,
+            console_groups=console_groups,
+        )
+
+    def set_seen(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+        last_seen_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        canonical = self.engine.canonical_subject_key(scope_id, subject_key)
+        stored = self.engine.set_seen(
+            scope_id,
+            subject_key,
+            last_seen_at=last_seen_at,
+        )
+        return {
+            "scope_id": scope_id,
+            "subject_key": canonical,
+            "last_seen_at": stored,
+        }
+
+    def signals(
+        self,
+        *,
+        scope_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            for item in self.engine.signals(scope_id, status=status)
+        ]
+
+    def acknowledge_signal(
+        self,
+        *,
+        scope_id: str,
+        record_id: str,
+        kind: str,
+        acked_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        return self.engine.acknowledge_signal(
+            scope_id,
+            record_id,
+            kind,
+            acked_at=acked_at,
+        ).model_dump(mode="json")
 
     def all_matters(
         self,

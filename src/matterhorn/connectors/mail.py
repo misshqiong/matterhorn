@@ -623,7 +623,14 @@ class MailRuntime:
         self._syncing = False
         self.last_sync_at: datetime | None = None
         self.last_run_at: datetime | None = None
-        self.last_report: MailSyncReport | None = None
+        stored_report = (
+            self.engine.store.mail_runtime_report(self.config.account_id)
+            if self.config is not None
+            else None
+        )
+        self.last_report: MailSyncReport | None = (
+            MailSyncReport(**stored_report) if stored_report is not None else None
+        )
         self.last_error: str | None = None
         self.next_run_at: datetime | None = None
         self._schedule_from_now()
@@ -678,6 +685,7 @@ class MailRuntime:
                 )
             except MailboxResetError as error:
                 self.last_report = error.report
+                self._persist_report(error.report)
                 self.last_error = _contextual_sync_error(
                     error,
                     self._password,
@@ -697,10 +705,22 @@ class MailRuntime:
             finally:
                 self._syncing = False
             self.last_report = report
+            self._persist_report(report)
             self.last_error = None
             self.last_sync_at = self.last_run_at
             self._schedule_from_now()
             return report
+
+    def _persist_report(self, report: MailSyncReport) -> None:
+        if self.config is None:
+            return
+        with self.engine.store.transaction():
+            self.engine.store.save_mail_runtime_report(
+                self.config.account_id,
+                report.scope_id,
+                report.to_dict(),
+                updated_at=self.last_run_at or _as_utc(self._clock()),
+            )
 
     def tick(self) -> MailSyncReport | None:
         if self.next_run_at is None:

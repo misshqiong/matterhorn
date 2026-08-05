@@ -1,0 +1,21 @@
+case_id: signal-identity-unset
+title: Mention detection is disabled when identity handles are unset
+invariants: [INV-17]
+schema_profile: org-matters/v1
+scope_id: octo-signal-unset
+clock: ["2026-08-05T08:10:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: unset-room:r1
+        container_id: unset-room
+        sent_at: "2026-08-05T08:10:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "@Dana, this fictional note has no configured identity."
+record_model_responses:
+  - {cards: []}
+expect:
+  signals: []
+  assertions: []
+  intervals: []
+  queries: []

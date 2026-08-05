@@ -264,6 +264,17 @@
     .today-entry strong, .today-entry span:last-child { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .today-entry strong { margin: .15rem 0 .08rem; font: 700 12px var(--serif); }
     .today-entry span:last-child { color: var(--muted); font: 10.5px var(--mono); }
+    .brief-screen { border: 2px solid var(--ink); }
+    .needs-me-strip { display: flex; gap: .4rem; overflow-x: auto; padding: .55rem 0; border-bottom: 2px double var(--rule-strong); }
+    .needs-me-item { cursor: pointer; flex: 0 0 auto; max-width: 22rem; border: 1px solid var(--amber); background: var(--amber-soft); color: inherit; padding: .38rem .52rem; text-align: left; }
+    .needs-me-item.critical { border: 2px solid var(--red); color: var(--red); font-weight: 700; }
+    .brief-groups { display: grid; margin-top: .35rem; }
+    .brief-group-line { display: grid; grid-template-columns: minmax(7rem, .45fr) auto minmax(10rem, 1.5fr); gap: .55rem; padding: .38rem 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+    .brief-group-counts, .quiet-line { color: var(--faint); font: 10px var(--mono); }
+    .brief-title { cursor: pointer; border: 0; border-bottom: 1px dotted var(--rule-strong); background: none; color: inherit; padding: 0; font: 12px var(--serif); }
+    .quiet-fold { margin-top: .45rem; }
+    .quiet-fold summary { cursor: pointer; }
+    .hot-flag { color: var(--red); font-weight: 700; text-transform: uppercase; }
     #detail-dialog { width: min(34rem, calc(100vw - 3rem)); max-height: min(78vh, 40rem); overflow: auto; }
     .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; margin-bottom: .3rem; }
     .detail-head h2 { margin: 0; font-size: 19px; }
@@ -543,6 +554,12 @@
 
       <section class="wall" aria-labelledby="wall-title">
         <div class="rail-head"><strong>2</strong><span>Unified matter wall</span></div>
+        <section class="sheet brief-screen" id="brief-screen" aria-labelledby="brief-title">
+          <div class="sheet-head"><div><p class="eyebrow">Today · deterministic briefing</p><h2 id="brief-title">需要我</h2></div></div>
+          <div class="needs-me-strip" id="needs-me-strip"><p class="empty">Nothing needs attention.</p></div>
+          <div class="brief-groups" id="brief-groups"></div>
+          <details class="quiet-fold" id="brief-quiet"><summary>Quiet conversations</summary><div id="brief-quiet-lines"></div></details>
+        </section>
         <section class="sheet">
           <div class="sheet-head">
             <div><p class="eyebrow">All scopes · deterministic read</p><h2 id="wall-title">Matters</h2></div>
@@ -664,6 +681,7 @@
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
       queryResult: null, activity: [], connections: null,
       reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null,
+      brief: { needs_me: [], groups: [], quiet: [] }, briefFingerprint: null,
       focusMode: true, groups: {}, scopeToGroup: {}, collapsedGroups: new Set(), openArchives: new Set()
     };
     const WALL_MODE_KEY = "matterhorn.console.wall.mode";
@@ -768,6 +786,7 @@
     }
 
     function isMatterUpdated(matter) {
+      if (typeof matter.unseen === "boolean") return matter.unseen;
       if (!matter.updated_at) return false;
       const seenAt = seenMatters(matter.scope_id)[matter.subject_key];
       const updated = Date.parse(matter.updated_at);
@@ -824,6 +843,44 @@
       state.matters = await api(`/v1/matters${query}`);
       renderMatters();
       renderToday();
+    }
+
+    async function loadBrief() {
+      state.brief = await api("/v1/console/brief");
+      state.briefFingerprint = JSON.stringify(state.brief);
+      renderBrief();
+    }
+
+    function renderBrief() {
+      const needs = state.brief.needs_me || [];
+      byId("needs-me-strip").innerHTML = needs.length
+        ? needs.map((item) => {
+            const linked = item.subject_key ? "critical" : "";
+            const label = item.title || item.matched_text || item.record_id;
+            return `<button type="button" class="needs-me-item ${linked}" data-brief-scope="${escapeHtml(item.scope_id)}" data-brief-subject="${escapeHtml(item.subject_key || "")}"><span class="scope-chip">${escapeHtml(item.scope_id)}</span> ${escapeHtml(label)}<small>${escapeHtml(item.reason)}</small></button>`;
+          }).join("")
+        : '<p class="empty">Nothing needs attention.</p>';
+      byId("brief-groups").innerHTML = (state.brief.groups || []).map((group) => {
+        const counts = group.counts;
+        const matters = group.matters.map((matter) =>
+          `<button type="button" class="brief-title" data-brief-scope="${escapeHtml(matter.scope_id)}" data-brief-subject="${escapeHtml(matter.subject_key)}">${escapeHtml(matter.title)}${matter.unseen ? ` (${matter.unseen})` : ""}</button>`
+        ).join(" · ") || '<span class="empty">No activity.</span>';
+        return `<div class="brief-group-line"><strong>${escapeHtml(group.name)}</strong><span class="brief-group-counts">touched ${counts.touched} · completed ${counts.completed} · blocked ${counts.blocked}</span><span>${matters}</span></div>`;
+      }).join("");
+      const quiet = state.brief.quiet || [];
+      byId("brief-quiet-lines").innerHTML = quiet.length
+        ? quiet.map((item) => `<div class="quiet-line">${escapeHtml(item.group)} · ${escapeHtml(item.container_id)} · ${item.message_count} messages · ${item.distinct_authors} authors ${item.hot ? '<span class="hot-flag">hot</span>' : ""}</div>`).join("")
+        : '<p class="empty">No quiet conversations in the window.</p>';
+    }
+
+    async function pollBrief() {
+      const brief = await api("/v1/console/brief");
+      const fingerprint = JSON.stringify(brief);
+      if (fingerprint !== state.briefFingerprint) {
+        state.brief = brief;
+        state.briefFingerprint = fingerprint;
+        renderBrief();
+      }
     }
 
     function streamPath() {
@@ -1127,6 +1184,10 @@
       setWorkingScope(scope);
       byId("query-subject").value = subject;
       markMatterSeen(matter);
+      await api(`/v1/matters/${encodeURIComponent(subject)}/seen`, {
+        method: "POST", body: JSON.stringify({ scope_id: scope })
+      }).catch(() => { /* Detail remains available if seen persistence fails. */ });
+      if (matter) matter.unseen = false;
       renderMatters();
       byId("detail-dialog-body").innerHTML = detailHtml(state.detail);
       const dialog = byId("detail-dialog");
@@ -1445,7 +1506,7 @@
     }
 
     async function pollHub() {
-      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollRawStream(), pollAssetVersion()]);
+      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollBrief(), pollRawStream(), pollAssetVersion()]);
     }
 
     async function pollAssetVersion() {
@@ -1604,6 +1665,12 @@
       const row = event.target.closest("[data-subject]");
       if (row) loadDetail(row.dataset.scope, row.dataset.subject);
     });
+    byId("brief-screen").addEventListener("click", (event) => {
+      const target = event.target.closest("[data-brief-subject]");
+      if (target?.dataset.briefSubject) {
+        loadDetail(target.dataset.briefScope, target.dataset.briefSubject);
+      }
+    });
     byId("matter-list").addEventListener("toggle", (event) => {
       const drawer = event.target.closest("[data-archive]");
       if (!drawer) return;
@@ -1677,7 +1744,7 @@
     byId("correction-sender").value = localStorage.getItem("matterhorn.console.sender") || "";
     updateQueryFields();
     applyMailPreset();
-    Promise.all([loadScopes().then(() => loadReviews()), loadMatters(), loadRawStream(), loadChatConfig(), loadMailAccounts(), loadActivity(), loadConnections()]).catch((error) => {
+    Promise.all([loadScopes().then(() => loadReviews()), loadBrief(), loadMatters(), loadRawStream(), loadChatConfig(), loadMailAccounts(), loadActivity(), loadConnections()]).catch((error) => {
       byId("hub-state").className = "badge danger";
       byId("top-summary").textContent = error.message;
     });

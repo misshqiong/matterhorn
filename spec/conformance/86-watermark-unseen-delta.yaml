@@ -1,0 +1,48 @@
+case_id: watermark-unseen-delta
+title: Brief unseen counts advance strictly after the monotonic read watermark
+invariants: [INV-18]
+schema_profile: org-matters/v1
+scope_id: octo-watermark
+clock:
+  - "2026-08-05T09:00:00Z"
+  - "2026-08-05T10:00:00Z"
+cards:
+  - card_id: watermark-open
+    scope_id: octo-watermark
+    subject_key: tracked-matter
+    date: 2026-08-05
+    title: Tracked fictional matter
+    status: open
+    progress: First note
+    source_refs: [{source_id: tracked-room:r1, sent_at: "2026-08-05T09:00:00Z", sender: Dana Reyes}]
+  - card_id: watermark-later
+    scope_id: octo-watermark
+    subject_key: tracked-matter
+    date: 2026-08-05
+    title: Tracked fictional matter
+    progress: Later note
+    source_refs: [{source_id: tracked-room:r2, sent_at: "2026-08-05T10:00:00Z", sender: Ellis Stone}]
+watermark_operations:
+  - {subject_key: tracked-matter, last_seen_at: "2026-08-05T09:30:00Z"}
+expect:
+  watermarks: {tracked-matter: "2026-08-05T09:30:00.000000Z"}
+  brief_queries:
+    - window_start: "2026-08-05T08:00:00Z"
+      window_end: "2026-08-05T11:00:00Z"
+      result:
+        needs_me: []
+        groups:
+          - name: octo-watermark
+            counts: {touched: 1, completed: 0, blocked: 0}
+            matters:
+              - {subject_key: tracked-matter, title: Tracked fictional matter, progress: Later note, unseen: 1}
+        quiet: []
+  assertions:
+    - {subject_key: tracked-matter, predicate: status, object_value: open}
+    - {subject_key: tracked-matter, predicate: progress, object_value: First note}
+    - {subject_key: tracked-matter, predicate: progress, object_value: Later note}
+  intervals:
+    - {subject_key: tracked-matter, predicate: status, object_value: open, valid_to: null}
+    - {subject_key: tracked-matter, predicate: progress, object_value: First note}
+    - {subject_key: tracked-matter, predicate: progress, object_value: Later note}
+  queries: []

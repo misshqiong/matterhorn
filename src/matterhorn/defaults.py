@@ -29,6 +29,11 @@ class Engine(CoreEngine):
         staging_retention_days: float = CoreEngine.DEFAULT_STAGING_RETENTION_DAYS,
         max_batch_delay_minutes: float = CoreEngine.DEFAULT_MAX_BATCH_DELAY_MINUTES,
         min_batch_messages: int = CoreEngine.DEFAULT_MIN_BATCH_MESSAGES,
+        identity_handles: list[str] | tuple[str, ...] | None = None,
+        machine_senders: list[str] | tuple[str, ...] | None = None,
+        alert_keywords: list[str] | tuple[str, ...] | None = None,
+        hot_min_authors: int = CoreEngine.DEFAULT_HOT_MIN_AUTHORS,
+        hot_min_messages: int = CoreEngine.DEFAULT_HOT_MIN_MESSAGES,
     ):
         super().__init__(
             store,
@@ -40,6 +45,11 @@ class Engine(CoreEngine):
             staging_retention_days=staging_retention_days,
             max_batch_delay_minutes=max_batch_delay_minutes,
             min_batch_messages=min_batch_messages,
+            identity_handles=identity_handles,
+            machine_senders=machine_senders,
+            alert_keywords=alert_keywords,
+            hot_min_authors=hot_min_authors,
+            hot_min_messages=hot_min_messages,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(

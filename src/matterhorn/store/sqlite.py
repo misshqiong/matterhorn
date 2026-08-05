@@ -24,6 +24,7 @@ from matterhorn.contracts import (
     ProjectionStats,
     Record,
     ReviewItem,
+    Signal,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -36,6 +37,7 @@ from matterhorn.contracts import (
 from matterhorn.store.base import (
     MAX_TASK_ATTEMPTS,
     ROUTE_COUNTER_NAMES,
+    ConversationHotnessRow,
     DistillQueueItem,
     QuerySubjectRow,
     QueryValueRow,
@@ -84,6 +86,25 @@ CREATE INDEX IF NOT EXISTS idx_staged_records_conversation
         sent_at,
         record_id COLLATE BINARY
     );
+CREATE TABLE IF NOT EXISTS signals (
+    scope_id TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    detected_at TEXT NOT NULL,
+    matched_text TEXT NOT NULL,
+    subject_key TEXT,
+    status TEXT NOT NULL CHECK(status IN ('open', 'acked')),
+    acked_at TEXT,
+    PRIMARY KEY (scope_id, record_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_signals_status
+    ON signals(scope_id, status, detected_at, record_id, kind);
+CREATE TABLE IF NOT EXISTS read_watermarks (
+    scope_id TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (scope_id, subject_key)
+);
 CREATE TABLE IF NOT EXISTS evidence_sources (
     scope_id TEXT NOT NULL,
     source_id TEXT NOT NULL,
@@ -112,6 +133,12 @@ CREATE TABLE IF NOT EXISTS sync_positions (
     cursor TEXT,
     uid_watermark INTEGER,
     PRIMARY KEY (scope_id, container_id)
+);
+CREATE TABLE IF NOT EXISTS mail_runtime_reports (
+    account_id TEXT PRIMARY KEY,
+    scope_id TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS subjects (
     scope_id TEXT NOT NULL,
@@ -444,7 +471,10 @@ class SQLiteStore:
                 "person_names",
                 "conversation_names",
                 "sync_positions",
+                "mail_runtime_reports",
                 "evidence_sources",
+                "read_watermarks",
+                "signals",
                 "staged_records",
                 "record_observations",
                 "ingested_cards",
@@ -465,6 +495,9 @@ class SQLiteStore:
             "ingested_cards",
             "record_observations",
             "staged_records",
+            "signals",
+            "read_watermarks",
+            "mail_runtime_reports",
         )
         return any(
             self.connection.execute(
@@ -481,6 +514,9 @@ class SQLiteStore:
                 SELECT scope_id FROM ingested_cards
                 UNION ALL SELECT scope_id FROM record_observations
                 UNION ALL SELECT scope_id FROM staged_records
+                UNION ALL SELECT scope_id FROM signals
+                UNION ALL SELECT scope_id FROM read_watermarks
+                UNION ALL SELECT scope_id FROM mail_runtime_reports
                 UNION ALL SELECT scope_id FROM evidence_sources
                 UNION ALL SELECT scope_id FROM sync_positions
                 UNION ALL SELECT scope_id FROM subjects
@@ -682,6 +718,277 @@ class SQLiteStore:
             (scope_id, instant_text(before)),
         )
         return cursor.rowcount
+
+    def add_signal(self, signal: Signal) -> bool:
+        cursor = self.connection.execute(
+            """
+            INSERT INTO signals(
+              scope_id,record_id,kind,detected_at,matched_text,subject_key,
+              status,acked_at
+            ) VALUES(?,?,?,?,?,?,?,?)
+            ON CONFLICT(scope_id,record_id,kind) DO NOTHING
+            """,
+            (
+                signal.scope_id,
+                signal.record_id,
+                signal.kind,
+                instant_text(signal.detected_at),
+                signal.matched_text,
+                signal.subject_key,
+                signal.status.value,
+                instant_text(signal.acked_at) if signal.acked_at else None,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def signals(
+        self,
+        scope_id: str | None = None,
+        *,
+        status: str | None = None,
+    ) -> list[Signal]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if scope_id is not None:
+            clauses.append("scope_id=?")
+            parameters.append(scope_id)
+        if status is not None:
+            clauses.append("status=?")
+            parameters.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.connection.execute(
+            f"""
+            SELECT * FROM signals {where}
+            ORDER BY (subject_key IS NULL), detected_at DESC,
+                     scope_id COLLATE BINARY, record_id COLLATE BINARY,
+                     kind COLLATE BINARY
+            """,
+            tuple(parameters),
+        )
+        return [self._row_to_signal(row) for row in rows]
+
+    def acknowledge_signal(
+        self,
+        scope_id: str,
+        record_id: str,
+        kind: str,
+        *,
+        acked_at: datetime,
+    ) -> Signal | None:
+        self.connection.execute(
+            """
+            UPDATE signals SET status='acked',acked_at=?
+            WHERE scope_id=? AND record_id=? AND kind=? AND status='open'
+            """,
+            (instant_text(acked_at), scope_id, record_id, kind),
+        )
+        row = self.connection.execute(
+            """
+            SELECT * FROM signals
+            WHERE scope_id=? AND record_id=? AND kind=?
+            """,
+            (scope_id, record_id, kind),
+        ).fetchone()
+        return self._row_to_signal(row) if row is not None else None
+
+    def set_read_watermark(
+        self,
+        scope_id: str,
+        subject_key: str,
+        *,
+        last_seen_at: datetime,
+    ) -> datetime:
+        text = instant_text(last_seen_at)
+        self.connection.execute(
+            """
+            INSERT INTO read_watermarks(scope_id,subject_key,last_seen_at)
+            VALUES(?,?,?)
+            ON CONFLICT(scope_id,subject_key) DO UPDATE SET
+              last_seen_at=CASE
+                WHEN excluded.last_seen_at > read_watermarks.last_seen_at
+                THEN excluded.last_seen_at
+                ELSE read_watermarks.last_seen_at
+              END
+            """,
+            (scope_id, subject_key, text),
+        )
+        stored = self.read_watermark(scope_id, subject_key)
+        assert stored is not None
+        return stored
+
+    def read_watermark(
+        self, scope_id: str, subject_key: str
+    ) -> datetime | None:
+        row = self.connection.execute(
+            """
+            SELECT last_seen_at FROM read_watermarks
+            WHERE scope_id=? AND subject_key=?
+            """,
+            (scope_id, subject_key),
+        ).fetchone()
+        return (
+            datetime.fromisoformat(row["last_seen_at"])
+            if row is not None
+            else None
+        )
+
+    def read_watermarks(self, scope_id: str) -> dict[str, datetime]:
+        rows = self.connection.execute(
+            """
+            SELECT subject_key,last_seen_at FROM read_watermarks
+            WHERE scope_id=? ORDER BY subject_key COLLATE BINARY
+            """,
+            (scope_id,),
+        )
+        return {
+            row["subject_key"]: datetime.fromisoformat(row["last_seen_at"])
+            for row in rows
+        }
+
+    def conversation_hotness(
+        self,
+        scope_ids: list[str],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        min_authors: int,
+        min_messages: int,
+    ) -> list[ConversationHotnessRow]:
+        if not scope_ids:
+            return []
+        placeholders = ",".join("?" for _ in scope_ids)
+        parameters: list[Any] = [
+            *scope_ids,
+            instant_text(window_start),
+            instant_text(window_end),
+            min_authors,
+            min_messages,
+        ]
+        rows = self.connection.execute(
+            f"""
+            WITH filtered AS (
+              SELECT scope_id,container_id,
+                     json_extract(author_json,'$.id') AS author_id,
+                     CAST(CAST(strftime('%s',sent_at) AS INTEGER) / 1800 AS INTEGER)
+                       AS bucket,
+                     COALESCE((
+                       SELECT SUM(CAST(json_extract(value,'$.count') AS INTEGER))
+                       FROM json_each(json_extract(record_json,'$.reactions'))
+                     ),0) AS reactions
+              FROM staged_records
+              WHERE scope_id IN ({placeholders})
+                AND sent_at>=? AND sent_at<? AND revoked_at IS NULL
+            ), buckets AS (
+              SELECT scope_id,container_id,bucket,
+                     COUNT(*) AS message_count,
+                     COUNT(DISTINCT author_id) AS distinct_authors
+              FROM filtered
+              GROUP BY scope_id,container_id,bucket
+            )
+            SELECT f.scope_id,f.container_id,COUNT(*) AS message_count,
+                   COUNT(DISTINCT f.author_id) AS distinct_authors,
+                   SUM(f.reactions) AS reaction_total,
+                   EXISTS(
+                     SELECT 1 FROM buckets b
+                     WHERE b.scope_id=f.scope_id
+                       AND b.container_id=f.container_id
+                       AND b.distinct_authors>=? AND b.message_count>=?
+                   ) AS hot
+            FROM filtered f
+            GROUP BY f.scope_id,f.container_id
+            ORDER BY f.scope_id COLLATE BINARY,f.container_id COLLATE BINARY
+            """,
+            tuple(parameters),
+        )
+        return [
+            ConversationHotnessRow(
+                scope_id=row["scope_id"],
+                container_id=row["container_id"],
+                message_count=row["message_count"],
+                distinct_authors=row["distinct_authors"],
+                reaction_total=row["reaction_total"],
+                hot=bool(row["hot"]),
+            )
+            for row in rows
+        ]
+
+    def brief_assertions(
+        self,
+        scope_ids: list[str],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[Assertion]:
+        if not scope_ids:
+            return []
+        placeholders = ",".join("?" for _ in scope_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT * FROM assertions
+            WHERE scope_id IN ({placeholders})
+              AND recorded_at>=? AND recorded_at<?
+            ORDER BY scope_id COLLATE BINARY,recorded_at,
+                     subject_key COLLATE BINARY,assertion_id COLLATE BINARY
+            """,
+            (*scope_ids, instant_text(window_start), instant_text(window_end)),
+        )
+        return [self._row_to_assertion(row) for row in rows]
+
+    def brief_events(
+        self,
+        scope_ids: list[str],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[ChangeEvent]:
+        if not scope_ids:
+            return []
+        placeholders = ",".join("?" for _ in scope_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT * FROM events
+            WHERE scope_id IN ({placeholders})
+              AND recorded_at>=? AND recorded_at<?
+            ORDER BY scope_id COLLATE BINARY,recorded_at,event_id COLLATE BINARY
+            """,
+            (*scope_ids, instant_text(window_start), instant_text(window_end)),
+        )
+        return [self._row_to_event(row) for row in rows]
+
+    def save_mail_runtime_report(
+        self,
+        account_id: str,
+        scope_id: str,
+        report: dict[str, Any],
+        *,
+        updated_at: datetime,
+    ) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO mail_runtime_reports(
+              account_id,scope_id,report_json,updated_at
+            ) VALUES(?,?,?,?)
+            ON CONFLICT(account_id) DO UPDATE SET
+              scope_id=excluded.scope_id,
+              report_json=excluded.report_json,
+              updated_at=excluded.updated_at
+            """,
+            (
+                account_id,
+                scope_id,
+                canonical_json(report),
+                instant_text(updated_at),
+            ),
+        )
+
+    def mail_runtime_report(self, account_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            SELECT report_json FROM mail_runtime_reports WHERE account_id=?
+            """,
+            (account_id,),
+        ).fetchone()
+        return json.loads(row["report_json"]) if row is not None else None
 
     def observe_source(
         self,
@@ -2024,6 +2331,21 @@ class SQLiteStore:
                 "source_refs": json.loads(row["source_refs_json"]),
                 "origin": row["origin"],
                 "observation_id": row["observation_id"],
+            }
+        )
+
+    @staticmethod
+    def _row_to_signal(row: sqlite3.Row) -> Signal:
+        return Signal.model_validate(
+            {
+                "scope_id": row["scope_id"],
+                "record_id": row["record_id"],
+                "kind": row["kind"],
+                "detected_at": row["detected_at"],
+                "matched_text": row["matched_text"],
+                "subject_key": row["subject_key"],
+                "status": row["status"],
+                "acked_at": row["acked_at"],
             }
         )
 

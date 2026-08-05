@@ -1,0 +1,29 @@
+case_id: signal-replay-terminal-ack
+title: Signal replay is idempotent and acknowledgement remains terminal
+invariants: [INV-17]
+schema_profile: org-matters/v1
+scope_id: octo-signal-ack
+clock: ["2026-08-05T08:30:00Z"]
+cards: []
+signal_config:
+  identity_handles: [Dana]
+record_batches:
+  - records:
+      - record_id: ack-room:r1
+        container_id: ack-room
+        sent_at: "2026-08-05T08:30:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "Dana needs this fictional acknowledgement."
+record_model_responses:
+  - {cards: []}
+signal_operations:
+  - operation: ack
+    record_id: ack-room:r1
+    kind: mention_of_self
+    acked_at: "2026-08-05T08:35:00Z"
+expect:
+  signals:
+    - {record_id: ack-room:r1, kind: mention_of_self, status: acked, acked_at: "2026-08-05T08:35:00.000000Z"}
+  assertions: []
+  intervals: []
+  queries: []

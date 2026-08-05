@@ -197,6 +197,7 @@ class MatterResponse(StrictModel):
     subject_key: str
     aliases: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
+    unseen: bool | None = None
     owners_display: list[Any] = Field(default_factory=list)
     participants_display: list[Any] = Field(default_factory=list)
     sources_display: list[str] = Field(default_factory=list)
@@ -230,6 +231,90 @@ class StreamItemResponse(StrictModel):
 
 class StreamListResponse(RootModel[list[StreamItemResponse]]):
     pass
+
+
+class SignalResponse(StrictModel):
+    scope_id: str
+    record_id: str
+    kind: Literal["mention_of_self", "machine_alert"]
+    detected_at: datetime
+    matched_text: str
+    subject_key: str | None = None
+    status: Literal["open", "acked"]
+    acked_at: datetime | None = None
+
+
+class SignalListResponse(RootModel[list[SignalResponse]]):
+    pass
+
+
+class SignalAckInput(StrictModel):
+    scope_id: str = Field(min_length=1)
+    record_id: str = Field(min_length=1)
+    kind: Literal["mention_of_self", "machine_alert"]
+    acked_at: datetime | None = None
+
+
+class MatterSeenInput(StrictModel):
+    scope_id: str = Field(min_length=1)
+    last_seen_at: datetime | None = None
+
+
+class MatterSeenResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    last_seen_at: datetime
+
+
+class BriefNeedsMeResponse(StrictModel):
+    type: Literal["signal", "matter"]
+    scope_id: str
+    subject_key: str | None = None
+    title: str | None = None
+    signal_kind: Literal["mention_of_self", "machine_alert"] | None = None
+    record_id: str | None = None
+    matched_text: str | None = None
+    detected_at: datetime | None = None
+    reason: str
+
+
+class BriefMatterResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    title: str
+    status: Any = None
+    progress: str | None = None
+    blocker: list[Any] = Field(default_factory=list)
+    unseen: int = Field(ge=0)
+    latest_activity: datetime
+
+
+class BriefCountsResponse(StrictModel):
+    touched: int = Field(ge=0)
+    completed: int = Field(ge=0)
+    blocked: int = Field(ge=0)
+
+
+class BriefGroupResponse(StrictModel):
+    name: str
+    counts: BriefCountsResponse
+    matters: list[BriefMatterResponse]
+
+
+class BriefQuietResponse(StrictModel):
+    group: str
+    scope_id: str
+    container_id: str
+    message_count: int = Field(ge=0)
+    distinct_authors: int = Field(ge=0)
+    reaction_total: int = Field(ge=0)
+    hot: bool
+
+
+class BriefResponse(StrictModel):
+    needs_me: list[BriefNeedsMeResponse]
+    groups: list[BriefGroupResponse]
+    quiet: list[BriefQuietResponse]
 
 
 class RelatedMatterResponse(StrictModel):

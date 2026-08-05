@@ -553,6 +553,28 @@ class SubjectHandle(StrictModel):
         return self
 
 
+class SignalStatus(str, Enum):
+    open = "open"
+    acked = "acked"
+
+
+class Signal(StrictModel):
+    scope_id: str = Field(min_length=1)
+    record_id: str = Field(min_length=1)
+    kind: Literal["mention_of_self", "machine_alert"]
+    detected_at: datetime
+    matched_text: str = Field(min_length=1)
+    subject_key: str | None = None
+    status: SignalStatus = SignalStatus.open
+    acked_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def acknowledgement_is_complete(self) -> Signal:
+        if (self.status == SignalStatus.acked) != (self.acked_at is not None):
+            raise ValueError("acked signals MUST carry acked_at and open signals MUST NOT")
+        return self
+
+
 class ReviewItem(StrictModel):
     scope_id: str = Field(min_length=1)
     review_id: str = Field(min_length=1)

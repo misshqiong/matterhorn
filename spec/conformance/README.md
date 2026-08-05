@@ -10,7 +10,7 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-16`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-18`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
@@ -26,6 +26,9 @@ store view for the case's `scope_id`.
 | `adjudication_model_responses` | no | Ordered closed identity-adjudication fixtures, consumed only by calls using the section 23 routing response schema. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
 | `review_operations` | no | Ordered review resolutions with `review_id`, `action`, nullable `subject_key`, mandatory `source_refs`, and optional `expect_error`. |
+| `signal_config` | no | Engine signal settings: optional identity handles, pattern extensions, and hotness thresholds. |
+| `signal_operations` | no | Ordered terminal signal acknowledgements with record id, kind, and acknowledgement instant. |
+| `watermark_operations` | no | Ordered matter read-watermark upserts with subject key and last-seen instant. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
 | `expect` | for success | Expected partial-field multisets, queries, counters, and reports. |
 
@@ -123,6 +126,10 @@ fixture queue.
 | `matters` | Partial-field exact multiset of canonical ergonomic Matters, including aliases. |
 | `export_replay_identity` | Boolean requiring byte-identical ownership exports immediately before and after replay. |
 | `replay_events_emitted` | Exact number of new events returned by replay. |
+| `signals` | Partial-field exact multiset of deterministic Signal rows. |
+| `watermarks` | Exact subject-key to canonical timestamp mapping. |
+| `hotness_queries` | Ordered windowed hotness reads with partial result rows. |
+| `brief_queries` | Ordered windowed briefing reads with deterministic ordered results. |
 
 For assertions and intervals, project each actual item onto exactly the keys in
 one expected mapping, then compare an order-insensitive exact multiset. The
@@ -146,8 +153,8 @@ Every successful case must additionally:
 
 1. snapshot assertions, intervals, memory cards, projection statistics, events,
    subjects, active merges, all SubjectHandle rows, pending and resolved review
-   rows, Record observations, source lifecycle, and sync positions in canonical
-   JSON;
+   rows, Signals, read watermarks, Record observations, source lifecycle, and
+   sync positions in canonical JSON;
 2. add the identical Message, card, and Record batches again;
 3. if `model_responses` was present, call `dream()` again;
 4. apply the same corrections again;

@@ -259,6 +259,13 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid review_operations"
         )
+    for field in ("signal_operations", "watermark_operations"):
+        if field in case and not isinstance(case[field], list):
+            raise ValueError(f"malformed conformance case {path}: invalid {field}")
+    if "signal_config" in case and not isinstance(case["signal_config"], dict):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid signal_config"
+        )
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -305,6 +312,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         profile,
         clock=FixedClock(case.get("clock", [])),
         gateway=fixture_gateway,
+        **case.get("signal_config", {}),
     )
     for normalization_case in case.get("handle_normalization_cases", []):
         _equal(
@@ -353,6 +361,8 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         engine.correct(correction)
     _run_merge_operations(engine, case)
     _run_review_operations(engine, case)
+    _run_signal_operations(engine, case)
+    _run_watermark_operations(engine, case)
 
     expect = case["expect"]
     if "record_reports" in expect:
@@ -474,6 +484,39 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             engine.matters(case["scope_id"]),
             expect["matters"],
             "matters",
+        )
+    if "signals" in expect:
+        _assert_partial_exact(
+            engine.signals(case["scope_id"]),
+            expect["signals"],
+            "signals",
+        )
+    if "watermarks" in expect:
+        _equal(
+            _plain(engine.store.read_watermarks(case["scope_id"])),
+            _plain(expect["watermarks"]),
+            "watermarks",
+        )
+    for index, query in enumerate(expect.get("hotness_queries", [])):
+        actual = engine.hotness(
+            _instant(query["window_start"]),
+            _instant(query["window_end"]),
+            scope_ids=[case["scope_id"]],
+        )
+        _assert_partial_exact(actual, query["result"], f"hotness_queries[{index}]")
+    for index, query in enumerate(expect.get("brief_queries", [])):
+        actual = _plain(
+            engine.brief(
+                _instant(query["window_start"]),
+                _instant(query["window_end"]),
+                console_groups=query.get("console_groups", {}),
+                scope_ids=[case["scope_id"]],
+            )
+        )
+        _equal(
+            _project_partial(actual, query["result"]),
+            _plain(query["result"]),
+            f"brief_queries[{index}]",
         )
     if "conflicts_resolved" in expect:
         actual_stats = {
@@ -778,6 +821,29 @@ def _run_review_operations(engine: Engine, case: dict[str, Any]) -> None:
             )
 
 
+def _run_signal_operations(engine: Engine, case: dict[str, Any]) -> None:
+    for operation in case.get("signal_operations", []):
+        if operation.get("operation") != "ack":
+            raise ConformanceFailure(
+                f"unknown signal operation {operation.get('operation')!r}"
+            )
+        engine.acknowledge_signal(
+            case["scope_id"],
+            operation["record_id"],
+            operation["kind"],
+            acked_at=_instant(operation["acked_at"]),
+        )
+
+
+def _run_watermark_operations(engine: Engine, case: dict[str, Any]) -> None:
+    for operation in case.get("watermark_operations", []):
+        engine.set_seen(
+            case["scope_id"],
+            operation["subject_key"],
+            last_seen_at=_instant(operation["last_seen_at"]),
+        )
+
+
 def _assert_handle_expectations(
     engine: Engine,
     scope_id: str,
@@ -829,12 +895,21 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _instant(value: datetime | str) -> datetime:
+    return value if isinstance(value, datetime) else datetime.fromisoformat(value)
+
+
 def _project_partial(actual: Any, wanted: Any) -> Any:
     if isinstance(wanted, dict):
         return {
             key: _project_partial(actual[key], value)
             for key, value in wanted.items()
         }
+    if isinstance(wanted, list):
+        return [
+            _project_partial(item, expected)
+            for item, expected in zip(actual, wanted, strict=True)
+        ]
     return actual
 
 
@@ -1037,6 +1112,12 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             "events": [
                 _plain(item) for item in engine.store.events(scope_id)
             ],
+            "signals": [
+                _plain(item) for item in engine.store.signals(scope_id)
+            ],
+            "read_watermarks": _plain(
+                engine.store.read_watermarks(scope_id)
+            ),
         }
     )
 

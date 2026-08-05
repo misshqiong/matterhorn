@@ -46,6 +46,7 @@ from matterhorn.contracts import (
     ReplayReport,
     ReviewItem,
     SchemaProfile,
+    Signal,
     SourceRef,
     SubjectAnchor,
     SubjectHandle,
@@ -78,6 +79,17 @@ from matterhorn.engine.routing import (
     build_adjudication_prompt,
     candidate_score,
     gate_adjudication,
+)
+from matterhorn.engine.signals import (
+    DEFAULT_ALERT_KEYWORDS,
+    DEFAULT_HOT_MIN_AUTHORS,
+    DEFAULT_HOT_MIN_MESSAGES,
+    DEFAULT_IDENTITY_HANDLES,
+    DEFAULT_MACHINE_SENDERS,
+    SignalConfig,
+    best_token_match,
+    configured_signal_config,
+    first_pattern_match,
 )
 from matterhorn.errors import (
     ImportRefusedError,
@@ -215,6 +227,11 @@ class Engine:
     DEFAULT_MIN_BATCH_MESSAGES = DEFAULT_MIN_BATCH_MESSAGES
     DEFAULT_CONTEXT_MAX_RECORDS = DEFAULT_CONTEXT_MAX_RECORDS
     DEFAULT_CONTEXT_MAX_CHARS = DEFAULT_CONTEXT_MAX_CHARS
+    DEFAULT_IDENTITY_HANDLES = DEFAULT_IDENTITY_HANDLES
+    DEFAULT_MACHINE_SENDERS = DEFAULT_MACHINE_SENDERS
+    DEFAULT_ALERT_KEYWORDS = DEFAULT_ALERT_KEYWORDS
+    DEFAULT_HOT_MIN_AUTHORS = DEFAULT_HOT_MIN_AUTHORS
+    DEFAULT_HOT_MIN_MESSAGES = DEFAULT_HOT_MIN_MESSAGES
 
     def __init__(
         self,
@@ -228,6 +245,11 @@ class Engine:
         staging_retention_days: float = DEFAULT_STAGING_RETENTION_DAYS,
         max_batch_delay_minutes: float = DEFAULT_MAX_BATCH_DELAY_MINUTES,
         min_batch_messages: int = DEFAULT_MIN_BATCH_MESSAGES,
+        identity_handles: list[str] | tuple[str, ...] | None = None,
+        machine_senders: list[str] | tuple[str, ...] | None = None,
+        alert_keywords: list[str] | tuple[str, ...] | None = None,
+        hot_min_authors: int = DEFAULT_HOT_MIN_AUTHORS,
+        hot_min_messages: int = DEFAULT_HOT_MIN_MESSAGES,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -244,6 +266,13 @@ class Engine:
         self.min_batch_messages = min_batch_messages
         self.max_batch_delay_minutes = validate_max_batch_delay_minutes(
             max_batch_delay_minutes
+        )
+        self.signal_config: SignalConfig = configured_signal_config(
+            identity_handles=identity_handles,
+            machine_senders=machine_senders,
+            alert_keywords=alert_keywords,
+            hot_min_authors=hot_min_authors,
+            hot_min_messages=hot_min_messages,
         )
         self.query = QueryService(
             self.store,
@@ -514,12 +543,9 @@ class Engine:
                 "for each record_id"
             )
         if _stage:
+            staged_at = datetime.now(UTC)
             with self.store.transaction():
-                self.store.stage_records(
-                    scope_id,
-                    validated,
-                    staged_at=datetime.now(UTC),
-                )
+                self._stage_and_detect(scope_id, validated, staged_at=staged_at)
         pending: list[tuple[Record, str]] = []
         seen_observations: set[tuple[str, str]] = set()
         skipped = 0
@@ -1742,6 +1768,327 @@ class Engine:
             )
         return result
 
+    def signals(
+        self,
+        scope_id: str | None = None,
+        *,
+        status: str | None = None,
+    ) -> list[Signal]:
+        if status not in (None, "open", "acked"):
+            raise ValueError("signal status MUST be open or acked")
+        return self.store.signals(scope_id, status=status)
+
+    def acknowledge_signal(
+        self,
+        scope_id: str,
+        record_id: str,
+        kind: str,
+        *,
+        acked_at: datetime | None = None,
+    ) -> Signal:
+        with self.store.transaction():
+            signal = self.store.acknowledge_signal(
+                scope_id,
+                record_id,
+                kind,
+                acked_at=as_utc(acked_at) if acked_at is not None else self._clock(),
+            )
+        if signal is None:
+            raise ResourceNotFoundError(
+                f"unknown signal: {scope_id}/{record_id}/{kind}"
+            )
+        return signal
+
+    def set_seen(
+        self,
+        scope_id: str,
+        subject_key: str,
+        *,
+        last_seen_at: datetime | None = None,
+    ) -> datetime:
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        canonical = self.canonical_subject_key(scope_id, subject_key)
+        with self.store.transaction():
+            return self.store.set_read_watermark(
+                scope_id,
+                canonical,
+                last_seen_at=(
+                    as_utc(last_seen_at)
+                    if last_seen_at is not None
+                    else self._clock()
+                ),
+            )
+
+    def hotness(
+        self,
+        window_start: datetime,
+        window_end: datetime,
+        *,
+        scope_ids: list[str] | None = None,
+    ) -> list[Any]:
+        start = as_utc(window_start)
+        end = as_utc(window_end)
+        if end <= start:
+            raise ValueError("brief window_end MUST be after window_start")
+        scopes = self.store.list_scopes() if scope_ids is None else scope_ids
+        return self.store.conversation_hotness(
+            scopes,
+            window_start=start,
+            window_end=end,
+            min_authors=self.signal_config.hot_min_authors,
+            min_messages=self.signal_config.hot_min_messages,
+        )
+
+    def brief(
+        self,
+        window_start: datetime,
+        window_end: datetime,
+        *,
+        console_groups: dict[str, list[str]] | None = None,
+        scope_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Project the deterministic zero-model briefing from committed state."""
+
+        start = as_utc(window_start)
+        end = as_utc(window_end)
+        if end <= start:
+            raise ValueError("brief window_end MUST be after window_start")
+        scopes = scope_ids if scope_ids is not None else self.store.list_scopes()
+        group_for_scope = _brief_group_assignments(console_groups or {}, scopes)
+        group_names = sorted(
+            {*group_for_scope.values(), *(console_groups or {})},
+            key=lambda item: item.encode(),
+        )
+
+        matters_by_key: dict[tuple[str, str], Matter] = {}
+        titles: dict[tuple[str, str], str] = {}
+        all_assertions: dict[str, list[Assertion]] = {}
+        for scope_id in scopes:
+            scope_matters = self.matters(scope_id)
+            for matter in scope_matters:
+                key = (scope_id, matter.subject_key)
+                matters_by_key[key] = matter
+                titles[key] = matter.title
+            all_assertions[scope_id] = _canonicalized_assertions(
+                self.store.assertions(scope_id),
+                self.store.subject_merges(scope_id),
+            )
+
+        activity = []
+        for scope_id in scopes:
+            activity.extend(
+                _canonicalized_assertions(
+                    self.store.brief_assertions(
+                        [scope_id],
+                        window_start=start,
+                        window_end=end,
+                    ),
+                    self.store.subject_merges(scope_id),
+                )
+            )
+        activity_by_matter: dict[tuple[str, str], list[Assertion]] = {}
+        for assertion in activity:
+            activity_by_matter.setdefault(
+                (assertion.scope_id, assertion.subject_key), []
+            ).append(assertion)
+
+        completed_values = {
+            str(value).casefold()
+            for value in (
+                self.profile.completion.completed_values
+                if self.profile.completion
+                else []
+            )
+        }
+        transitions = self.store.brief_events(
+            scopes,
+            window_start=start,
+            window_end=end,
+        )
+        transition_counts: dict[str, dict[str, int]] = {}
+        for event in transitions:
+            group_name = group_for_scope[event.scope_id]
+            counts = transition_counts.setdefault(
+                group_name,
+                {"completed": 0, "blocked": 0},
+            )
+            counts["completed"] += int(
+                event.event_type == EventType.matter_completed
+            )
+            counts["blocked"] += int(
+                event.event_type == EventType.status_changed
+                and str(event.new_value).casefold() == "blocked"
+            )
+        groups = []
+        for group_name in group_names:
+            entries = []
+            for (scope_id, subject_key), assertions in activity_by_matter.items():
+                if group_for_scope.get(scope_id) != group_name:
+                    continue
+                matter = matters_by_key.get((scope_id, subject_key))
+                if matter is None:
+                    continue
+                latest_activity = max(item.recorded_at for item in assertions)
+                progress_assertions = [
+                    item
+                    for item in all_assertions[scope_id]
+                    if item.subject_key == subject_key
+                    and item.predicate == "progress"
+                    and item.operation == Operation.ASSERT
+                ]
+                latest_progress = (
+                    max(
+                        progress_assertions,
+                        key=lambda item: (
+                            item.recorded_at,
+                            item.assertion_id.encode("utf-8"),
+                        ),
+                    ).object_value
+                    if progress_assertions
+                    else matter.progress
+                )
+                watermark = self.store.read_watermark(scope_id, subject_key)
+                unseen = sum(
+                    1
+                    for item in all_assertions[scope_id]
+                    if item.subject_key == subject_key
+                    and item.recorded_at < end
+                    and (
+                        item.recorded_at > watermark
+                        if watermark is not None
+                        else item.recorded_at >= start
+                    )
+                )
+                entries.append(
+                    {
+                        "scope_id": scope_id,
+                        "subject_key": subject_key,
+                        "title": matter.title,
+                        "status": matter.status,
+                        "progress": (
+                            latest_progress
+                            if isinstance(latest_progress, str)
+                            else None
+                        ),
+                        "blocker": matter.blocked_by,
+                        "unseen": unseen,
+                        "latest_activity": latest_activity,
+                    }
+                )
+            entries.sort(
+                key=lambda item: (
+                    -item["unseen"],
+                    -item["latest_activity"].timestamp(),
+                    item["subject_key"].encode("utf-8"),
+                )
+            )
+            groups.append(
+                {
+                    "name": group_name,
+                    "counts": {
+                        "touched": len(entries),
+                        "completed": transition_counts.get(group_name, {}).get(
+                            "completed", 0
+                        ),
+                        "blocked": transition_counts.get(group_name, {}).get(
+                            "blocked", 0
+                        ),
+                    },
+                    "matters": entries,
+                }
+            )
+
+        needs_me = []
+        scope_set = set(scopes)
+        open_signals = [
+            signal
+            for signal in self.store.signals(status="open")
+            if signal.scope_id in scope_set
+        ]
+        open_signals.sort(
+            key=lambda item: (
+                item.subject_key is None,
+                -item.detected_at.timestamp(),
+                item.scope_id.encode("utf-8"),
+                item.record_id.encode("utf-8"),
+                item.kind.encode("utf-8"),
+            )
+        )
+        for signal in open_signals:
+            subject_key = (
+                self.canonical_subject_key(signal.scope_id, signal.subject_key)
+                if signal.subject_key is not None
+                else None
+            )
+            needs_me.append(
+                {
+                    "type": "signal",
+                    "scope_id": signal.scope_id,
+                    "subject_key": subject_key,
+                    "title": titles.get((signal.scope_id, subject_key)),
+                    "signal_kind": signal.kind,
+                    "record_id": signal.record_id,
+                    "matched_text": signal.matched_text,
+                    "detected_at": signal.detected_at,
+                    "reason": signal.kind,
+                }
+            )
+        for key in sorted(matters_by_key, key=lambda item: (item[0].encode(), item[1].encode())):
+            matter = matters_by_key[key]
+            if str(matter.status).casefold() in completed_values:
+                continue
+            if not _contains_identity_handle(
+                [matter.blocked_by, matter.next_step, matter.owners],
+                self.signal_config.identity_handles,
+            ):
+                continue
+            needs_me.append(
+                {
+                    "type": "matter",
+                    "scope_id": key[0],
+                    "subject_key": key[1],
+                    "title": matter.title,
+                    "signal_kind": None,
+                    "record_id": None,
+                    "matched_text": None,
+                    "detected_at": None,
+                    "reason": "identity_handle",
+                }
+            )
+
+        activity_source_ids = {
+            ref.source_id for assertion in activity for ref in assertion.source_refs
+        }
+        quiet = []
+        for row in self.hotness(start, end, scope_ids=scopes):
+            if any(
+                source_id.startswith(f"{row.container_id}:")
+                for source_id in activity_source_ids
+            ):
+                continue
+            quiet.append(
+                {
+                    "group": group_for_scope[row.scope_id],
+                    "scope_id": row.scope_id,
+                    "container_id": row.container_id,
+                    "message_count": row.message_count,
+                    "distinct_authors": row.distinct_authors,
+                    "reaction_total": row.reaction_total,
+                    "hot": row.hot,
+                }
+            )
+        quiet.sort(
+            key=lambda item: (
+                item["group"].encode(),
+                item["scope_id"].encode(),
+                item["container_id"].encode(),
+            )
+        )
+        return {"needs_me": needs_me, "groups": groups, "quiet": quiet}
+
     def related_matters(
         self,
         scope_id: str,
@@ -2095,7 +2442,7 @@ class Engine:
             )
             with self.store.transaction():
                 if staged_records:
-                    self.store.stage_records(
+                    self._stage_and_detect(
                         scope_id,
                         staged_records,
                         staged_at=created_at,
@@ -2112,6 +2459,75 @@ class Engine:
             if inserted:
                 return TaskReceipt(accepted=accepted, task_id=task_id)
             nonce += 1
+
+    def _stage_and_detect(
+        self,
+        scope_id: str,
+        records: list[Record],
+        *,
+        staged_at: datetime,
+    ) -> None:
+        self.store.stage_records(scope_id, records, staged_at=staged_at)
+        for record in records:
+            detector_matches: list[tuple[str, str]] = []
+            mention = best_token_match(
+                record.content,
+                self.signal_config.identity_handles,
+                digit_prefixes="@:",
+            )
+            if mention is not None:
+                detector_matches.append(("mention_of_self", mention[1]))
+            sender_match = first_pattern_match(
+                record.author.id,
+                self.signal_config.machine_senders,
+            )
+            alert_match = first_pattern_match(
+                record.content,
+                self.signal_config.alert_keywords,
+            )
+            if sender_match is not None and alert_match is not None:
+                detector_matches.append(("machine_alert", alert_match))
+            for kind, matched_text in detector_matches:
+                self.store.add_signal(
+                    Signal(
+                        scope_id=scope_id,
+                        record_id=record.record_id,
+                        kind=kind,
+                        detected_at=staged_at,
+                        matched_text=matched_text,
+                        subject_key=self._critical_signal_subject(
+                            scope_id,
+                            record.content,
+                        ),
+                    )
+                )
+
+    def _critical_signal_subject(
+        self,
+        scope_id: str,
+        content: str,
+    ) -> str | None:
+        matches: list[tuple[int, bytes, str]] = []
+        for handle in self.store.active_subject_handles(scope_id):
+            matched = best_token_match(
+                content,
+                [handle.normalized_value],
+                digit_prefixes="@:#",
+            )
+            if matched is None:
+                continue
+            subject_key = self.canonical_subject_key(
+                scope_id,
+                handle.subject_key,
+            )
+            matches.append(
+                (
+                    -len(handle.normalized_value),
+                    subject_key.encode("utf-8"),
+                    subject_key,
+                )
+            )
+        return min(matches)[2] if matches else None
 
     def sync_positions(self, scope_id: str):
         return self.store.sync_positions(scope_id)
@@ -3047,6 +3463,50 @@ def _message_to_record(scope_id: str, message: Message) -> Record:
             "native_id": message.id,
             "kind": "message",
         }
+    )
+
+
+def _brief_group_assignments(
+    patterns: dict[str, list[str]],
+    scopes: list[str],
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for scope in sorted(scopes, key=lambda value: value.encode("utf-8")):
+        matched = next(
+            (
+                group
+                for group, values in patterns.items()
+                if any(
+                    scope.startswith(pattern[:-1])
+                    if pattern.endswith("*")
+                    else scope == pattern
+                    for pattern in values
+                )
+            ),
+            None,
+        )
+        result[scope] = matched or scope
+    return result
+
+
+def _contains_identity_handle(value: Any, handles: tuple[str, ...]) -> bool:
+    if isinstance(value, dict):
+        return any(
+            _contains_identity_handle(item, handles) for item in value.values()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_contains_identity_handle(item, handles) for item in value)
+    if value is None:
+        return False
+    text = str(value)
+    return any(
+        re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(handle)}(?![A-Za-z0-9_])",
+            text,
+            flags=re.IGNORECASE,
+        )
+        is not None
+        for handle in handles
     )
 
 

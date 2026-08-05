@@ -154,6 +154,17 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   point already exists. A redundant assertion MUST NOT be stored or emit an
   event and MUST increment `unchanged_dropped`. RETRACT, `cleared_fields`, and
   origin-human assertions MUST NOT be dropped by this rule.
+- **INV-17 — Deterministic signal lane.** Signals MUST be derived at staging
+  time from the staged record and static configuration alone, with no gateway
+  call, and MUST be idempotent under replay: re-staging the same record MUST
+  NOT duplicate or alter its signals. Critical-path linkage MUST be resolved
+  only by the deterministic handle matcher of section 24.3 against committed
+  Store state. Signal acknowledgement is terminal and MUST survive replay.
+- **INV-18 — Zero-model briefing and watermark reads.** The briefing
+  projection, hotness metrics, and every watermark-relative freshness
+  computation MUST be pure functions of committed Store state plus the
+  request window, MUST NOT invoke a gateway or mutate assertion state, and
+  MUST return identical output for identical store state and window.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -1795,6 +1806,101 @@ review enqueue MUST commit atomically in the card-application transaction.
 Candidate reads MUST use a short Store transaction; the adjudication gateway
 call MUST execute with no Store lock or transaction held; final routing and
 ingest MUST use another short transaction.
+
+## 24. Signals, hotness, read watermarks, and briefing
+
+### 24.1 Signal detection
+
+A Signal is a deterministic per-record marker with shape
+`(scope_id, record_id, kind, detected_at, matched_text, subject_key?,
+status, acked_at?)` where `status ∈ {open, acked}`. Detectors run at staging
+enqueue time, after the write-through of section 16.2, in the fixed order
+listed below. `detected_at` MUST equal the staged record's `staged_at`.
+Storage key is `(scope_id, record_id, kind)`; re-staging the same record MUST
+be a no-op for existing rows (INV-17).
+
+v1 detector kinds, in order:
+
+1. `mention_of_self` — fires when any configured identity handle from
+   `[identity] handles` matches the record content case-insensitively on
+   token boundaries (a handle consisting only of digits MUST additionally be
+   preceded by `@` or `:` in the content to fire). With no configured
+   handles the detector is disabled and MUST emit nothing.
+2. `machine_alert` — fires when the record author id matches the
+   machine-sender pattern (default `no-?reply|notif|alert|donotreply`,
+   extendable via `[signals] machine_senders`) AND the content matches at
+   least one alert keyword (default set
+   `alert|security|fail(ed|ure)?|error|警告|告警|失败|安全`, extendable via
+   `[signals] alert_keywords`). Both conditions are required.
+
+Acknowledgement (`status → acked`, `acked_at` set) is terminal, MUST be
+persisted, and MUST survive replay. Signals never create subjects and are
+not assertions; they are a parallel deterministic lane.
+
+### 24.2 Hotness metrics
+
+Hotness is computed per `(scope_id, container_id)` over fixed UTC buckets of
+30 minutes aligned to the hour. For a request window the Store MUST report,
+per conversation: `message_count`, `distinct_authors`, `reaction_total`, and
+`hot` — true iff at least one bucket inside the window has
+`distinct_authors >= 3 AND message_count >= 5` (thresholds configurable via
+`[signals] hot_min_authors` / `hot_min_messages`). Revoked records are
+excluded. The computation reads `staged_records` only and MUST NOT trigger
+or gate distillation in this phase.
+
+### 24.3 Critical-path matching
+
+At signal creation the Engine MUST attempt one deterministic linkage: the
+normalized value of each active handle binding in the same scope is matched
+against the record content on token boundaries (digit-only values require a
+preceding `@`, `:` or `#`). If one or more bindings match, `subject_key` is
+set to the canonical subject of the longest matched value; ties break by
+lexicographically smallest subject key. Subjects whose projected `status` is
+a closed value still match (reopened threads are critical too). No model
+call, no title fuzzing: handles only.
+
+### 24.4 Read watermarks
+
+`read_watermarks(scope_id, subject_key, last_seen_at)` stores the single
+user's per-matter read position. Setting a watermark is an upsert with a
+caller-supplied or server-now timestamp; watermarks never move backwards.
+A matter's *unseen delta* for a request is the set of its assertions with
+`observed_at > last_seen_at`; with no watermark row the whole window is
+unseen. Wall `updated` badges and the briefing MUST use the watermark when
+present instead of the request window start.
+
+### 24.5 Briefing projection
+
+`brief(window_start, window_end)` is a pure read (INV-18). It MAY be
+restricted to an explicit scope list (defaulting to every scope in the
+Store); all sections below then only consider records, matters, and
+signals from those scopes. It returns:
+
+- `needs_me`: open signals — critical-path (with `subject_key`) first,
+  newest next — followed by active matters whose projected `blocker`,
+  `next_step`, or `owners` contains a configured identity handle;
+- `groups`: per console group (section 15 `[console.groups]`, ungrouped
+  scopes under their own name): matters with assertion activity in the
+  window, each carrying title, status, latest progress value, blocker,
+  and `unseen` (watermark-relative); plus counts
+  `{touched, completed, blocked}` where `completed`/`blocked` count
+  status transitions observed inside the window;
+- `quiet`: conversations with staged volume in the window but no matter
+  activity: `message_count`, `distinct_authors`, `hot` per section 24.2.
+
+Ordering is deterministic: groups by name; matters by
+(`unseen` desc, latest activity desc, subject key). The REST surface is
+`GET /v1/console/brief`; `POST /v1/matters/{subject}/seen` sets watermarks;
+`GET /v1/signals` lists and `POST /v1/signals/ack` acknowledges. The
+console renders the brief as the first screen; `mh brief` prints it.
+
+### 24.6 Conformance
+
+Golden cases MUST cover: detector firing and non-firing (identity unset),
+the two-condition `machine_alert` gate, replay idempotency of signals and
+terminal acks, critical-path handle linkage including the digit-only guard,
+watermark-relative unseen deltas, hotness bucket edges, and briefing
+structure and ordering for a mixed store.
 
 ## 中文摘要
 

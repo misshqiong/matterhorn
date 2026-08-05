@@ -1,0 +1,95 @@
+case_id: mixed-brief-ordering
+title: A mixed briefing orders critical needs, unseen matters, and quiet volume
+invariants: [INV-17, INV-18]
+schema_profile: org-matters/v1
+scope_id: octo-brief-mixed
+clock:
+  - "2026-08-05T09:10:00Z"
+  - "2026-08-05T09:20:00Z"
+  - "2026-08-05T09:30:00Z"
+  - "2026-08-05T09:35:00Z"
+cards:
+  - card_id: mixed-blocked
+    scope_id: octo-brief-mixed
+    subject_key: matter-b
+    date: 2026-08-05
+    title: Blocked fictional matter
+    status: blocked
+    blocker: certificate
+    progress: Waiting
+    source_refs: [{source_id: matter-b:r1, sent_at: "2026-08-05T09:10:00Z", sender: Ellis Stone}]
+  - card_id: mixed-completed
+    scope_id: octo-brief-mixed
+    subject_key: matter-a
+    date: 2026-08-05
+    title: Completed fictional matter
+    status: completed
+    progress: Finished
+    source_refs: [{source_id: matter-a:r1, sent_at: "2026-08-05T09:20:00Z", sender: Morgan Lee}]
+  - card_id: mixed-active
+    scope_id: octo-brief-mixed
+    subject_key: matter-c
+    date: 2026-08-05
+    title: Active fictional matter
+    status: open
+    progress: Drafted
+    next_step: Dana reviews the fictional draft
+    source_refs: [{source_id: matter-c:r1, sent_at: "2026-08-05T09:30:00Z", sender: Dana Reyes}]
+signal_config:
+  identity_handles: [Dana]
+handle_operations:
+  - operation: bind
+    subject_key: matter-b
+    handle_type: issue
+    handle_value: OCT-88
+    source_refs: [{source_id: mixed-handle, sent_at: "2026-08-05T09:35:00Z", sender: Dana Reyes}]
+record_batches:
+  - records:
+      - record_id: mixed-room:r1
+        container_id: mixed-room
+        sent_at: "2026-08-05T09:40:00Z"
+        author: {id: ellis, display_name: Ellis Stone, kind: human}
+        content: "@Dana please inspect OCT-88 in the fictional queue."
+record_model_responses:
+  - {cards: []}
+watermark_operations:
+  - {subject_key: matter-b, last_seen_at: "2026-08-05T09:15:00Z"}
+expect:
+  signals:
+    - {record_id: mixed-room:r1, kind: mention_of_self, subject_key: matter-b, status: open}
+  brief_queries:
+    - window_start: "2026-08-05T09:00:00Z"
+      window_end: "2026-08-05T10:00:00Z"
+      console_groups: {team: [octo-*]}
+      result:
+        needs_me:
+          - {type: signal, subject_key: matter-b, title: Blocked fictional matter, reason: mention_of_self}
+          - {type: matter, subject_key: matter-c, title: Active fictional matter, reason: identity_handle}
+        groups:
+          - name: team
+            counts: {touched: 3, completed: 1, blocked: 1}
+            matters:
+              - {subject_key: matter-c, title: Active fictional matter, progress: Drafted, unseen: 3}
+              - {subject_key: matter-a, title: Completed fictional matter, progress: Finished, unseen: 2}
+              - {subject_key: matter-b, title: Blocked fictional matter, progress: Waiting, unseen: 0}
+        quiet:
+          - {group: team, container_id: mixed-room, message_count: 1, distinct_authors: 1, hot: false}
+  assertions:
+    - {subject_key: matter-b, predicate: status, object_value: blocked}
+    - {subject_key: matter-b, predicate: blocked_by, object_value: certificate}
+    - {subject_key: matter-b, predicate: progress, object_value: Waiting}
+    - {subject_key: matter-a, predicate: status, object_value: completed}
+    - {subject_key: matter-a, predicate: progress, object_value: Finished}
+    - {subject_key: matter-c, predicate: status, object_value: open}
+    - {subject_key: matter-c, predicate: next_step, object_value: Dana reviews the fictional draft}
+    - {subject_key: matter-c, predicate: progress, object_value: Drafted}
+  intervals:
+    - {subject_key: matter-b, predicate: status, object_value: blocked}
+    - {subject_key: matter-b, predicate: blocked_by, object_value: certificate}
+    - {subject_key: matter-b, predicate: progress, object_value: Waiting}
+    - {subject_key: matter-a, predicate: status, object_value: completed}
+    - {subject_key: matter-a, predicate: progress, object_value: Finished}
+    - {subject_key: matter-c, predicate: status, object_value: open}
+    - {subject_key: matter-c, predicate: next_step, object_value: Dana reviews the fictional draft}
+    - {subject_key: matter-c, predicate: progress, object_value: Drafted}
+  queries: []

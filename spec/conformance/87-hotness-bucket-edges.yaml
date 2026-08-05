@@ -1,0 +1,43 @@
+case_id: hotness-bucket-edges
+title: Thirty-minute UTC bucket edges prevent cross-bucket hotness
+invariants: [INV-18]
+schema_profile: org-matters/v1
+scope_id: octo-hotness
+clock: ["2026-08-05T09:00:00Z"]
+cards: []
+record_batches:
+  - records:
+      - {record_id: hot-room:r1, container_id: hot-room, sent_at: "2026-08-05T09:00:00Z", author: {id: dana, display_name: Dana Reyes, kind: human}, content: "Fictional hot one."}
+      - {record_id: hot-room:r2, container_id: hot-room, sent_at: "2026-08-05T09:05:00Z", author: {id: ellis, display_name: Ellis Stone, kind: human}, content: "Fictional hot two."}
+      - {record_id: hot-room:r3, container_id: hot-room, sent_at: "2026-08-05T09:10:00Z", author: {id: morgan, display_name: Morgan Lee, kind: human}, content: "Fictional hot three."}
+      - {record_id: hot-room:r4, container_id: hot-room, sent_at: "2026-08-05T09:20:00Z", author: {id: dana, display_name: Dana Reyes, kind: human}, content: "Fictional hot four."}
+      - {record_id: hot-room:r5, container_id: hot-room, sent_at: "2026-08-05T09:29:59Z", author: {id: ellis, display_name: Ellis Stone, kind: human}, content: "Fictional hot five."}
+      - {record_id: cold-room:r1, container_id: cold-room, sent_at: "2026-08-05T09:00:00Z", author: {id: dana, display_name: Dana Reyes, kind: human}, content: "Fictional cold one."}
+      - {record_id: cold-room:r2, container_id: cold-room, sent_at: "2026-08-05T09:05:00Z", author: {id: ellis, display_name: Ellis Stone, kind: human}, content: "Fictional cold two."}
+      - {record_id: cold-room:r3, container_id: cold-room, sent_at: "2026-08-05T09:10:00Z", author: {id: morgan, display_name: Morgan Lee, kind: human}, content: "Fictional cold three."}
+      - {record_id: cold-room:r4, container_id: cold-room, sent_at: "2026-08-05T09:20:00Z", author: {id: dana, display_name: Dana Reyes, kind: human}, content: "Fictional cold four."}
+      - {record_id: cold-room:r5, container_id: cold-room, sent_at: "2026-08-05T09:30:00Z", author: {id: ellis, display_name: Ellis Stone, kind: human}, content: "Fictional cold edge."}
+record_model_responses:
+  - {cards: []}
+  - {cards: []}
+expect:
+  hotness_queries:
+    - window_start: "2026-08-05T09:00:00Z"
+      window_end: "2026-08-05T10:00:00Z"
+      result:
+        - {container_id: cold-room, message_count: 5, distinct_authors: 3, hot: false}
+        - {container_id: hot-room, message_count: 5, distinct_authors: 3, hot: true}
+  brief_queries:
+    - window_start: "2026-08-05T09:00:00Z"
+      window_end: "2026-08-05T10:00:00Z"
+      console_groups: {team: [octo-*]}
+      result:
+        needs_me: []
+        groups:
+          - {name: team, counts: {touched: 0, completed: 0, blocked: 0}, matters: []}
+        quiet:
+          - {container_id: cold-room, message_count: 5, distinct_authors: 3, hot: false}
+          - {container_id: hot-room, message_count: 5, distinct_authors: 3, hot: true}
+  assertions: []
+  intervals: []
+  queries: []

@@ -18,6 +18,7 @@ from matterhorn.contracts import (
     ProjectionStats,
     Record,
     ReviewItem,
+    Signal,
     SourceRef,
     SubjectHandle,
     SubjectMerge,
@@ -104,6 +105,16 @@ class StagedRecordRow:
 
 
 @dataclass(frozen=True)
+class ConversationHotnessRow:
+    scope_id: str
+    container_id: str
+    message_count: int
+    distinct_authors: int
+    reaction_total: int
+    hot: bool
+
+
+@dataclass(frozen=True)
 class QuerySubjectRow:
     subject_key: str
     subject_type: str
@@ -177,6 +188,75 @@ class Store(Protocol):
     ) -> list[StagedRecordRow]: ...
 
     def purge_staged_records(self, scope_id: str, *, before: datetime) -> int: ...
+
+    def add_signal(self, signal: Signal) -> bool: ...
+
+    def signals(
+        self,
+        scope_id: str | None = None,
+        *,
+        status: Literal["open", "acked"] | None = None,
+    ) -> list[Signal]: ...
+
+    def acknowledge_signal(
+        self,
+        scope_id: str,
+        record_id: str,
+        kind: str,
+        *,
+        acked_at: datetime,
+    ) -> Signal | None: ...
+
+    def set_read_watermark(
+        self,
+        scope_id: str,
+        subject_key: str,
+        *,
+        last_seen_at: datetime,
+    ) -> datetime: ...
+
+    def read_watermark(
+        self, scope_id: str, subject_key: str
+    ) -> datetime | None: ...
+
+    def read_watermarks(self, scope_id: str) -> dict[str, datetime]: ...
+
+    def conversation_hotness(
+        self,
+        scope_ids: list[str],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        min_authors: int,
+        min_messages: int,
+    ) -> list[ConversationHotnessRow]: ...
+
+    def brief_assertions(
+        self,
+        scope_ids: list[str],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[Assertion]: ...
+
+    def brief_events(
+        self,
+        scope_ids: list[str],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[ChangeEvent]: ...
+
+    def save_mail_runtime_report(
+        self,
+        account_id: str,
+        scope_id: str,
+        report: dict[str, Any],
+        *,
+        updated_at: datetime,
+    ) -> None: ...
+
+    def mail_runtime_report(self, account_id: str) -> dict[str, Any] | None: ...
 
     def observe_source(
         self,
