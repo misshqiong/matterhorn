@@ -317,6 +317,11 @@
     .review-summary { margin: .28rem 0 .45rem; color: var(--muted); font: 12px var(--serif); }
     .review-actions { display: flex; flex-wrap: wrap; gap: .3rem; }
     .review-actions .button { padding: .28rem .45rem; font-size: 9px; }
+    .time-tree { border-top: 1px solid var(--rule-strong); margin-top: .8rem; padding-top: .7rem; }
+    .time-tree-list { list-style: none; margin: .45rem 0; padding: 0; display: grid; gap: .3rem; }
+    .time-tree-node { display: flex; align-items: center; gap: .35rem; }
+    .tree-link { border: 0; border-bottom: 1px dotted var(--rule-strong); background: none; color: inherit; padding: 0; cursor: pointer; font: 12px var(--serif); }
+    .structure-controls { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); margin-top: .7rem; }
     .overdue { color: var(--red); font-weight: 700; }
     .empty { color: var(--faint); font: italic 13px var(--serif); }
     .detail-values { list-style: none; margin: 0; padding: 0; }
@@ -863,7 +868,7 @@
       byId("brief-groups").innerHTML = (state.brief.groups || []).map((group) => {
         const counts = group.counts;
         const matters = group.matters.map((matter) =>
-          `<button type="button" class="brief-title" data-brief-scope="${escapeHtml(matter.scope_id)}" data-brief-subject="${escapeHtml(matter.subject_key)}">${escapeHtml(matter.title)}${matter.unseen ? ` (${matter.unseen})` : ""}</button>`
+          `<button type="button" class="brief-title" data-brief-scope="${escapeHtml(matter.scope_id)}" data-brief-subject="${escapeHtml(matter.subject_key)}">${escapeHtml(matter.title)} · ${matter.descendants_completed}/${matter.descendants_total} 子目标${matter.unseen ? ` (${matter.unseen})` : ""}</button>`
         ).join(" · ") || '<span class="empty">No activity.</span>';
         return `<div class="brief-group-line"><strong>${escapeHtml(group.name)}</strong><span class="brief-group-counts">touched ${counts.touched} · completed ${counts.completed} · blocked ${counts.blocked}</span><span>${matters}</span></div>`;
       }).join("");
@@ -945,10 +950,12 @@
         ? state.reviews.map((item) => {
             const card = item.card_json || {};
             const summary = card.progress || card.status || card.next_step || "No summary supplied.";
-            const candidates = (item.candidates_json || []).map((candidate) =>
-              `<button type="button" class="button secondary" data-review-action="attach" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-subject="${escapeHtml(candidate.subject_key)}">Attach to ${escapeHtml(candidate.title)}</button>`
+            const candidates = (item.candidates_json || []).map((candidate) => candidate.action === "attach_subgoal"
+              ? `<button type="button" class="button secondary" data-review-action="attach_subgoal" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-parent="${escapeHtml(candidate.parent_subject_key)}">Attach under ${escapeHtml(candidate.title)}</button>`
+              : `<button type="button" class="button secondary" data-review-action="attach" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-subject="${escapeHtml(candidate.subject_key)}">Attach to ${escapeHtml(candidate.title)}</button>`
             ).join("");
-            return `<li class="review-item"><span class="scope-chip">${escapeHtml(item.scope_id)}</span><h3>${escapeHtml(card.title || "Untitled card")}</h3><p class="review-summary">${escapeHtml(summary)}</p><p class="help">${escapeHtml((item.reasons || []).join(" · "))}</p><div class="review-actions">${candidates}<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button><button type="button" class="button quiet" data-review-action="drop" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Drop</button></div></li>`;
+            const identityActions = (item.reasons || []).includes("PARENT_SUGGESTION") ? "" : `<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button><button type="button" class="button quiet" data-review-action="drop" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Drop</button>`;
+            return `<li class="review-item"><span class="scope-chip">${escapeHtml(item.scope_id)}</span><h3>${escapeHtml(card.title || "Untitled card")}</h3><p class="review-summary">${escapeHtml(summary)}</p><p class="help">${escapeHtml((item.reasons || []).join(" · "))}</p><div class="review-actions">${candidates}${identityActions}</div></li>`;
           }).join("")
         : '<li class="empty">No cards awaiting review.</li>';
     }
@@ -957,6 +964,7 @@
       const action = button.dataset.reviewAction;
       const scope = button.dataset.reviewScope;
       const subject = button.dataset.reviewSubject || null;
+      const parentSubject = button.dataset.reviewParent || null;
       const sender = localStorage.getItem("matterhorn.console.sender") || "Console operator";
       const now = new Date().toISOString();
       button.disabled = true;
@@ -966,11 +974,12 @@
           body: JSON.stringify({
             action,
             subject_key: subject,
+            parent_subject_key: parentSubject,
             source_refs: [{
               source_id: `console:${crypto.randomUUID()}`,
               sent_at: now,
               sender,
-              excerpt: action === "attach" ? `Console review attached this card to ${subject}.` : "Console review created a new matter."
+              excerpt: action === "attach" ? `Console review attached this card to ${subject}.` : action === "attach_subgoal" ? `Console review attached this subgoal under ${parentSubject}.` : "Console review created a new matter."
             }]
           })
         });
@@ -980,6 +989,41 @@
         button.disabled = false;
         setStatus("review-status", error.message, "error");
       }
+    }
+
+    function flattenTree(node, result = []) {
+      if (!node) return result;
+      result.push(node);
+      (node.children || []).forEach((child) => flattenTree(child, result));
+      return result;
+    }
+
+    function timeTreeHtml(detail) {
+      const graph = detail.graph || {};
+      const node = graph.node || {};
+      const parent = (graph.parent_chain || [])[0];
+      const parentHtml = parent
+        ? `<button type="button" class="tree-link" data-tree-scope="${escapeHtml(detail.scope_id)}" data-tree-subject="${escapeHtml(parent.subject_key)}">${escapeHtml(parent.title)}</button>`
+        : '<span class="empty">Root matter</span>';
+      const children = (graph.children || []).map((child) =>
+        `<li class="time-tree-node"><span class="stamp">${escapeHtml(compactValue(child.status))}</span><button type="button" class="tree-link" data-tree-scope="${escapeHtml(detail.scope_id)}" data-tree-subject="${escapeHtml(child.subject_key)}">${escapeHtml(child.title)}</button><time>${escapeHtml(compactTime(child.birth_instant))}</time></li>`
+      ).join("") || '<li class="empty">No child matters.</li>';
+      const decisions = (node.decisions || []).map((decision) =>
+        `<li>${escapeHtml(displayValue(decision))}</li>`
+      ).join("") || '<li class="empty">No decisions recorded.</li>';
+      const targets = new Map();
+      state.matters.filter((matter) => matter.scope_id === detail.scope_id).forEach((matter) => targets.set(matter.subject_key, matter));
+      flattenTree(graph.tree).forEach((matter) => targets.set(matter.subject_key, matter));
+      targets.delete(detail.subject_key);
+      const targetOptions = [...targets.values()].sort((left, right) => bytewise(left.subject_key, right.subject_key)).map((matter) =>
+        `<option value="${escapeHtml(matter.subject_key)}">${escapeHtml(matter.title)} · ${escapeHtml(matter.subject_key)}</option>`
+      ).join("");
+      const sender = escapeHtml(localStorage.getItem("matterhorn.console.sender") || "");
+      const reparent = targetOptions
+        ? `<form class="form-stack" id="reparent-form"><h4>Re-parent</h4><label>Parent<select id="reparent-target" required>${targetOptions}</select></label><label>Reason<textarea id="reparent-reason" required></textarea></label><label>Your name<input id="reparent-sender" required value="${sender}"></label><div id="reparent-error"></div><button class="button" type="submit">Set part_of</button></form>`
+        : '<div><h4>Re-parent</h4><p class="empty">No other matter is available.</p></div>';
+      const decision = `<form class="form-stack" id="decision-form"><h4>Add decision</h4><label>Decision<textarea id="decision-value" required></textarea></label><label>Your name<input id="decision-sender" required value="${sender}"></label><div id="decision-error"></div><button class="button" type="submit">Record decision</button></form>`;
+      return `<section class="time-tree"><h3>Time tree</h3><p><strong>Parent</strong> · ${parentHtml}</p><ul class="time-tree-list">${children}</ul><h4>Decisions</h4><ul>${decisions}</ul><div class="structure-controls">${reparent}${decision}</div></section>`;
     }
 
     function detailHtml(detail) {
@@ -1029,6 +1073,7 @@
           ).join("")}</div>`
         : "";
       const timeline = timelineHtml(detail, personNames);
+      const timeTree = timeTreeHtml(detail);
       const related = detail.related?.length
         ? `<section class="related-panel"><h3>Related</h3><ul class="related-list">${detail.related.map((matter) =>
             `<li><button type="button" class="related-item" data-related-scope="${escapeHtml(matter.scope_id)}" data-related-subject="${escapeHtml(matter.subject_key)}"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong><span class="related-via">${escapeHtml(matter.via)}</span></button></li>`
@@ -1051,7 +1096,7 @@
           </section>`
         : '<section class="merge-panel"><h3>Merge into…</h3><p class="empty">No other matters in this scope are currently on the wall.</p></section>';
       return `<div class="detail-head"><div><p class="eyebrow">${escapeHtml(detail.scope_id)} · ${escapeHtml(detail.subject_key)}</p><h2>${escapeHtml(detail.title)}</h2></div><button type="button" class="detail-close">Close</button></div>
-        ${aliases}${handles}<ul class="detail-values">${values}</ul>${timeline}${related}${mergeControl}`;
+        ${aliases}${handles}<ul class="detail-values">${values}</ul>${timeTree}${timeline}${related}${mergeControl}`;
     }
 
     function timelineHtml(detail, personNames = {}) {
@@ -1131,6 +1176,10 @@
       const updated = isMatterUpdated(matter)
         ? '<span class="stamp updated">updated</span>' : "";
       const blockers = (matter.blocked_by || []).map(compactValue).join(", ");
+      const bubbledBlockers = (matter.bubbled_blockers || []).map((item) =>
+        `${item.subject_key}: ${compactValue(item.blocker)}`
+      ).join(" · ");
+      const rollup = `<span class="scope-chip">${matter.descendants_completed}/${matter.descendants_total} 子目标</span>`;
       const sources = matter.sources_display || [];
       const sourceChips = sources.slice(0, 2).map((source) =>
         `<span class="conv-chip" title="${escapeHtml(source)}">${escapeHtml(source)}</span>`
@@ -1141,10 +1190,10 @@
       const owners = ownerItems.length ? compactValue(ownerItems) : null;
       return `<button type="button" class="matter-row ${archived ? "archived" : ""} ${state.selected === key ? "active" : ""}"
           data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
-        <span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span></span>
+        <span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span>${rollup}</span>
         <span class="matter-row-title"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong></span>
         <span class="matter-row-summary"><span class="row-label">Summary</span>${escapeHtml(matter.progress || "—")}</span>
-        <span class="matter-row-blocker">${blockers ? `<span class="row-label">Problem</span>blocked: ${escapeHtml(blockers)}` : ""}</span>
+        <span class="matter-row-blocker">${blockers || bubbledBlockers ? `<span class="row-label">Problem</span>${blockers ? `blocked: ${escapeHtml(blockers)}` : ""}${blockers && bubbledBlockers ? " · " : ""}${bubbledBlockers ? `子目标: ${escapeHtml(bubbledBlockers)}` : ""}` : ""}</span>
         <span class="matter-row-meta">${sourceChips}${extraSources}${owners ? `<span title="Owners">${escapeHtml(owners)}</span>` : ""}<span class="${overdue ? "overdue" : ""}" title="Due">due ${escapeHtml(validDue ? compactTime(matter.due) : "—")}</span>${matter.next_step != null ? `<span class="next-chip" title="${escapeHtml(compactValue(matter.next_step))}">next ${escapeHtml(compactValue(matter.next_step))}</span>` : ""}<time datetime="${escapeHtml(matter.updated_at || "")}" title="Updated">${escapeHtml(compactTime(matter.updated_at))}</time></span>
       </button>`;
     }
@@ -1232,6 +1281,53 @@
       } catch (error) {
         byId("correction-error").innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
       }
+    }
+
+    async function submitStructureCorrection({ predicate, value, reason, sender, errorId }) {
+      const now = new Date().toISOString();
+      localStorage.setItem("matterhorn.console.sender", sender);
+      try {
+        await api(`/v1/scopes/${encodeURIComponent(state.detail.scope_id)}/corrections`, {
+          method: "POST",
+          body: JSON.stringify({
+            subject_key: state.detail.subject_key,
+            subject_type: state.detail.subject_type,
+            predicate,
+            object_value: value,
+            valid_from: now,
+            source_refs: [{ source_id: `console:${crypto.randomUUID()}`, sent_at: now, sender, excerpt: reason }]
+          })
+        });
+        await Promise.all([
+          loadDetail(state.detail.scope_id, state.detail.subject_key),
+          loadMatters(),
+          loadBrief()
+        ]);
+      } catch (error) {
+        byId(errorId).innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function submitReparent(event) {
+      event.preventDefault();
+      return submitStructureCorrection({
+        predicate: "part_of",
+        value: byId("reparent-target").value,
+        reason: `Console re-parent. Reason: ${byId("reparent-reason").value.trim()}`,
+        sender: byId("reparent-sender").value.trim(),
+        errorId: "reparent-error"
+      });
+    }
+
+    function submitDecision(event) {
+      event.preventDefault();
+      return submitStructureCorrection({
+        predicate: "decision",
+        value: byId("decision-value").value.trim(),
+        reason: "Console decision entry.",
+        sender: byId("decision-sender").value.trim(),
+        errorId: "decision-error"
+      });
     }
 
     async function submitMerge(event) {
@@ -1686,6 +1782,8 @@
       if (button) resolveReview(button);
     });
     byId("detail-dialog").addEventListener("click", (event) => {
+      const tree = event.target.closest("[data-tree-subject]");
+      if (tree) { loadDetail(tree.dataset.treeScope, tree.dataset.treeSubject); return; }
       const related = event.target.closest("[data-related-subject]");
       if (related) { loadDetail(related.dataset.relatedScope, related.dataset.relatedSubject); return; }
       const correct = event.target.closest(".correct-value");
@@ -1698,6 +1796,8 @@
     });
     byId("detail-dialog").addEventListener("submit", (event) => {
       if (event.target.closest("#merge-form")) submitMerge(event);
+      else if (event.target.closest("#reparent-form")) submitReparent(event);
+      else if (event.target.closest("#decision-form")) submitDecision(event);
     });
     byId("mail-account-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-mail-action]");

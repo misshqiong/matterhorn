@@ -194,17 +194,20 @@ class MatterhornService:
         result = []
         for item in self.engine.matters(scope_id):
             payload = item.to_dict()
-            watermark = self.engine.store.read_watermark(
-                scope_id,
-                item.subject_key,
-            )
-            payload["unseen"] = (
-                item.updated_at is not None and item.updated_at > watermark
-                if watermark is not None
-                else None
+            payload["unseen"] = self.engine.matter_unseen(
+                scope_id, item.subject_key
             )
             result.append(payload)
         return result
+
+    def matter_graph(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+    ) -> dict[str, Any]:
+        self._require_subject(scope_id, subject_key)
+        return self.engine.matter_graph(scope_id, subject_key).to_dict()
 
     def brief(
         self,
@@ -322,6 +325,9 @@ class MatterhornService:
                 item.to_dict()
                 for item in self.engine.related_matters(scope_id, subject_key)
             ],
+            "graph": self.engine.matter_graph(
+                scope_id, subject_key
+            ).to_dict(),
             "current": current,
             "timeline": {
                 predicate: values
@@ -562,12 +568,14 @@ class MatterhornService:
         action: str,
         subject_key: str | None,
         source_refs: list[SourceRef | dict[str, Any]],
+        parent_subject_key: str | None = None,
     ) -> dict[str, Any]:
         return self.engine.resolve_review(
             scope_id,
             review_id,
             action=action,
             subject_key=subject_key,
+            parent_subject_key=parent_subject_key,
             source_refs=source_refs,
         ).model_dump(mode="json")
 

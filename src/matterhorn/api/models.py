@@ -140,8 +140,9 @@ class ReviewListResponse(RootModel[list[ReviewItemResponse]]):
 
 
 class ReviewResolveInput(StrictModel):
-    action: Literal["attach", "new", "drop"]
+    action: Literal["attach", "new", "drop", "attach_subgoal"]
     subject_key: str | None = None
+    parent_subject_key: str | None = None
     source_refs: list[SourceRef] = Field(min_length=1)
 
 
@@ -201,6 +202,11 @@ class MatterResponse(StrictModel):
     owners_display: list[Any] = Field(default_factory=list)
     participants_display: list[Any] = Field(default_factory=list)
     sources_display: list[str] = Field(default_factory=list)
+    descendants_total: int = Field(default=0, ge=0)
+    descendants_completed: int = Field(default=0, ge=0)
+    descendants_blocked: int = Field(default=0, ge=0)
+    bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    latest_activity: datetime | None = None
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
@@ -287,6 +293,10 @@ class BriefMatterResponse(StrictModel):
     blocker: list[Any] = Field(default_factory=list)
     unseen: int = Field(ge=0)
     latest_activity: datetime
+    descendants_total: int = Field(default=0, ge=0)
+    descendants_completed: int = Field(default=0, ge=0)
+    descendants_blocked: int = Field(default=0, ge=0)
+    bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BriefCountsResponse(StrictModel):
@@ -324,6 +334,40 @@ class RelatedMatterResponse(StrictModel):
     via: str
 
 
+class GraphNodeResponse(StrictModel):
+    subject_key: str
+    title: str
+    status: Any = None
+    blocker: list[Any] = Field(default_factory=list)
+    birth_instant: datetime | None = None
+    parent_subject_key: str | None = None
+    decisions: list[Any] = Field(default_factory=list)
+
+
+class GraphTreeNodeResponse(GraphNodeResponse):
+    children: list[GraphTreeNodeResponse] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class StructuralRollupResponse(StrictModel):
+    descendants_total: int = Field(ge=0)
+    descendants_completed: int = Field(ge=0)
+    descendants_blocked: int = Field(ge=0)
+    bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    latest_activity: datetime | None = None
+
+
+class MatterGraphResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    root_subject_key: str
+    node: GraphNodeResponse
+    parent_chain: list[GraphNodeResponse]
+    children: list[GraphNodeResponse]
+    tree: GraphTreeNodeResponse
+    rollup: StructuralRollupResponse
+
+
 class MatterDetailResponse(StrictModel):
     subject_key: str
     subject_type: str
@@ -333,6 +377,7 @@ class MatterDetailResponse(StrictModel):
     aliases: list[str] = Field(default_factory=list)
     handles: list[SubjectHandleResponse] = Field(default_factory=list)
     related: list[RelatedMatterResponse] = Field(default_factory=list)
+    graph: MatterGraphResponse
     current: list[ValueResponse]
     timeline: dict[str, list[ValueResponse]]
 

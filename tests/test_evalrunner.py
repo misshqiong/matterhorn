@@ -189,7 +189,7 @@ def test_shipped_fixture_dataset_is_deterministic_and_json_serializable(
         "cards_accepted": 21,
         "gate_rejections": 1,
         "gate_rejection_reasons": {"SOURCE_NOT_TRACEABLE": 1},
-        "review_queued": 0,
+        "review_queued": 1,
         "route_counts": {
             "route_handle": 8,
             "route_thread": 0,

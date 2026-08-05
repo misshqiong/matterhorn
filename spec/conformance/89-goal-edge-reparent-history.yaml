@@ -1,0 +1,70 @@
+case_id: goal-edge-reparent-history
+title: Evidenced structure assertions preserve re-parent and decision history
+invariants: [INV-3, INV-7, INV-9, INV-19]
+schema_profile: org-matters/v1
+scope_id: octo-goal-history
+clock:
+  - "2026-08-05T10:00:00Z"
+  - "2026-08-05T10:01:00Z"
+  - "2026-08-05T10:02:00Z"
+  - "2026-08-05T11:00:00Z"
+cards:
+  - card_id: goal-root-a
+    scope_id: octo-goal-history
+    subject_key: root-a
+    date: 2026-08-05
+    occurred_at: "2026-08-05T09:00:00Z"
+    title: Fictional amber root
+    status: open
+    source_refs: [{source_id: octo-room:root-a, sent_at: "2026-08-05T09:00:00Z", sender: Dana Reyes}]
+  - card_id: goal-root-b
+    scope_id: octo-goal-history
+    subject_key: root-b
+    date: 2026-08-05
+    occurred_at: "2026-08-05T09:01:00Z"
+    title: Fictional blue root
+    status: open
+    source_refs: [{source_id: octo-room:root-b, sent_at: "2026-08-05T09:01:00Z", sender: Dana Reyes}]
+  - card_id: goal-child
+    scope_id: octo-goal-history
+    subject_key: child
+    date: 2026-08-05
+    occurred_at: "2026-08-05T09:02:00Z"
+    title: Fictional child
+    status: open
+    source_refs: [{source_id: octo-room:child, sent_at: "2026-08-05T09:02:00Z", sender: Dana Reyes}]
+corrections:
+  - {scope_id: octo-goal-history, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: root-a, valid_from: "2026-08-05T09:10:00Z", source_refs: [{source_id: review:parent-a, sent_at: "2026-08-05T09:10:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-goal-history, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: root-b, valid_from: "2026-08-05T09:20:00Z", source_refs: [{source_id: review:parent-b, sent_at: "2026-08-05T09:20:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-goal-history, subject_key: child, subject_type: MATTER, predicate: spawned_from, operation: ASSERT, object_value: root-a, valid_from: "2026-08-05T09:05:00Z", source_refs: [{source_id: octo-room:fork, sent_at: "2026-08-05T09:05:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-goal-history, subject_key: root-a, subject_type: MATTER, predicate: decision, operation: ASSERT, object_value: Adopt the fictional split., valid_from: "2026-08-05T09:04:00Z", source_refs: [{source_id: octo-room:decision, sent_at: "2026-08-05T09:04:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: root-a, predicate: status, object_value: open}
+    - {subject_key: root-b, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: root-a, origin: human}
+    - {subject_key: child, predicate: part_of, object_value: root-b, origin: human}
+    - {subject_key: child, predicate: spawned_from, object_value: root-a, origin: human}
+    - {subject_key: root-a, predicate: decision, object_value: Adopt the fictional split., origin: human}
+  intervals:
+    - {subject_key: root-a, predicate: status, object_value: open}
+    - {subject_key: root-b, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: root-a, valid_to: "2026-08-05T09:20:00.000000Z"}
+    - {subject_key: child, predicate: part_of, object_value: root-b, valid_to: null}
+    - {subject_key: child, predicate: spawned_from, object_value: root-a, valid_to: null}
+    - {subject_key: root-a, predicate: decision, object_value: Adopt the fictional split.}
+  graph_queries:
+    - subject_key: child
+      result:
+        root_subject_key: root-b
+        node: {subject_key: child, birth_instant: "2026-08-05T09:05:00.000000Z", parent_subject_key: root-b}
+        parent_chain:
+          - {subject_key: root-b}
+  queries:
+    - name: timeline
+      args: {subject_key: child, predicate: part_of}
+      result:
+        - {value: root-a, source_ids: [review:parent-a]}
+        - {value: root-b, source_ids: [review:parent-b]}

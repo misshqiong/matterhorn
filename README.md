@@ -288,13 +288,13 @@ Use `--max-batch-delay-minutes` or `MATTERHORN_MAX_BATCH_DELAY` to override it.
 Service mode can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 88
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 94
 language-neutral golden cases include the Message door, conversation-scoped
 rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=88 failed=0 total=88
+SUMMARY passed=94 failed=0 total=94
 ```
 
 ### Extraction quality evaluation

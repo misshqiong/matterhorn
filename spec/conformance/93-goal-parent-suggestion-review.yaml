@@ -1,0 +1,72 @@
+case_id: goal-parent-suggestion-review
+title: A unique active conversation root yields review-only subgoal attachment
+invariants: [INV-7, INV-15, INV-19]
+schema_profile: org-matters/v1
+scope_id: octo-goal-suggestion
+clock:
+  - "2026-08-05T10:00:00Z"
+  - "2026-08-05T10:10:00Z"
+  - "2026-08-05T10:20:00Z"
+  - "2026-08-05T10:30:00Z"
+cards:
+  - card_id: suggestion-root
+    scope_id: octo-goal-suggestion
+    subject_key: root
+    date: 2026-08-05
+    occurred_at: "2026-08-05T09:00:00Z"
+    title: Amber launch
+    status: open
+    source_refs: [{source_id: seed:root, sent_at: "2026-08-05T09:00:00Z", sender: Dana Reyes}]
+record_batches:
+  - records:
+      - record_id: octo-room:r1
+        container_id: octo-room
+        native_id: r1
+        sent_at: "2026-08-05T09:10:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: Crimson beacon.
+  - records:
+      - record_id: octo-room:r2
+        container_id: octo-room
+        native_id: r2
+        sent_at: "2026-08-05T09:20:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: Turquoise orchard.
+record_model_responses:
+  - cards:
+      - date: "2026-08-05"
+        title: Amber launch update
+        progress: Crimson beacon accepted.
+        subject_key: root
+        source_ids: [octo-room:r1]
+  - cards:
+      - date: "2026-08-05"
+        title: Zephyr follow-up
+        status: open
+        source_ids: [octo-room:r2]
+review_operations:
+  - review_id: review_goal_f2d286e49253c981cb65e7be3e1756c9936a4479bf76511202c74ff47ec219f2
+    action: attach_subgoal
+    parent_subject_key: root
+    source_refs: [{source_id: review:attach-subgoal, sent_at: "2026-08-05T10:30:00Z", sender: Dana Reyes}]
+expect:
+  record_reports:
+    - {route_model: 1, route_new: 0, assertions_emitted: 1}
+    - {route_new: 1, assertions_emitted: 1}
+  assertions:
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: root, predicate: progress, object_value: Crimson beacon accepted.}
+    - {subject_key: sub_e74fcbbe16d7a58aff6a, predicate: status, object_value: open}
+    - {subject_key: sub_e74fcbbe16d7a58aff6a, predicate: part_of, object_value: root, origin: human, source_refs: [{source_id: review:attach-subgoal, sent_at: "2026-08-05T10:30:00.000000Z", sender: Dana Reyes, excerpt: null, uri: null}]}
+  intervals:
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: root, predicate: progress, object_value: Crimson beacon accepted.}
+    - {subject_key: sub_e74fcbbe16d7a58aff6a, predicate: status, object_value: open}
+    - {subject_key: sub_e74fcbbe16d7a58aff6a, predicate: part_of, object_value: root}
+  matters:
+    - {subject_key: root, descendants_total: 1}
+  graph_queries:
+    - subject_key: sub_e74fcbbe16d7a58aff6a
+      result: {root_subject_key: root, parent_chain: [{subject_key: root}]}
+  review_items: []
+  queries: []

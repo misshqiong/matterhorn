@@ -1,0 +1,63 @@
+case_id: goal-three-level-rollup
+title: Three goal levels roll up completion blockers birth and brief roots
+invariants: [INV-18, INV-19]
+schema_profile: org-matters/v1
+scope_id: octo-goal-rollup
+clock:
+  - "2026-08-05T10:00:00Z"
+  - "2026-08-05T10:01:00Z"
+  - "2026-08-05T10:02:00Z"
+  - "2026-08-05T10:03:00Z"
+  - "2026-08-05T11:00:00Z"
+cards:
+  - {card_id: rollup-root, scope_id: octo-goal-rollup, subject_key: root, date: 2026-08-05, occurred_at: "2026-08-05T09:00:00Z", title: Fictional root, status: open, source_refs: [{source_id: octo-room:root, sent_at: "2026-08-05T09:00:00Z", sender: Dana Reyes}]}
+  - {card_id: rollup-child, scope_id: octo-goal-rollup, subject_key: child, date: 2026-08-05, occurred_at: "2026-08-05T09:01:00Z", title: Fictional completed child, status: completed, source_refs: [{source_id: octo-room:child, sent_at: "2026-08-05T09:01:00Z", sender: Dana Reyes}]}
+  - {card_id: rollup-grandchild, scope_id: octo-goal-rollup, subject_key: grandchild, date: 2026-08-05, occurred_at: "2026-08-05T09:02:00Z", title: Fictional blocked grandchild, status: blocked, blocker: permit, source_refs: [{source_id: octo-room:grandchild, sent_at: "2026-08-05T09:02:00Z", sender: Dana Reyes}]}
+  - {card_id: rollup-sibling, scope_id: octo-goal-rollup, subject_key: sibling, date: 2026-08-05, occurred_at: "2026-08-05T09:03:00Z", title: Fictional sibling, status: open, source_refs: [{source_id: octo-room:sibling, sent_at: "2026-08-05T09:03:00Z", sender: Dana Reyes}]}
+corrections:
+  - {scope_id: octo-goal-rollup, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: root, valid_from: "2026-08-05T09:10:00Z", source_refs: [{source_id: review:child-root, sent_at: "2026-08-05T09:10:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-goal-rollup, subject_key: grandchild, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: child, valid_from: "2026-08-05T09:11:00Z", source_refs: [{source_id: review:grandchild-child, sent_at: "2026-08-05T09:11:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-goal-rollup, subject_key: sibling, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: root, valid_from: "2026-08-05T09:12:00Z", source_refs: [{source_id: review:sibling-root, sent_at: "2026-08-05T09:12:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-goal-rollup, subject_key: grandchild, subject_type: MATTER, predicate: spawned_from, operation: ASSERT, object_value: child, valid_from: "2026-08-05T09:05:00Z", source_refs: [{source_id: octo-room:fork, sent_at: "2026-08-05T09:05:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: completed}
+    - {subject_key: grandchild, predicate: status, object_value: blocked}
+    - {subject_key: grandchild, predicate: blocked_by, object_value: permit}
+    - {subject_key: sibling, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: root}
+    - {subject_key: grandchild, predicate: part_of, object_value: child}
+    - {subject_key: sibling, predicate: part_of, object_value: root}
+    - {subject_key: grandchild, predicate: spawned_from, object_value: child}
+  intervals:
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: completed}
+    - {subject_key: grandchild, predicate: status, object_value: blocked}
+    - {subject_key: grandchild, predicate: blocked_by, object_value: permit}
+    - {subject_key: sibling, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: root}
+    - {subject_key: grandchild, predicate: part_of, object_value: child}
+    - {subject_key: sibling, predicate: part_of, object_value: root}
+    - {subject_key: grandchild, predicate: spawned_from, object_value: child}
+  matters:
+    - {subject_key: root, descendants_total: 3, descendants_completed: 1, descendants_blocked: 1, bubbled_blockers: [{subject_key: grandchild, blocker: [permit]}]}
+  graph_queries:
+    - subject_key: root
+      result:
+        children:
+          - {subject_key: child, birth_instant: "2026-08-05T09:01:00.000000Z"}
+          - {subject_key: sibling, birth_instant: "2026-08-05T09:03:00.000000Z"}
+        rollup: {descendants_total: 3, descendants_completed: 1, descendants_blocked: 1, bubbled_blockers: [{subject_key: grandchild, blocker: [permit]}]}
+  brief_queries:
+    - window_start: "2026-08-05T09:00:00Z"
+      window_end: "2026-08-05T12:00:00Z"
+      console_groups: {fictional: [octo-*]}
+      result:
+        groups:
+          - name: fictional
+            counts: {touched: 4, completed: 1, blocked: 1}
+            matters:
+              - {subject_key: root, descendants_total: 3, descendants_completed: 1, descendants_blocked: 1}
+  queries: []
+

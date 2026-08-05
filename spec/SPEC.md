@@ -165,6 +165,15 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   computation MUST be pure functions of committed Store state plus the
   request window, MUST NOT invoke a gateway or mutate assertion state, and
   MUST return identical output for identical store state and window.
+- **INV-19 — Evidenced acyclic goal graph.** The structure predicates of
+  section 25 (`part_of`, `spawned_from`, `decision`) MUST be ordinary
+  provenance-bearing assertions subject to every existing admission rule.
+  Admission of a structure edge MUST reject self-reference, a target subject
+  that does not exist in the same scope, and any edge that would create a
+  cycle in the canonical active `part_of`/`spawned_from` graph at admission
+  time. Graph neighborhoods, structural rollups, and root/descendant
+  classification MUST be pure zero-model reads, and replay MUST reproduce
+  the complete active and superseded edge state.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -1901,6 +1910,83 @@ the two-condition `machine_alert` gate, replay idempotency of signals and
 terminal acks, critical-path handle linkage including the digit-only guard,
 watermark-relative unseen deltas, hotness bucket edges, and briefing
 structure and ordering for a mixed store.
+
+## 25. Goal graph and time tree
+
+A matter is the root of a growing tree: chat crystallizes into a topic,
+the topic forks into follow-up sub-matters, and sub-matter conclusions flow
+back up. Section 25 fixes the deterministic skeleton of that tree; semantic
+upward propagation (a model rewriting a parent from child conclusions) is
+out of scope for this section and arrives with the distillation agent.
+
+### 25.1 Structure predicates
+
+Three predicates join the schema profile for matter subjects:
+
+- `part_of` — SINGLE; object is a subject key in the same scope. The active
+  value is the node's parent; superseding it re-parents the node with full
+  history. A matter with no active `part_of` is a **root**.
+- `spawned_from` — SINGLE; object is a subject key in the same scope. Records
+  the birth edge: which subject the node forked from, with the fork-moment
+  Record cited as evidence on the assertion itself.
+- `decision` — APPEND; object is decision text. A decision that spawns a
+  sub-matter is cited as evidence by the child's `spawned_from` assertion.
+
+Admission gates (INV-19), enforced in the validation gate for model origin
+and in the correction door for human origin alike: the object subject MUST
+exist in the scope; self-reference is rejected; the edge MUST NOT create a
+cycle in the canonical active graph formed by the union of `part_of` and
+`spawned_from` edges, evaluated after merge canonicalization. Cross-scope
+references are invalid. RETRACT restores the prior state and re-runs no
+gate other than the standard correction rules.
+
+### 25.2 Graph projection and structural rollup
+
+`matter_graph(scope_id, subject_key)` is a pure read returning the node's
+parent chain (active `part_of` ancestors, nearest first), its children
+(subjects whose active `part_of` is this node) ordered by birth instant,
+and per-node projected `status`, `blocker`, and birth instant. A node's
+birth instant is its `spawned_from` assertion's `valid_from` when present,
+else the node's earliest assertion `valid_from`.
+
+The structural rollup of a root is deterministic: `descendants_total`,
+`descendants_completed` (projected status in the profile's completed
+values), `descendants_blocked` plus the list of `(subject_key, blocker)`
+for blocked descendants (blocker bubble-up), and `latest_activity` (max
+assertion `recorded_at` over the subtree). Cycles are impossible by
+INV-19; implementations MUST still bound traversal.
+
+Read surfaces change as follows: matters with an active `part_of` stop
+appearing as top-level wall rows and briefing matter entries; they appear
+under their root, which carries the rollup. Group counts
+(`touched/completed/blocked`) keep counting every matter, root or not.
+
+### 25.3 Structure operations
+
+- Human: the existing correction door accepts `part_of`, `spawned_from`,
+  and `decision` assertions (origin human, P8 precedence) subject to the
+  same admission gates; the REST correction surface and console expose
+  re-parent and decision entry. Creating a fresh root manually is the
+  existing card ingest with no structure edges.
+- Deterministic suggestion: when extraction produces a new subject whose
+  card cites evidence from a conversation where exactly one active root
+  matter has assertion activity within the staging retention window, the
+  engine MAY enqueue a review item proposing `part_of` that root — it MUST
+  NOT auto-attach. The review queue gains resolution
+  `attach_subgoal(parent_subject_key)` which admits the edge through the
+  standard gates with reviewer provenance.
+- The console matter detail renders the time tree (children by birth
+  instant, parent link, per-node status chips); root wall rows show
+  `completed/total` descendants and the bubbled blockers.
+
+### 25.4 Conformance
+
+Golden cases MUST cover: edge admission with evidence; self-reference,
+unknown-target, and cycle rejection (including a cycle attempted through a
+merge chain); re-parenting with history; birth-instant derivation both with
+and without `spawned_from`; rollup counts, blocker bubble-up, and root
+classification on a three-level tree; wall/brief root filtering; review
+`attach_subgoal` resolution; and byte-identical replay of the graph.
 
 ## 中文摘要
 

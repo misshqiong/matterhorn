@@ -1,0 +1,46 @@
+case_id: goal-model-edge-replay
+title: Model goal admission and replay reproduce byte-identical graph state
+invariants: [INV-3, INV-7, INV-19]
+schema_profile: org-matters/v1
+scope_id: octo-goal-model
+clock:
+  - "2026-08-05T10:00:00Z"
+  - "2026-08-05T10:01:00Z"
+  - "2026-08-05T11:00:00Z"
+cards:
+  - card_id: card-child
+    scope_id: octo-goal-model
+    subject_key: child
+    date: 2026-08-05
+    occurred_at: "2026-08-05T09:01:00Z"
+    title: Fictional child
+    status: open
+    source_refs: [{source_id: octo-room:child, sent_at: "2026-08-05T09:01:00Z", sender: Dana Reyes}]
+  - card_id: card-root
+    scope_id: octo-goal-model
+    subject_key: root
+    date: 2026-08-05
+    occurred_at: "2026-08-05T09:00:00Z"
+    title: Fictional root
+    status: open
+    source_refs: [{source_id: octo-room:root, sent_at: "2026-08-05T09:00:00Z", sender: Dana Reyes}]
+model_responses:
+  - candidates:
+      - {subject_key: child, subject_type: MATTER, parent_subject_key: null, subject_title: null, predicate: part_of, operation: ASSERT, object_value: root, valid_from: "2026-08-05T09:01:00Z", source_ids: [octo-room:child], confidence: 0.99}
+  - {candidates: []}
+expect:
+  assertions:
+    - {subject_key: child, predicate: status, object_value: open, origin: model}
+    - {subject_key: root, predicate: status, object_value: open, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: root, origin: model}
+  intervals:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: root}
+  gate_statistics: {accepted: 1, rejections: {}}
+  graph_queries:
+    - subject_key: child
+      result: {root_subject_key: root, parent_chain: [{subject_key: root}]}
+  export_replay_identity: true
+  replay_events_emitted: 0
+  queries: []

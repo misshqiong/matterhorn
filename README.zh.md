@@ -246,13 +246,13 @@ anchor。因此较早 conversation 创建的事项能在同一次 flush 接收�
 服务模式也可按 UTC `daily_flush_at = "HH:MM"` 每日 flush，并推送事件 webhook。
 嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
 
-唯一规范是 [spec/SPEC.md](spec/SPEC.md)。88 个语言无关 golden 用例已经覆盖
+唯一规范是 [spec/SPEC.md](spec/SPEC.md)。94 个语言无关 golden 用例已经覆盖
 消息入口、conversation-scoped rolling extraction、boundary chunk 确定性，以及
 receipt/flush 幂等重放：
 
 ```console
 $ mh conformance run
-SUMMARY passed=88 failed=0 total=88
+SUMMARY passed=94 failed=0 total=94
 ```
 
 ### 提取质量评测

@@ -262,6 +262,12 @@ def _load_case(path: Path) -> dict[str, Any]:
     for field in ("signal_operations", "watermark_operations"):
         if field in case and not isinstance(case[field], list):
             raise ValueError(f"malformed conformance case {path}: invalid {field}")
+    if "structure_operations" in case and not isinstance(
+        case["structure_operations"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid structure_operations"
+        )
     if "signal_config" in case and not isinstance(case["signal_config"], dict):
         raise ValueError(
             f"malformed conformance case {path}: invalid signal_config"
@@ -360,6 +366,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     for correction in case.get("corrections", []):
         engine.correct(correction)
     _run_merge_operations(engine, case)
+    _run_structure_operations(engine, case)
     _run_review_operations(engine, case)
     _run_signal_operations(engine, case)
     _run_watermark_operations(engine, case)
@@ -517,6 +524,17 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             _project_partial(actual, query["result"]),
             _plain(query["result"]),
             f"brief_queries[{index}]",
+        )
+    for index, query in enumerate(expect.get("graph_queries", [])):
+        actual = _plain(
+            engine.matter_graph(
+                case["scope_id"], query["subject_key"]
+            ).to_dict()
+        )
+        _equal(
+            _project_partial(actual, query["result"]),
+            _plain(query["result"]),
+            f"graph_queries[{index}]",
         )
     if "conflicts_resolved" in expect:
         actual_stats = {
@@ -795,12 +813,14 @@ def _run_handle_operations(engine: Engine, case: dict[str, Any]) -> None:
 def _run_review_operations(engine: Engine, case: dict[str, Any]) -> None:
     scope_id = case["scope_id"]
     for operation in case.get("review_operations", []):
+
         def invoke(current: dict[str, Any] = operation) -> Any:
             return engine.resolve_review(
                 scope_id,
                 current["review_id"],
                 action=current["action"],
                 subject_key=current.get("subject_key"),
+                parent_subject_key=current.get("parent_subject_key"),
                 source_refs=current["source_refs"],
             )
 
@@ -818,6 +838,35 @@ def _run_review_operations(engine: Engine, case: dict[str, Any]) -> None:
         else:
             raise ConformanceFailure(
                 f"expected review error matching {expected_error!r}"
+            )
+
+
+def _run_structure_operations(engine: Engine, case: dict[str, Any]) -> None:
+    for operation in case.get("structure_operations", []):
+        payload = {
+            key: value
+            for key, value in operation.items()
+            if key != "expect_error"
+        }
+
+        def invoke(current: dict[str, Any] = payload) -> Any:
+            return engine.correct(current)
+
+        expected_error = operation.get("expect_error")
+        if expected_error is None:
+            invoke()
+            continue
+        try:
+            invoke()
+        except Exception as error:
+            if not re.search(expected_error, str(error)):
+                raise ConformanceFailure(
+                    f"structure error {error!r} did not match "
+                    f"{expected_error!r}"
+                ) from error
+        else:
+            raise ConformanceFailure(
+                f"expected structure error matching {expected_error!r}"
             )
 
 

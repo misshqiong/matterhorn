@@ -40,6 +40,7 @@ from matterhorn.api.models import (
     MailSyncRequest,
     MailSyncResponse,
     MatterDetailResponse,
+    MatterGraphResponse,
     MatterListResponse,
     MatterSeenInput,
     MatterSeenResponse,
@@ -488,6 +489,17 @@ def create_app(
         )
 
     @app.get(
+        "/v1/scopes/{scope_id}/matters/{subject_key}/graph",
+        response_model=MatterGraphResponse,
+        summary="Read one canonical goal-tree neighborhood and root rollup",
+    )
+    def matter_graph(scope_id: str, subject_key: str):
+        return service.matter_graph(
+            scope_id=scope_id,
+            subject_key=subject_key,
+        )
+
+    @app.get(
         "/v1/scopes/{scope_id}/query/current",
         response_model=ValueListResponse,
     )
@@ -648,6 +660,7 @@ def create_app(
             review_id=review_id,
             action=payload.action,
             subject_key=payload.subject_key,
+            parent_subject_key=payload.parent_subject_key,
             source_refs=payload.source_refs,
         )
 

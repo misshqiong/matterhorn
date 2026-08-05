@@ -420,6 +420,11 @@ class SchemaProfile(StrictModel):
         for predicate in self.predicates:
             if predicate.subject not in subject_names:
                 raise ValueError(f"unknown predicate subject: {predicate.subject}")
+            if (
+                predicate.object == "subject"
+                and predicate.cardinality != Cardinality.SINGLE
+            ):
+                raise ValueError("subject-reference predicates MUST be SINGLE")
         if sum(1 for item in self.subjects if item.primary) > 1:
             raise ValueError("at most one subject may be primary")
         if self.completion and self.completion.predicate not in predicate_names:

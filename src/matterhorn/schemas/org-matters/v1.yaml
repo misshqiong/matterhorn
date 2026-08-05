@@ -87,6 +87,22 @@ predicates:
     retract_guard: never
     object: object
     source_field: outcome
+  - name: part_of
+    subject: MATTER
+    cardinality: SINGLE
+    extraction: semantic
+    object: subject
+  - name: spawned_from
+    subject: MATTER
+    cardinality: SINGLE
+    extraction: semantic
+    object: subject
+  - name: decision
+    subject: MATTER
+    cardinality: APPEND
+    extraction: semantic
+    retract_guard: never
+    object: string
   - name: decision_adopted
     subject: DECISION_SLOT
     cardinality: SINGLE

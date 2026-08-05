@@ -665,6 +665,38 @@ def matters(
     _print([item.to_dict() for item in result])
 
 
+@app.command("graph")
+def graph_command(
+    scope_id: str = typer.Argument(..., help="Matter scope."),
+    subject_key: str = typer.Argument(..., help="Matter subject key."),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Print the canonical goal tree containing one matter."""
+
+    graph = _engine(db, schema, schema_dir).matter_graph(
+        scope_id, subject_key
+    )
+
+    def print_node(node: dict[str, Any], prefix: str = "") -> None:
+        status = node.get("status") or "—"
+        typer.echo(
+            f"{prefix}- {node['title']} [{status}] "
+            f"({node['subject_key']})"
+        )
+        for child in node.get("children", []):
+            print_node(child, prefix + "  ")
+
+    rollup = graph.rollup
+    typer.echo(
+        f"root={graph.root_subject_key} "
+        f"completed={rollup.descendants_completed}/"
+        f"{rollup.descendants_total} blocked={rollup.descendants_blocked}"
+    )
+    print_node(graph.tree)
+
+
 @app.command("brief")
 def brief_command(
     window_start: datetime | None = typer.Option(None),
@@ -692,7 +724,11 @@ def brief_command(
     typer.echo("Groups")
     for group in result["groups"]:
         counts = group["counts"]
-        titles = ", ".join(item["title"] for item in group["matters"]) or "none"
+        titles = ", ".join(
+            f"{item['title']} "
+            f"({item['descendants_completed']}/{item['descendants_total']})"
+            for item in group["matters"]
+        ) or "none"
         typer.echo(
             f"  {group['name']}: touched={counts['touched']} "
             f"completed={counts['completed']} blocked={counts['blocked']} | {titles}"

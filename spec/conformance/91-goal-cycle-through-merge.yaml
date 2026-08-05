@@ -1,0 +1,45 @@
+case_id: goal-cycle-through-merge
+title: Canonical merge chains participate in goal cycle admission
+invariants: [INV-12, INV-19]
+schema_profile: org-matters/v1
+scope_id: octo-goal-merge-cycle
+clock:
+  - "2026-08-05T10:00:00Z"
+  - "2026-08-05T10:01:00Z"
+  - "2026-08-05T10:02:00Z"
+  - "2026-08-05T11:00:00Z"
+cards:
+  - {card_id: merge-root, scope_id: octo-goal-merge-cycle, subject_key: root, date: 2026-08-05, title: Fictional root, status: open, source_refs: [{source_id: octo-room:root, sent_at: "2026-08-05T09:00:00Z", sender: Dana Reyes}]}
+  - {card_id: merge-child, scope_id: octo-goal-merge-cycle, subject_key: child, date: 2026-08-05, title: Fictional child, status: open, source_refs: [{source_id: octo-room:child, sent_at: "2026-08-05T09:01:00Z", sender: Dana Reyes}]}
+  - {card_id: merge-alias, scope_id: octo-goal-merge-cycle, subject_key: alias, date: 2026-08-05, title: Fictional root alias, status: open, source_refs: [{source_id: octo-room:alias, sent_at: "2026-08-05T09:02:00Z", sender: Dana Reyes}]}
+corrections:
+  - {scope_id: octo-goal-merge-cycle, subject_key: root, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: child, valid_from: "2026-08-05T09:10:00Z", source_refs: [{source_id: review:root-child, sent_at: "2026-08-05T09:10:00Z", sender: Dana Reyes}]}
+merge_operations:
+  - operation: merge
+    source_subject_key: alias
+    target_subject_key: root
+    valid_from: "2026-08-05T09:15:00Z"
+    source_refs: [{source_id: review:alias-root, sent_at: "2026-08-05T09:15:00Z", sender: Dana Reyes}]
+structure_operations:
+  - {scope_id: octo-goal-merge-cycle, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: alias, valid_from: "2026-08-05T09:20:00Z", source_refs: [{source_id: review:merge-cycle, sent_at: "2026-08-05T09:20:00Z", sender: Dana Reyes}], expect_error: STRUCTURE_CYCLE}
+expect:
+  assertions:
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: alias, predicate: status, object_value: open}
+    - {subject_key: root, predicate: part_of, object_value: child}
+  intervals:
+    - {subject_key: root, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: root, predicate: part_of, object_value: child}
+  merge_count: 1
+  gate_statistics:
+    rejections: {STRUCTURE_CYCLE: 1}
+  graph_queries:
+    - subject_key: child
+      result:
+        root_subject_key: child
+        children:
+          - {subject_key: root}
+  queries: []
+

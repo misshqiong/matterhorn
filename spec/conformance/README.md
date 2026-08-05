@@ -10,7 +10,7 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-18`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-19`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
@@ -29,6 +29,7 @@ store view for the case's `scope_id`.
 | `signal_config` | no | Engine signal settings: optional identity handles, pattern extensions, and hotness thresholds. |
 | `signal_operations` | no | Ordered terminal signal acknowledgements with record id, kind, and acknowledgement instant. |
 | `watermark_operations` | no | Ordered matter read-watermark upserts with subject key and last-seen instant. |
+| `structure_operations` | no | Ordered goal-graph corrections, each optionally carrying `expect_error`; these run after merge operations so canonical merge-chain cycle gates are expressible. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
 | `expect` | for success | Expected partial-field multisets, queries, counters, and reports. |
 
@@ -130,6 +131,7 @@ fixture queue.
 | `watermarks` | Exact subject-key to canonical timestamp mapping. |
 | `hotness_queries` | Ordered windowed hotness reads with partial result rows. |
 | `brief_queries` | Ordered windowed briefing reads with deterministic ordered results. |
+| `graph_queries` | Ordered `matter_graph` reads with `subject_key` and a partial deterministic graph/rollup result. |
 
 For assertions and intervals, project each actual item onto exactly the keys in
 one expected mapping, then compare an order-insensitive exact multiset. The

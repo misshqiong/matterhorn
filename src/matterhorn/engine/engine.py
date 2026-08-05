@@ -61,6 +61,18 @@ from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_r
 from matterhorn.distill.traceability import restore_source_aliases
 from matterhorn.engine.events import derive_change_events
 from matterhorn.engine.extractor import extract_card
+from matterhorn.engine.goal_graph import (
+    DECISION,
+    PART_OF,
+    MatterGraph,
+    StructureRejection,
+    canonicalize_graph_assertions,
+    project_goal_graph,
+    structure_rejection,
+)
+from matterhorn.engine.goal_graph import (
+    matter_graph as project_matter_graph,
+)
 from matterhorn.engine.handles import (
     matches_handle_pattern,
     normalize_handle,
@@ -136,6 +148,11 @@ class Matter:
     participants_display: list[Any] | None = None
     sources_display: list[str] | None = None
     progress: str | None = None
+    descendants_total: int = 0
+    descendants_completed: int = 0
+    descendants_blocked: int = 0
+    bubbled_blockers: list[dict[str, Any]] | None = None
+    latest_activity: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +170,11 @@ class Matter:
             "sources_display": self.sources_display or [],
             "aliases": self.aliases,
             "updated_at": self.updated_at,
+            "descendants_total": self.descendants_total,
+            "descendants_completed": self.descendants_completed,
+            "descendants_blocked": self.descendants_blocked,
+            "bubbled_blockers": self.bubbled_blockers or [],
+            "latest_activity": self.latest_activity,
         }
 
 
@@ -1139,8 +1161,94 @@ class Engine:
             handle_conflicts=handles.conflicts,
             route_counts=routes.to_dict(),
         )
+        if not subject_exists:
+            self._enqueue_parent_suggestion(
+                card,
+                child_subject_key=subject.subject_key,
+                record_by_id=record_by_id,
+                created_at=recorded_at,
+            )
         self._rebuild(card.scope_id)
         return emitted, admission_counts, handles, routes
+
+    def _enqueue_parent_suggestion(
+        self,
+        card: EpisodeCard,
+        *,
+        child_subject_key: str,
+        record_by_id: dict[str, Record],
+        created_at: datetime,
+    ) -> None:
+        if not self._goal_graph_enabled():
+            return
+        containers = {
+            record_by_id[ref.source_id].container_id
+            for ref in card.source_refs
+            if ref.source_id in record_by_id
+        }
+        if len(containers) != 1:
+            return
+        container_id = next(iter(containers))
+        conversation_sources = {
+            item.record_id
+            for item in self.store.record_observations(card.scope_id)
+            if item.container_id == container_id
+        }
+        cutoff = created_at - timedelta(days=self.staging_retention_days)
+        graph = self._goal_projection(card.scope_id)
+        completed_values = graph.completed_values
+        candidates: set[str] = set()
+        for assertion in _canonicalized_assertions(
+            self.store.assertions(card.scope_id),
+            self.store.subject_merges(card.scope_id),
+        ):
+            if assertion.subject_key == child_subject_key:
+                continue
+            if not cutoff <= assertion.recorded_at <= created_at:
+                continue
+            if assertion.subject_key in graph.parents:
+                continue
+            if not any(
+                ref.source_id in conversation_sources
+                for ref in assertion.source_refs
+            ):
+                continue
+            node = graph.nodes.get(assertion.subject_key)
+            if node is None or str(node.status).casefold() in completed_values:
+                continue
+            candidates.add(assertion.subject_key)
+        if len(candidates) != 1:
+            return
+        parent_subject_key = next(iter(candidates))
+        parent = graph.nodes[parent_subject_key]
+        review_id = "review_goal_" + stable_hash(
+            [
+                card.scope_id,
+                card.card_id,
+                child_subject_key,
+                parent_subject_key,
+            ]
+        )
+        review_card = card.model_copy(
+            update={"subject_key": child_subject_key}
+        )
+        self.store.add_review_item(
+            ReviewItem(
+                scope_id=card.scope_id,
+                review_id=review_id,
+                card_json=review_card.model_dump(mode="json"),
+                reasons=["PARENT_SUGGESTION"],
+                candidates_json=[
+                    {
+                        "action": "attach_subgoal",
+                        "subject_key": child_subject_key,
+                        "parent_subject_key": parent_subject_key,
+                        "title": parent.title,
+                    }
+                ],
+                created_at=created_at,
+            )
+        )
 
     def _bind_card_handles(
         self,
@@ -1353,15 +1461,34 @@ class Engine:
         *,
         action: str,
         subject_key: str | None = None,
+        parent_subject_key: str | None = None,
         source_refs: list[SourceRef | dict[str, Any]],
     ) -> ReviewItem:
-        if action not in {"attach", "new", "drop"}:
-            raise ValueError("review action MUST be 'attach', 'new', or 'drop'")
+        if action not in {"attach", "new", "drop", "attach_subgoal"}:
+            raise ValueError(
+                "review action MUST be 'attach', 'new', 'drop', or "
+                "'attach_subgoal'"
+            )
         if action == "attach" and not subject_key:
             raise ValueError("attach review action requires subject_key")
-        if action in {"new", "drop"} and subject_key is not None:
+        if action in {"new", "drop", "attach_subgoal"} and subject_key is not None:
             raise ValueError(f"{action} review action MUST NOT include subject_key")
+        if action == "attach_subgoal" and not parent_subject_key:
+            raise ValueError(
+                "attach_subgoal review action requires parent_subject_key"
+            )
+        if action != "attach_subgoal" and parent_subject_key is not None:
+            raise ValueError(
+                f"{action} review action MUST NOT include parent_subject_key"
+            )
         refs = _source_refs(source_refs, operation="review resolutions")
+        if action == "attach_subgoal":
+            return self._resolve_subgoal_review(
+                scope_id,
+                review_id,
+                parent_subject_key=parent_subject_key or "",
+                source_refs=refs,
+            )
         with self.store.transaction():
             item = self.store.review_item(scope_id, review_id)
             if item is None:
@@ -1460,6 +1587,97 @@ class Engine:
                 review_id,
                 resolved_at=resolved_at,
                 resolution=resolution,
+            )
+            self._rebuild(scope_id)
+            return resolved
+
+    def _resolve_subgoal_review(
+        self,
+        scope_id: str,
+        review_id: str,
+        *,
+        parent_subject_key: str,
+        source_refs: list[SourceRef],
+    ) -> ReviewItem:
+        item = self.store.review_item(scope_id, review_id)
+        if item is None:
+            raise ResourceNotFoundError(f"unknown review_id: {review_id}")
+        if item.resolved_at is not None:
+            raise ReviewConflictError(
+                f"review_id {review_id!r} is already resolved"
+            )
+        proposal = next(
+            (
+                candidate
+                for candidate in item.candidates_json
+                if candidate.get("action") == "attach_subgoal"
+            ),
+            None,
+        )
+        if proposal is None:
+            raise ValueError("review item does not contain a subgoal proposal")
+        child_subject_key = proposal.get("subject_key")
+        if not isinstance(child_subject_key, str) or not child_subject_key:
+            raise ValueError("subgoal proposal is missing subject_key")
+        subjects = {
+            subject.subject_key: subject
+            for subject in self.store.subjects(scope_id)
+        }
+        child_canonical = self.canonical_subject_key(
+            scope_id, child_subject_key
+        )
+        child = subjects.get(child_canonical)
+        if child is None:
+            raise ResourceNotFoundError(
+                f"unknown subject_key {child_subject_key!r} in scope {scope_id!r}"
+            )
+        resolved_at = self._clock()
+        assertion = Assertion(
+            assertion_id=derive_assertion_id(
+                scope_id,
+                child_canonical,
+                PART_OF,
+                Operation.ASSERT,
+                object_key(parent_subject_key),
+                resolved_at,
+                source_refs,
+            ),
+            scope_id=scope_id,
+            subject_key=child_canonical,
+            subject_type=child.subject_type,
+            predicate=PART_OF,
+            operation=Operation.ASSERT,
+            object_value=parent_subject_key,
+            object_key=object_key(parent_subject_key),
+            valid_from=resolved_at,
+            recorded_at=resolved_at,
+            source_refs=source_refs,
+            origin=Origin.human,
+        )
+        rejection = self._structure_rejection(assertion)
+        if rejection is not None:
+            self._record_structure_rejection(scope_id, rejection)
+            raise ValueError(
+                f"{rejection.value}: rejected {PART_OF} edge"
+            )
+        with self.store.transaction():
+            for source_ref in source_refs:
+                self.store.observe_source(scope_id, source_ref)
+            self.store.add_assertion(assertion)
+            resolved = self.store.resolve_review_item(
+                scope_id,
+                review_id,
+                resolved_at=resolved_at,
+                resolution={
+                    "action": "attach_subgoal",
+                    "subject_key": child_canonical,
+                    "parent_subject_key": self.canonical_subject_key(
+                        scope_id, parent_subject_key
+                    ),
+                    "source_refs": [
+                        ref.model_dump(mode="json") for ref in source_refs
+                    ],
+                },
             )
             self._rebuild(scope_id)
             return resolved
@@ -1706,8 +1924,8 @@ class Engine:
             self.store.conversation_names(scope_id)
         )
 
-    def matters(self, scope_id: str) -> list[Matter]:
-        """Return ergonomic projected matters without touching the LLM."""
+    def _all_matters(self, scope_id: str) -> list[Matter]:
+        """Return every canonical projected matter without touching the LLM."""
 
         result = []
         aliases = self._subject_aliases(scope_id)
@@ -1767,6 +1985,89 @@ class Engine:
                 )
             )
         return result
+
+    def matters(self, scope_id: str) -> list[Matter]:
+        """Return root wall matters with deterministic descendant rollups."""
+
+        matters = self._all_matters(scope_id)
+        if not self._goal_graph_enabled():
+            return matters
+        graph = self._goal_projection(scope_id)
+        result = []
+        for matter in matters:
+            if matter.subject_key in graph.parents:
+                continue
+            rollup = graph.rollup(matter.subject_key)
+            result.append(
+                Matter(
+                    **{
+                        **matter.__dict__,
+                        "updated_at": rollup.latest_activity or matter.updated_at,
+                        "descendants_total": rollup.descendants_total,
+                        "descendants_completed": rollup.descendants_completed,
+                        "descendants_blocked": rollup.descendants_blocked,
+                        "bubbled_blockers": rollup.bubbled_blockers,
+                        "latest_activity": rollup.latest_activity,
+                    }
+                )
+            )
+        return result
+
+    def matter_graph(self, scope_id: str, subject_key: str) -> MatterGraph:
+        """Project one canonical goal-tree neighborhood without a model call."""
+
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        canonical = self.canonical_subject_key(scope_id, subject_key)
+        try:
+            return project_matter_graph(
+                scope_id=scope_id,
+                subject_key=canonical,
+                profile=self.profile,
+                subjects=self.store.subjects(scope_id),
+                assertions=self.store.assertions(scope_id),
+                merges=self.store.subject_merges(scope_id),
+            )
+        except KeyError as error:
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            ) from error
+
+    def matter_unseen(self, scope_id: str, subject_key: str) -> bool:
+        """Return whether a root or any descendant has activity past its watermark."""
+
+        canonical = self.canonical_subject_key(scope_id, subject_key)
+        graph = self._goal_projection(scope_id)
+        subtree = [canonical, *graph.descendants(canonical)]
+        assertions = _canonicalized_assertions(
+            self.store.assertions(scope_id),
+            self.store.subject_merges(scope_id),
+        )
+        by_subject: dict[str, list[Assertion]] = {}
+        for assertion in assertions:
+            by_subject.setdefault(assertion.subject_key, []).append(assertion)
+        for key in subtree:
+            watermark = self.store.read_watermark(scope_id, key)
+            if any(
+                watermark is None or assertion.recorded_at > watermark
+                for assertion in by_subject.get(key, [])
+            ):
+                return True
+        return False
+
+    def _goal_graph_enabled(self) -> bool:
+        names = {item.name for item in self.profile.predicates}
+        return {PART_OF, "spawned_from", DECISION}.issubset(names)
+
+    def _goal_projection(self, scope_id: str):
+        return project_goal_graph(
+            self.profile,
+            self.store.subjects(scope_id),
+            self.store.assertions(scope_id),
+            self.store.subject_merges(scope_id),
+        )
 
     def signals(
         self,
@@ -1864,14 +2165,20 @@ class Engine:
         )
 
         matters_by_key: dict[tuple[str, str], Matter] = {}
+        root_matters_by_key: dict[tuple[str, str], Matter] = {}
+        graph_by_scope = {}
         titles: dict[tuple[str, str], str] = {}
         all_assertions: dict[str, list[Assertion]] = {}
         for scope_id in scopes:
-            scope_matters = self.matters(scope_id)
+            scope_matters = self._all_matters(scope_id)
+            scope_roots = self.matters(scope_id)
+            graph_by_scope[scope_id] = self._goal_projection(scope_id)
             for matter in scope_matters:
                 key = (scope_id, matter.subject_key)
                 matters_by_key[key] = matter
                 titles[key] = matter.title
+            for matter in scope_roots:
+                root_matters_by_key[(scope_id, matter.subject_key)] = matter
             all_assertions[scope_id] = _canonicalized_assertions(
                 self.store.assertions(scope_id),
                 self.store.subject_merges(scope_id),
@@ -1891,9 +2198,13 @@ class Engine:
             )
         activity_by_matter: dict[tuple[str, str], list[Assertion]] = {}
         for assertion in activity:
-            activity_by_matter.setdefault(
-                (assertion.scope_id, assertion.subject_key), []
-            ).append(assertion)
+            key = (assertion.scope_id, assertion.subject_key)
+            if key in matters_by_key:
+                activity_by_matter.setdefault(key, []).append(assertion)
+        activity_by_root: dict[tuple[str, str], list[Assertion]] = {}
+        for (scope_id, subject_key), assertions in activity_by_matter.items():
+            root = graph_by_scope[scope_id].root_for(subject_key)
+            activity_by_root.setdefault((scope_id, root), []).extend(assertions)
 
         completed_values = {
             str(value).casefold()
@@ -1925,10 +2236,10 @@ class Engine:
         groups = []
         for group_name in group_names:
             entries = []
-            for (scope_id, subject_key), assertions in activity_by_matter.items():
+            for (scope_id, subject_key), assertions in activity_by_root.items():
                 if group_for_scope.get(scope_id) != group_name:
                     continue
-                matter = matters_by_key.get((scope_id, subject_key))
+                matter = root_matters_by_key.get((scope_id, subject_key))
                 if matter is None:
                     continue
                 latest_activity = max(item.recorded_at for item in assertions)
@@ -1950,18 +2261,26 @@ class Engine:
                     if progress_assertions
                     else matter.progress
                 )
-                watermark = self.store.read_watermark(scope_id, subject_key)
-                unseen = sum(
-                    1
-                    for item in all_assertions[scope_id]
-                    if item.subject_key == subject_key
-                    and item.recorded_at < end
-                    and (
-                        item.recorded_at > watermark
-                        if watermark is not None
-                        else item.recorded_at >= start
+                subtree = [
+                    subject_key,
+                    *graph_by_scope[scope_id].descendants(subject_key),
+                ]
+                unseen = 0
+                for descendant in subtree:
+                    watermark = self.store.read_watermark(
+                        scope_id, descendant
                     )
-                )
+                    unseen += sum(
+                        1
+                        for item in all_assertions[scope_id]
+                        if item.subject_key == descendant
+                        and item.recorded_at < end
+                        and (
+                            item.recorded_at > watermark
+                            if watermark is not None
+                            else item.recorded_at >= start
+                        )
+                    )
                 entries.append(
                     {
                         "scope_id": scope_id,
@@ -1976,6 +2295,10 @@ class Engine:
                         "blocker": matter.blocked_by,
                         "unseen": unseen,
                         "latest_activity": latest_activity,
+                        "descendants_total": matter.descendants_total,
+                        "descendants_completed": matter.descendants_completed,
+                        "descendants_blocked": matter.descendants_blocked,
+                        "bubbled_blockers": matter.bubbled_blockers or [],
                     }
                 )
             entries.sort(
@@ -1989,7 +2312,10 @@ class Engine:
                 {
                     "name": group_name,
                     "counts": {
-                        "touched": len(entries),
+                        "touched": sum(
+                            group_for_scope.get(scope_id) == group_name
+                            for scope_id, _ in activity_by_matter
+                        ),
                         "completed": transition_counts.get(group_name, {}).get(
                             "completed", 0
                         ),
@@ -2036,7 +2362,11 @@ class Engine:
                     "reason": signal.kind,
                 }
             )
-        for key in sorted(matters_by_key, key=lambda item: (item[0].encode(), item[1].encode())):
+        needs_matter_keys: set[tuple[str, str]] = set()
+        for key in sorted(
+            matters_by_key,
+            key=lambda item: (item[0].encode(), item[1].encode()),
+        ):
             matter = matters_by_key[key]
             if str(matter.status).casefold() in completed_values:
                 continue
@@ -2045,12 +2375,20 @@ class Engine:
                 self.signal_config.identity_handles,
             ):
                 continue
+            root_key = (
+                key[0],
+                graph_by_scope[key[0]].root_for(key[1]),
+            )
+            if root_key in needs_matter_keys:
+                continue
+            root_matter = root_matters_by_key[root_key]
+            needs_matter_keys.add(root_key)
             needs_me.append(
                 {
                     "type": "matter",
-                    "scope_id": key[0],
-                    "subject_key": key[1],
-                    "title": matter.title,
+                    "scope_id": root_key[0],
+                    "subject_key": root_key[1],
+                    "title": root_matter.title,
                     "signal_kind": None,
                     "record_id": None,
                     "matched_text": None,
@@ -2532,6 +2870,42 @@ class Engine:
     def sync_positions(self, scope_id: str):
         return self.store.sync_positions(scope_id)
 
+    def _structure_rejection(
+        self,
+        assertion: Assertion,
+    ) -> StructureRejection | None:
+        target = assertion.object_value
+        outside = False
+        if isinstance(target, str):
+            outside = any(
+                scope_id != assertion.scope_id
+                and any(
+                    subject.subject_key == target
+                    for subject in self.store.subjects(scope_id)
+                )
+                for scope_id in self.store.list_scopes()
+            )
+        return structure_rejection(
+            assertion,
+            profile=self.profile,
+            subjects=self.store.subjects(assertion.scope_id),
+            assertions=self.store.assertions(assertion.scope_id),
+            merges=self.store.subject_merges(assertion.scope_id),
+            target_exists_outside_scope=outside,
+        )
+
+    def _record_structure_rejection(
+        self,
+        scope_id: str,
+        reason: StructureRejection,
+    ) -> None:
+        with self.store.transaction():
+            self.store.record_gate_report(
+                scope_id,
+                accepted=0,
+                rejections={reason.value: 1},
+            )
+
     def correct(self, correction: Correction | dict[str, Any]) -> Assertion:
         item = (
             correction
@@ -2582,6 +2956,12 @@ class Engine:
             source_refs=item.source_refs,
             origin=Origin.human,
         )
+        rejection = self._structure_rejection(assertion)
+        if rejection is not None:
+            self._record_structure_rejection(item.scope_id, rejection)
+            raise ValueError(
+                f"{rejection.value}: rejected {item.predicate} edge"
+            )
         with self.store.transaction():
             for source_ref in item.source_refs:
                 self.store.observe_source(item.scope_id, source_ref)
@@ -2952,6 +3332,7 @@ class Engine:
                 )
                 item_new_assertions = 0
                 item_new_subjects = 0
+                structure_rejections: dict[str, int] = {}
                 with self.store.transaction():
                     for accepted in gate.accepted:
                         candidate = accepted.candidate
@@ -3028,16 +3409,31 @@ class Engine:
                             object_value=candidate.object_value,
                             object_key=value_key,
                             valid_from=as_utc(candidate.valid_from),
-                            recorded_at=self._clock(),
+                            recorded_at=datetime.max.replace(tzinfo=UTC),
                             source_refs=accepted.source_refs,
                             origin=Origin.model,
                         )
+                        rejection = self._structure_rejection(assertion)
+                        if rejection is not None:
+                            structure_rejections[rejection.value] = (
+                                structure_rejections.get(rejection.value, 0) + 1
+                            )
+                            continue
+                        assertion = assertion.model_copy(
+                            update={"recorded_at": self._clock()}
+                        )
                         if self.store.add_assertion(assertion):
                             item_new_assertions += 1
+                    admitted_count = (
+                        gate.accepted_count - sum(structure_rejections.values())
+                    )
                     self.store.record_gate_report(
                         scope_id,
-                        accepted=gate.accepted_count,
-                        rejections=gate.rejection_counts,
+                        accepted=admitted_count,
+                        rejections=_merge_counts(
+                            gate.rejection_counts,
+                            structure_rejections,
+                        ),
                     )
                     self.store.remove_distill_item(scope_id, item.card_id)
                     self._rebuild(scope_id)
@@ -3051,8 +3447,10 @@ class Engine:
                 continue
 
             processed += 1
-            accepted_count += gate.accepted_count
-            rejected_count += gate.rejected_count
+            accepted_count += admitted_count
+            rejected_count += gate.rejected_count + sum(
+                structure_rejections.values()
+            )
             new_assertions += item_new_assertions
             new_subjects += item_new_subjects
         return DreamReport(
@@ -3204,18 +3602,7 @@ def _canonicalized_assertions(
     assertions: list[Assertion],
     merges: list[SubjectMerge],
 ) -> list[Assertion]:
-    edges = _merge_edges(merges)
-    return [
-        assertion.model_copy(
-            update={
-                "subject_key": _canonical_subject_key(
-                    assertion.subject_key,
-                    edges,
-                )
-            }
-        )
-        for assertion in assertions
-    ]
+    return canonicalize_graph_assertions(assertions, merges)
 
 
 def _subject_merge_event(
