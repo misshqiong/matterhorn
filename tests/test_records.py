@@ -784,3 +784,25 @@ def test_participants_display_resolves_person_names(tmp_path) -> None:
     assert matter.participants == ["u-42"]  # ids stay the identity
     assert matter.participants_display == ["Dana Reyes"]  # names are display
     assert engine.store.person_names("named") == {"u-42": "Dana Reyes"}
+
+
+def test_conversation_display_names_disambiguate_same_name_groups(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    from matterhorn import Engine
+
+    engine = Engine(tmp_path / "convnames.db")
+    engine.store.upsert_conversation_names(
+        "grp",
+        {
+            "dumbo:im:0-111-groupchat": "项目讨论群",
+            "dumbo:im:0-222-groupchat": "项目讨论群",
+            "dumbo:im:0-333-groupchat": "独一无二群",
+        },
+        seen_at=datetime(2026, 8, 5, tzinfo=UTC),
+    )
+    display = engine.conversation_display_names("grp")
+    # Identity stays the key; same-name groups render distinguishably.
+    assert display["dumbo:im:0-333-groupchat"] == "独一无二群"
+    assert display["dumbo:im:0-111-groupchat"] != display["dumbo:im:0-222-groupchat"]
+    assert display["dumbo:im:0-111-groupchat"].startswith("项目讨论群(")

@@ -1531,6 +1531,13 @@ class Engine:
             retained.pop(0)
         return retained
 
+    def conversation_display_names(self, scope_id: str) -> dict[str, str]:
+        """Display names for conversation keys, disambiguated on collisions."""
+
+        return _disambiguated_conversation_names(
+            self.store.conversation_names(scope_id)
+        )
+
     def matters(self, scope_id: str) -> list[Matter]:
         """Return ergonomic projected matters without touching the LLM."""
 
@@ -1541,7 +1548,7 @@ class Engine:
             subject.subject_key: subject.source_ids
             for subject in self.store.subjects(scope_id)
         }
-        conversation_names = self.store.conversation_names(scope_id)
+        conversation_names = self.conversation_display_names(scope_id)
         updated_at: dict[str, datetime] = {}
         for assertion in _canonicalized_assertions(
             self.store.assertions(scope_id),
@@ -2602,6 +2609,27 @@ def validate_max_batch_delay_minutes(value: object) -> float:
 
 
 _OPAQUE_SEGMENT = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$|^[0-9a-f]{16,}$")
+
+
+def _disambiguated_conversation_names(names: dict[str, str]) -> dict[str, str]:
+    """Names are display only; identity is always the conversation key.
+
+    Two different conversations may share one display name — render each with
+    a short key suffix in that case so the wall never LOOKS merged when the
+    data is not.
+    """
+
+    counts: dict[str, int] = {}
+    for display in names.values():
+        counts[display] = counts.get(display, 0) + 1
+    return {
+        key: (
+            display
+            if counts[display] == 1
+            else f"{display}({stable_hash([key])[:6]})"
+        )
+        for key, display in names.items()
+    }
 
 
 def _shorten_opaque_segments(key: str) -> str:
