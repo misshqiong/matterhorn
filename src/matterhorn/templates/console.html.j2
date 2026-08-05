@@ -891,7 +891,7 @@
             const candidates = (item.candidates_json || []).map((candidate) =>
               `<button type="button" class="button secondary" data-review-action="attach" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-subject="${escapeHtml(candidate.subject_key)}">Attach to ${escapeHtml(candidate.title)}</button>`
             ).join("");
-            return `<li class="review-item"><span class="scope-chip">${escapeHtml(item.scope_id)}</span><h3>${escapeHtml(card.title || "Untitled card")}</h3><p class="review-summary">${escapeHtml(summary)}</p><p class="help">${escapeHtml((item.reasons || []).join(" · "))}</p><div class="review-actions">${candidates}<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button></div></li>`;
+            return `<li class="review-item"><span class="scope-chip">${escapeHtml(item.scope_id)}</span><h3>${escapeHtml(card.title || "Untitled card")}</h3><p class="review-summary">${escapeHtml(summary)}</p><p class="help">${escapeHtml((item.reasons || []).join(" · "))}</p><div class="review-actions">${candidates}<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button><button type="button" class="button quiet" data-review-action="drop" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Drop</button></div></li>`;
           }).join("")
         : '<li class="empty">No cards awaiting review.</li>';
     }

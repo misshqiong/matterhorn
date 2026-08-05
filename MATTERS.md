@@ -2,265 +2,45 @@
 
 Scope: <code>dev</code>
 
-## Email demo and HTML export
+## Implement Matterhorn Matters Engine
 
-- Status: <code>done</code>
+- Status: <code>in_progress</code>
 - Owners: —
 - Blocked by: —
-- Next step: —
+- Next step: <code>Continue Matterhorn engine development; no explicit next step stated.</code>
 - Due: —
 
 <details>
 <summary>Timeline</summary>
 
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented email demo and card-style HTML export, published as live page. 183 tests green, conformance unchanged at 47.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:30e0ffe8ddec84116f7eab4d87e45f97e0817b13](<https://github.com/misshqiong/matterhorn/commit/30e0ffe8ddec84116f7eab4d87e45f97e0817b13>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>next_step</code> → <code>"Perform real LLM first fill and human quality review of resulting matters (gated on a credential)."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:902594c3003cd8b3d1c035b680f7674b5f51d077](<https://github.com/misshqiong/matterhorn/commit/902594c3003cd8b3d1c035b680f7674b5f51d077>), [github:misshqiong/matterhorn:commit:e4261db4246a43dc938c2498210b61f7736bb546](<https://github.com/misshqiong/matterhorn/commit/e4261db4246a43dc938c2498210b61f7736bb546>), [github:misshqiong/matterhorn:commit:30c8a53204bed9719d7582251520a76941816188](<https://github.com/misshqiong/matterhorn/commit/30c8a53204bed9719d7582251520a76941816188>), [github:misshqiong/matterhorn:commit:1d78a5fc581b69d5e6e7f871669a6f474c9991a1](<https://github.com/misshqiong/matterhorn/commit/1d78a5fc581b69d5e6e7f871669a6f474c9991a1>), [github:misshqiong/matterhorn:commit:960763ca05b55a993cd8d44865974a1f20107526](<https://github.com/misshqiong/matterhorn/commit/960763ca05b55a993cd8d44865974a1f20107526>), [github:misshqiong/matterhorn:commit:a53cb91a621aebf3718e904488f05018268abed6](<https://github.com/misshqiong/matterhorn/commit/a53cb91a621aebf3718e904488f05018268abed6>), [github:misshqiong/matterhorn:commit:8a0fc3d5fdafd74618dbfcfd9aae95a3eca90c0e](<https://github.com/misshqiong/matterhorn/commit/8a0fc3d5fdafd74618dbfcfd9aae95a3eca90c0e>)
 - <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:30e0ffe8ddec84116f7eab4d87e45f97e0817b13](<https://github.com/misshqiong/matterhorn/commit/30e0ffe8ddec84116f7eab4d87e45f97e0817b13>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:30e0ffe8ddec84116f7eab4d87e45f97e0817b13](<https://github.com/misshqiong/matterhorn/commit/30e0ffe8ddec84116f7eab4d87e45f97e0817b13>)
-
-</details>
-
-## Keep internal project brief out of version control
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"The internal brief is now ignored by git; SPEC.md remains the normative source.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:645fc4a612a40c0b21955351a39ad6a0d4d98c85](<https://github.com/misshqiong/matterhorn/commit/645fc4a612a40c0b21955351a39ad6a0d4d98c85>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:645fc4a612a40c0b21955351a39ad6a0d4d98c85](<https://github.com/misshqiong/matterhorn/commit/645fc4a612a40c0b21955351a39ad6a0d4d98c85>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:645fc4a612a40c0b21955351a39ad6a0d4d98c85](<https://github.com/misshqiong/matterhorn/commit/645fc4a612a40c0b21955351a39ad6a0d4d98c85>)
-
-</details>
-
-## Mail connector implementation
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-30T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented mail connector with IMAP hub input, console panel, file upload, and hardened against real inbox. 237 tests green locally, 285 with PostgreSQL 17.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:5f229ab89e52ac094342029ae8cc018872da1d16](<https://github.com/misshqiong/matterhorn/commit/5f229ab89e52ac094342029ae8cc018872da1d16>)
-- <code>2026-07-30T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:5f229ab89e52ac094342029ae8cc018872da1d16](<https://github.com/misshqiong/matterhorn/commit/5f229ab89e52ac094342029ae8cc018872da1d16>)
-- <code>2026-07-30T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:5f229ab89e52ac094342029ae8cc018872da1d16](<https://github.com/misshqiong/matterhorn/commit/5f229ab89e52ac094342029ae8cc018872da1d16>)
-
-</details>
-
-## Hub resilience
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-08-04T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:1cbf62dd40ddfb79cb513e7269e6252e9cc4d360](<https://github.com/misshqiong/matterhorn/commit/1cbf62dd40ddfb79cb513e7269e6252e9cc4d360>)
-
-</details>
-
-## Add hands-on acceptance manual
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Added a step-by-step manual for verifying the engine, including invariants from production bugs and eight judgement calls.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>)
-
-</details>
-
-## Hub topology implementation
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-31T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented anchor-attached extraction, reversible subject merge, conversation windows, rolling anchors, and matter timeline. Verified with live DeepSeek acceptance tests.","type":"completed"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:4eac6677320414b32fbf60bae3e1b7adf9c1eb98](<https://github.com/misshqiong/matterhorn/commit/4eac6677320414b32fbf60bae3e1b7adf9c1eb98>), [github:misshqiong/matterhorn:commit:57b44dd429209e8dd52aa288652181518ef19848](<https://github.com/misshqiong/matterhorn/commit/57b44dd429209e8dd52aa288652181518ef19848>), [github:misshqiong/matterhorn:commit:7e9415415c85ab40ca55927e51be0d21eb9d1cad](<https://github.com/misshqiong/matterhorn/commit/7e9415415c85ab40ca55927e51be0d21eb9d1cad>)
-- <code>2026-07-31T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented hub topology with MCP over streamable HTTP, single-command setup, live view enhancements, and documentation. 244 tests green locally, 292 with PostgreSQL 17.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:3d12c434a2d32b984b8f1232ddbefb2184a40375](<https://github.com/misshqiong/matterhorn/commit/3d12c434a2d32b984b8f1232ddbefb2184a40375>)
-- <code>2026-07-31T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:3d12c434a2d32b984b8f1232ddbefb2184a40375](<https://github.com/misshqiong/matterhorn/commit/3d12c434a2d32b984b8f1232ddbefb2184a40375>), [github:misshqiong/matterhorn:commit:4eac6677320414b32fbf60bae3e1b7adf9c1eb98](<https://github.com/misshqiong/matterhorn/commit/4eac6677320414b32fbf60bae3e1b7adf9c1eb98>), [github:misshqiong/matterhorn:commit:57b44dd429209e8dd52aa288652181518ef19848](<https://github.com/misshqiong/matterhorn/commit/57b44dd429209e8dd52aa288652181518ef19848>), [github:misshqiong/matterhorn:commit:7e9415415c85ab40ca55927e51be0d21eb9d1cad](<https://github.com/misshqiong/matterhorn/commit/7e9415415c85ab40ca55927e51be0d21eb9d1cad>)
-- <code>2026-07-31T00:00:00.000000Z</code> — <code>progress</code> → <code>"Implemented aggregation v2 with rolling anchors and timeline; conformance cases 55-57 pass."</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:4eac6677320414b32fbf60bae3e1b7adf9c1eb98](<https://github.com/misshqiong/matterhorn/commit/4eac6677320414b32fbf60bae3e1b7adf9c1eb98>), [github:misshqiong/matterhorn:commit:57b44dd429209e8dd52aa288652181518ef19848](<https://github.com/misshqiong/matterhorn/commit/57b44dd429209e8dd52aa288652181518ef19848>), [github:misshqiong/matterhorn:commit:7e9415415c85ab40ca55927e51be0d21eb9d1cad](<https://github.com/misshqiong/matterhorn/commit/7e9415415c85ab40ca55927e51be0d21eb9d1cad>)
-- <code>2026-07-31T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:4eac6677320414b32fbf60bae3e1b7adf9c1eb98](<https://github.com/misshqiong/matterhorn/commit/4eac6677320414b32fbf60bae3e1b7adf9c1eb98>), [github:misshqiong/matterhorn:commit:57b44dd429209e8dd52aa288652181518ef19848](<https://github.com/misshqiong/matterhorn/commit/57b44dd429209e8dd52aa288652181518ef19848>), [github:misshqiong/matterhorn:commit:7e9415415c85ab40ca55927e51be0d21eb9d1cad](<https://github.com/misshqiong/matterhorn/commit/7e9415415c85ab40ca55927e51be0d21eb9d1cad>), [github:misshqiong/matterhorn:commit:3d12c434a2d32b984b8f1232ddbefb2184a40375](<https://github.com/misshqiong/matterhorn/commit/3d12c434a2d32b984b8f1232ddbefb2184a40375>)
-
-</details>
-
-## Spec-first: normative SPEC.md and golden conformance suite
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Proposal: spec enters repository before code, including SPEC.md and conformance suite.","type":"spec"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"pending"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>)
-- <code>2026-08-03T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:d238c076f61ad78dfc76449bd459d33f0ecd30c2](<https://github.com/misshqiong/matterhorn/commit/d238c076f61ad78dfc76449bd459d33f0ecd30c2>)
-
-</details>
-
-## Console operating surface
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-30T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented console operating surface with browse, query, correct, feed, chat features. 202 tests green locally, 244 with PostgreSQL 17.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:88e43cbe9c7bf150ca657d1a2985d704984480b9](<https://github.com/misshqiong/matterhorn/commit/88e43cbe9c7bf150ca657d1a2985d704984480b9>)
-- <code>2026-07-30T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:88e43cbe9c7bf150ca657d1a2985d704984480b9](<https://github.com/misshqiong/matterhorn/commit/88e43cbe9c7bf150ca657d1a2985d704984480b9>)
-- <code>2026-07-30T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:88e43cbe9c7bf150ca657d1a2985d704984480b9](<https://github.com/misshqiong/matterhorn/commit/88e43cbe9c7bf150ca657d1a2985d704984480b9>)
-
-</details>
-
-## Fix CLI exit codes and add correction command
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Fixed `mh conformance run` exit codes (0/1/2) and added `mh correct` command. 141 tests green.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>)
-
-</details>
-
-## Project strategy documented
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Strategy captured in devlog, covering layer boundary, naming, SDK facade, thread-first identity, revocation, dual-backend conformance, and current milestone.","type":"documentation"}</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>), [github:misshqiong/matterhorn:commit:1f6be7a979483cbac0864087fb6c99cf65b1eb17](<https://github.com/misshqiong/matterhorn/commit/1f6be7a979483cbac0864087fb6c99cf65b1eb17>), [github:misshqiong/matterhorn:commit:92189fdbff9716d880f79459a8fdda367fe464a1](<https://github.com/misshqiong/matterhorn/commit/92189fdbff9716d880f79459a8fdda367fe464a1>), [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>), [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>progress</code> → <code>"Spec-first: normative SPEC.md with nine principles and ten invariants, plus golden conformance suite (m1). Core engine with SQLite store, query family, and CLI, implementing key invariants (INV-4,5,8,9) and two schema profiles (m2). Distillation gate with LlmGateway SPI, validation gate (SOURCE_NOT_TRACEABLE), MCP server, FastAPI REST, Claude Skill, PostgreSQL backend, release adapters, examples, Docker, docs, CI; 138 tests green across SQLite and PostgreSQL 17 and conformance passes 37/37 (m3). Fixed CLI exit-code contract (exit 0/1/2) and added 'mh correct' for corrections; rebuilt venv with real Typer 0.27.0; 141 tests green (m4). Added hands-on acceptance manual documenting invariants and eight ambiguity decisions (m5)."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>), [github:misshqiong/matterhorn:commit:1f6be7a979483cbac0864087fb6c99cf65b1eb17](<https://github.com/misshqiong/matterhorn/commit/1f6be7a979483cbac0864087fb6c99cf65b1eb17>), [github:misshqiong/matterhorn:commit:92189fdbff9716d880f79459a8fdda367fe464a1](<https://github.com/misshqiong/matterhorn/commit/92189fdbff9716d880f79459a8fdda367fe464a1>), [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>), [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>progress</code> → <code>"Continued development of the Matterhorn Matters Engine: fixed CLI contract tests (m1), implemented M4 record layer and Slack adapter (m2), M5 facade (m3), M6 change events and export/import (m4), and ledger phase 1 and 2 (m5, m6). Fixed self-feeding loop in ledger (m7)."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:902594c3003cd8b3d1c035b680f7674b5f51d077](<https://github.com/misshqiong/matterhorn/commit/902594c3003cd8b3d1c035b680f7674b5f51d077>), [github:misshqiong/matterhorn:commit:e4261db4246a43dc938c2498210b61f7736bb546](<https://github.com/misshqiong/matterhorn/commit/e4261db4246a43dc938c2498210b61f7736bb546>), [github:misshqiong/matterhorn:commit:30c8a53204bed9719d7582251520a76941816188](<https://github.com/misshqiong/matterhorn/commit/30c8a53204bed9719d7582251520a76941816188>), [github:misshqiong/matterhorn:commit:1d78a5fc581b69d5e6e7f871669a6f474c9991a1](<https://github.com/misshqiong/matterhorn/commit/1d78a5fc581b69d5e6e7f871669a6f474c9991a1>), [github:misshqiong/matterhorn:commit:960763ca05b55a993cd8d44865974a1f20107526](<https://github.com/misshqiong/matterhorn/commit/960763ca05b55a993cd8d44865974a1f20107526>), [github:misshqiong/matterhorn:commit:a53cb91a621aebf3718e904488f05018268abed6](<https://github.com/misshqiong/matterhorn/commit/a53cb91a621aebf3718e904488f05018268abed6>), [github:misshqiong/matterhorn:commit:8a0fc3d5fdafd74618dbfcfd9aae95a3eca90c0e](<https://github.com/misshqiong/matterhorn/commit/8a0fc3d5fdafd74618dbfcfd9aae95a3eca90c0e>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>progress</code> → <code>"Ledger phase 2 live: self-hosted ledger generates MATTERS.md from repository history; extraction robustness improved with alias-based citation mapping, batch processing; provider portability for DeepSeek with response_format degradation and timeout formalization; markdown export with collapsible timelines; GitHub workflow for nightly rebuilds. First fill produced 14 cards, 42 assertions, 14 matters. Fixed self-feeding loop by excluding bookkeeping commits; batch size pinned to five records. Sample data made fictional and English; 169 tests green. Added email demo with HTML export, published live; 183 tests green. Refactored import graph to match architecture; 232 tests green. Added console interface with five pipeline blocks; 202 tests green. Added IMAP mail connector with UID watermarks, HTML extraction, junk filtering; 237 tests green."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:a53cb91a621aebf3718e904488f05018268abed6](<https://github.com/misshqiong/matterhorn/commit/a53cb91a621aebf3718e904488f05018268abed6>), [github:misshqiong/matterhorn:commit:8a0fc3d5fdafd74618dbfcfd9aae95a3eca90c0e](<https://github.com/misshqiong/matterhorn/commit/8a0fc3d5fdafd74618dbfcfd9aae95a3eca90c0e>), [github:misshqiong/matterhorn:commit:baa302a0f6cbe6ad85c46b6df517a2bf8766e68f](<https://github.com/misshqiong/matterhorn/commit/baa302a0f6cbe6ad85c46b6df517a2bf8766e68f>), [github:misshqiong/matterhorn:commit:30e0ffe8ddec84116f7eab4d87e45f97e0817b13](<https://github.com/misshqiong/matterhorn/commit/30e0ffe8ddec84116f7eab4d87e45f97e0817b13>), [github:misshqiong/matterhorn:commit:a0270abde4e8621b3673b69cd94bbc85be36679a](<https://github.com/misshqiong/matterhorn/commit/a0270abde4e8621b3673b69cd94bbc85be36679a>), [github:misshqiong/matterhorn:commit:88e43cbe9c7bf150ca657d1a2985d704984480b9](<https://github.com/misshqiong/matterhorn/commit/88e43cbe9c7bf150ca657d1a2985d704984480b9>), [github:misshqiong/matterhorn:commit:5f229ab89e52ac094342029ae8cc018872da1d16](<https://github.com/misshqiong/matterhorn/commit/5f229ab89e52ac094342029ae8cc018872da1d16>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>progress</code> → <code>"Documented project strategy, including layer and promise boundary, two-verb facade, thread-first identity, evidence revocation, dual-backend conformance, and current milestone 0.6.0."</code>
   - Evidence: [devlog:0001](<https://github.com/misshqiong/matterhorn/blob/main/devlog/0001-project-strategy.md>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"github:misshqiong"</code>
-  - Evidence: [devlog:0001](<https://github.com/misshqiong/matterhorn/blob/main/devlog/0001-project-strategy.md>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [devlog:0001](<https://github.com/misshqiong/matterhorn/blob/main/devlog/0001-project-strategy.md>)
-
-</details>
-
-## Architecture refactor
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Refactored import graph to match architecture. 232 tests green across SQLite and PostgreSQL 17.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:a0270abde4e8621b3673b69cd94bbc85be36679a](<https://github.com/misshqiong/matterhorn/commit/a0270abde4e8621b3673b69cd94bbc85be36679a>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:a0270abde4e8621b3673b69cd94bbc85be36679a](<https://github.com/misshqiong/matterhorn/commit/a0270abde4e8621b3673b69cd94bbc85be36679a>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:a0270abde4e8621b3673b69cd94bbc85be36679a](<https://github.com/misshqiong/matterhorn/commit/a0270abde4e8621b3673b69cd94bbc85be36679a>)
-
-</details>
-
-## Implement M2+M3: distillation gate, adapters, PostgreSQL, release
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented distillation gate, protocol surfaces, adapters, PostgreSQL backend, and release. 138 tests green, conformance 37/37.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:92189fdbff9716d880f79459a8fdda367fe464a1](<https://github.com/misshqiong/matterhorn/commit/92189fdbff9716d880f79459a8fdda367fe464a1>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:92189fdbff9716d880f79459a8fdda367fe464a1](<https://github.com/misshqiong/matterhorn/commit/92189fdbff9716d880f79459a8fdda367fe464a1>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:92189fdbff9716d880f79459a8fdda367fe464a1](<https://github.com/misshqiong/matterhorn/commit/92189fdbff9716d880f79459a8fdda367fe464a1>)
-
-</details>
-
-## Implement M1: deterministic engine core, SQLite store, query family, CLI
-
-- Status: <code>done</code>
-- Owners: —
-- Blocked by: —
-- Next step: —
-- Due: —
-
-<details>
-<summary>Timeline</summary>
-
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>outcome</code> → <code>{"content":"Implemented core engine, SQLite store, query family, and CLI. Handles invariants INV-4, INV-5, INV-8, INV-9.","type":"commit"}</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:1f6be7a979483cbac0864087fb6c99cf65b1eb17](<https://github.com/misshqiong/matterhorn/commit/1f6be7a979483cbac0864087fb6c99cf65b1eb17>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>participated_by</code> → <code>"git:aurelvana"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:1f6be7a979483cbac0864087fb6c99cf65b1eb17](<https://github.com/misshqiong/matterhorn/commit/1f6be7a979483cbac0864087fb6c99cf65b1eb17>)
-- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"done"</code>
-  - Evidence: [github:misshqiong/matterhorn:commit:1f6be7a979483cbac0864087fb6c99cf65b1eb17](<https://github.com/misshqiong/matterhorn/commit/1f6be7a979483cbac0864087fb6c99cf65b1eb17>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>progress</code> → <code>"Fixed CLI exit-code contract and added correction path; built hands-on acceptance manual; kept internal brief out of VCS; published as matterhorn-memory on PyPI; fixed CI lint and CLI tests; fixed CLI contract tests; implemented M4 ingest milestone with Record layer, Slack adapter, and evidence lifecycle."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>), [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>), [github:misshqiong/matterhorn:commit:645fc4a612a40c0b21955351a39ad6a0d4d98c85](<https://github.com/misshqiong/matterhorn/commit/645fc4a612a40c0b21955351a39ad6a0d4d98c85>), [github:misshqiong/matterhorn:commit:13abc0fdf2873eeab030a1dbb7ea930f1805078f](<https://github.com/misshqiong/matterhorn/commit/13abc0fdf2873eeab030a1dbb7ea930f1805078f>), [github:misshqiong/matterhorn:commit:9ef85561e10dcd8c7fb4fe235d3e658e848a1261](<https://github.com/misshqiong/matterhorn/commit/9ef85561e10dcd8c7fb4fe235d3e658e848a1261>), [github:misshqiong/matterhorn:commit:902594c3003cd8b3d1c035b680f7674b5f51d077](<https://github.com/misshqiong/matterhorn/commit/902594c3003cd8b3d1c035b680f7674b5f51d077>), [github:misshqiong/matterhorn:commit:e4261db4246a43dc938c2498210b61f7736bb546](<https://github.com/misshqiong/matterhorn/commit/e4261db4246a43dc938c2498210b61f7736bb546>)
+- <code>2026-07-29T00:00:00.000000Z</code> — <code>status</code> → <code>"in_progress"</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:bc9d129571af320d99ad361fc5a4bf224cf95b85](<https://github.com/misshqiong/matterhorn/commit/bc9d129571af320d99ad361fc5a4bf224cf95b85>), [github:misshqiong/matterhorn:commit:1f6be7a979483cbac0864087fb6c99cf65b1eb17](<https://github.com/misshqiong/matterhorn/commit/1f6be7a979483cbac0864087fb6c99cf65b1eb17>), [github:misshqiong/matterhorn:commit:92189fdbff9716d880f79459a8fdda367fe464a1](<https://github.com/misshqiong/matterhorn/commit/92189fdbff9716d880f79459a8fdda367fe464a1>), [github:misshqiong/matterhorn:commit:b792419984415f1b2a66a164a3165ba2040ecd48](<https://github.com/misshqiong/matterhorn/commit/b792419984415f1b2a66a164a3165ba2040ecd48>), [github:misshqiong/matterhorn:commit:e31006f72a3898505bdd88fc50ae1eacaa43a4a6](<https://github.com/misshqiong/matterhorn/commit/e31006f72a3898505bdd88fc50ae1eacaa43a4a6>)
+- <code>2026-07-31T00:00:00.000000Z</code> — <code>progress</code> → <code>"Committed environment-independent hook and CLI tests (254 green, ruff clean); refreshed README and docs with current CLI paths, added first real screenshots; rebuilt self-ledger with readable author identities (git:aurelvana) and full-history regeneration (255 tests green, 303 with PostgreSQL); fixed fictional test author and rewrote history for clean provenance. Core engine continues: anchor-attached extraction and reversible subject merges, conversation-windowed aggregation with rolling anchors and matter timeline, plus an eval baseline harness. Phase 0 of identity refactor remains ahead."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:e8d434b4cbd171ef6ec867683fef55ba09716426](<https://github.com/misshqiong/matterhorn/commit/e8d434b4cbd171ef6ec867683fef55ba09716426>), [github:misshqiong/matterhorn:commit:569d87ff3d8017d3e85a3d5b6a009f35d7f51d28](<https://github.com/misshqiong/matterhorn/commit/569d87ff3d8017d3e85a3d5b6a009f35d7f51d28>), [github:misshqiong/matterhorn:commit:16877bb70ed91a52906748d6a886f549a5c56df1](<https://github.com/misshqiong/matterhorn/commit/16877bb70ed91a52906748d6a886f549a5c56df1>), [github:misshqiong/matterhorn:commit:195f382bb3abefbe1dd8ebcdd40f7b5fd8a63c00](<https://github.com/misshqiong/matterhorn/commit/195f382bb3abefbe1dd8ebcdd40f7b5fd8a63c00>), [github:misshqiong/matterhorn:commit:4eac6677320414b32fbf60bae3e1b7adf9c1eb98](<https://github.com/misshqiong/matterhorn/commit/4eac6677320414b32fbf60bae3e1b7adf9c1eb98>), [github:misshqiong/matterhorn:commit:57b44dd429209e8dd52aa288652181518ef19848](<https://github.com/misshqiong/matterhorn/commit/57b44dd429209e8dd52aa288652181518ef19848>), [github:misshqiong/matterhorn:commit:7e9415415c85ab40ca55927e51be0d21eb9d1cad](<https://github.com/misshqiong/matterhorn/commit/7e9415415c85ab40ca55927e51be0d21eb9d1cad>), [github:misshqiong/matterhorn:commit:d238c076f61ad78dfc76449bd459d33f0ecd30c2](<https://github.com/misshqiong/matterhorn/commit/d238c076f61ad78dfc76449bd459d33f0ecd30c2>)
+- <code>2026-08-04T00:00:00.000000Z</code> — <code>progress</code> → <code>"Continued refactoring phases. Phase 1 established typed handle registry and raw conversation staging with context windows; phase 2 introduced five-rung identity routing ladder and zero-model route rate metric; added dev-mode ingest trace, --scope auto hooks, raw stream panel with flush deadline and update badges; fixed adjudication filler candidates and conformance isolation."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:bbcb20cd10d8bd30c8f3e8f42312dbce9d408a25](<https://github.com/misshqiong/matterhorn/commit/bbcb20cd10d8bd30c8f3e8f42312dbce9d408a25>), [github:misshqiong/matterhorn:commit:8442024b542ac6e955db97e49702cff3d021ef36](<https://github.com/misshqiong/matterhorn/commit/8442024b542ac6e955db97e49702cff3d021ef36>), [github:misshqiong/matterhorn:commit:f945665c0bb68993c2538658b66222f6969e9e37](<https://github.com/misshqiong/matterhorn/commit/f945665c0bb68993c2538658b66222f6969e9e37>), [github:misshqiong/matterhorn:commit:597c814841361ab3046b8d64748df3c634326c4b](<https://github.com/misshqiong/matterhorn/commit/597c814841361ab3046b8d64748df3c634326c4b>), [github:misshqiong/matterhorn:commit:2d4b8cc0d1f4cf1e0e6ba4fd8bf21909102af9d3](<https://github.com/misshqiong/matterhorn/commit/2d4b8cc0d1f4cf1e0e6ba4fd8bf21909102af9d3>), [github:misshqiong/matterhorn:commit:2e1e4093be94aa74acc28ae4dbe9a5ee8563ae23](<https://github.com/misshqiong/matterhorn/commit/2e1e4093be94aa74acc28ae4dbe9a5ee8563ae23>), [github:misshqiong/matterhorn:commit:e53ac73691d925495b571d0ac241138874171e6a](<https://github.com/misshqiong/matterhorn/commit/e53ac73691d925495b571d0ac241138874171e6a>), [github:misshqiong/matterhorn:commit:3d426a16a880d669f48217cd042c221d464addc4](<https://github.com/misshqiong/matterhorn/commit/3d426a16a880d669f48217cd042c221d464addc4>), [github:misshqiong/matterhorn:commit:dc6cd468a6bd08c910ad9c5565797f13963b1a33](<https://github.com/misshqiong/matterhorn/commit/dc6cd468a6bd08c910ad9c5565797f13963b1a33>)
+- <code>2026-08-04T00:00:00.000000Z</code> — <code>progress</code> → <code>"Added dev-mode ingest trace (MATTERHORN_DEV_TRACE), hooks --scope auto for per-project scope resolution, console raw stream panel with flush deadline, routing fix for zero-score filler candidates, extraction prompt update separating progress from outcome, person name display for participants, timeline seconds, collapsed SET predicate rows, tolerant abstain with alias evidence, batch floor, source-conversation labels, and prompted next_step/due extraction."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:2e1e4093be94aa74acc28ae4dbe9a5ee8563ae23](<https://github.com/misshqiong/matterhorn/commit/2e1e4093be94aa74acc28ae4dbe9a5ee8563ae23>), [github:misshqiong/matterhorn:commit:e53ac73691d925495b571d0ac241138874171e6a](<https://github.com/misshqiong/matterhorn/commit/e53ac73691d925495b571d0ac241138874171e6a>), [github:misshqiong/matterhorn:commit:3d426a16a880d669f48217cd042c221d464addc4](<https://github.com/misshqiong/matterhorn/commit/3d426a16a880d669f48217cd042c221d464addc4>), [github:misshqiong/matterhorn:commit:dc6cd468a6bd08c910ad9c5565797f13963b1a33](<https://github.com/misshqiong/matterhorn/commit/dc6cd468a6bd08c910ad9c5565797f13963b1a33>), [github:misshqiong/matterhorn:commit:9712e5be597ad95dec6f2f286cca99d50d496443](<https://github.com/misshqiong/matterhorn/commit/9712e5be597ad95dec6f2f286cca99d50d496443>), [github:misshqiong/matterhorn:commit:8c64180f3c5b363191c6065f933077be1f8d7632](<https://github.com/misshqiong/matterhorn/commit/8c64180f3c5b363191c6065f933077be1f8d7632>), [github:misshqiong/matterhorn:commit:95ff329a17d7508118f21e8341e0053db244cf9d](<https://github.com/misshqiong/matterhorn/commit/95ff329a17d7508118f21e8341e0053db244cf9d>), [github:misshqiong/matterhorn:commit:c8f5884e988e9c24e9fb44c858f226dc34042b07](<https://github.com/misshqiong/matterhorn/commit/c8f5884e988e9c24e9fb44c858f226dc34042b07>), [github:misshqiong/matterhorn:commit:adae8f825df15b8e785a024d8977380ed427d4a7](<https://github.com/misshqiong/matterhorn/commit/adae8f825df15b8e785a024d8977380ed427d4a7>)
+- <code>2026-08-05T00:00:00.000000Z</code> — <code>next_step</code> → <code>"Continue Matterhorn engine development; no explicit next step stated."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:ccf5695b5d8d2dcb507222bab60dda93f9378b14](<https://github.com/misshqiong/matterhorn/commit/ccf5695b5d8d2dcb507222bab60dda93f9378b14>), [github:misshqiong/matterhorn:commit:50f041df7e9fb2e64837c2cb3201a24f9428e18d](<https://github.com/misshqiong/matterhorn/commit/50f041df7e9fb2e64837c2cb3201a24f9428e18d>), [github:misshqiong/matterhorn:commit:f1d1c5107598c6166c60b0663d6bb0051f01db4f](<https://github.com/misshqiong/matterhorn/commit/f1d1c5107598c6166c60b0663d6bb0051f01db4f>), [github:misshqiong/matterhorn:commit:af545f71b5178c17f66f75cb6a75f705e36afe7c](<https://github.com/misshqiong/matterhorn/commit/af545f71b5178c17f66f75cb6a75f705e36afe7c>), [github:misshqiong/matterhorn:commit:ca21c2fee400c9d0c5d5e3b04d03acacb961515a](<https://github.com/misshqiong/matterhorn/commit/ca21c2fee400c9d0c5d5e3b04d03acacb961515a>), [github:misshqiong/matterhorn:commit:fd624665e257194ffd14cc8b5482400688fc1949](<https://github.com/misshqiong/matterhorn/commit/fd624665e257194ffd14cc8b5482400688fc1949>)
+- <code>2026-08-05T00:00:00.000000Z</code> — <code>progress</code> → <code>"Working through console information architecture and engine admission refinements: conversation name labels, stable identity keys, stale-page banner, focus wall with groups and ledger rows, routing kinship tightening, and change-only admission for model assertions."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:ccf5695b5d8d2dcb507222bab60dda93f9378b14](<https://github.com/misshqiong/matterhorn/commit/ccf5695b5d8d2dcb507222bab60dda93f9378b14>), [github:misshqiong/matterhorn:commit:50f041df7e9fb2e64837c2cb3201a24f9428e18d](<https://github.com/misshqiong/matterhorn/commit/50f041df7e9fb2e64837c2cb3201a24f9428e18d>), [github:misshqiong/matterhorn:commit:f1d1c5107598c6166c60b0663d6bb0051f01db4f](<https://github.com/misshqiong/matterhorn/commit/f1d1c5107598c6166c60b0663d6bb0051f01db4f>), [github:misshqiong/matterhorn:commit:af545f71b5178c17f66f75cb6a75f705e36afe7c](<https://github.com/misshqiong/matterhorn/commit/af545f71b5178c17f66f75cb6a75f705e36afe7c>), [github:misshqiong/matterhorn:commit:ca21c2fee400c9d0c5d5e3b04d03acacb961515a](<https://github.com/misshqiong/matterhorn/commit/ca21c2fee400c9d0c5d5e3b04d03acacb961515a>), [github:misshqiong/matterhorn:commit:fd624665e257194ffd14cc8b5482400688fc1949](<https://github.com/misshqiong/matterhorn/commit/fd624665e257194ffd14cc8b5482400688fc1949>)
+- <code>2026-08-05T00:00:00.000000Z</code> — <code>progress</code> → <code>"Refined field semantics (progress for narrative, outcome only for conclusions), added person and conversation name display, collapse SET predicate values, made routing tolerant to abstains and alias evidence, added batching floor, source-conversation labels, due/next prompting, readable conversation names, stale-page banner, information architecture rework, and tightened routing recall criteria."</code>
+  - Evidence: [github:misshqiong/matterhorn:commit:9712e5be597ad95dec6f2f286cca99d50d496443](<https://github.com/misshqiong/matterhorn/commit/9712e5be597ad95dec6f2f286cca99d50d496443>), [github:misshqiong/matterhorn:commit:8c64180f3c5b363191c6065f933077be1f8d7632](<https://github.com/misshqiong/matterhorn/commit/8c64180f3c5b363191c6065f933077be1f8d7632>), [github:misshqiong/matterhorn:commit:95ff329a17d7508118f21e8341e0053db244cf9d](<https://github.com/misshqiong/matterhorn/commit/95ff329a17d7508118f21e8341e0053db244cf9d>), [github:misshqiong/matterhorn:commit:c8f5884e988e9c24e9fb44c858f226dc34042b07](<https://github.com/misshqiong/matterhorn/commit/c8f5884e988e9c24e9fb44c858f226dc34042b07>), [github:misshqiong/matterhorn:commit:adae8f825df15b8e785a024d8977380ed427d4a7](<https://github.com/misshqiong/matterhorn/commit/adae8f825df15b8e785a024d8977380ed427d4a7>), [github:misshqiong/matterhorn:commit:ccf5695b5d8d2dcb507222bab60dda93f9378b14](<https://github.com/misshqiong/matterhorn/commit/ccf5695b5d8d2dcb507222bab60dda93f9378b14>), [github:misshqiong/matterhorn:commit:50f041df7e9fb2e64837c2cb3201a24f9428e18d](<https://github.com/misshqiong/matterhorn/commit/50f041df7e9fb2e64837c2cb3201a24f9428e18d>), [github:misshqiong/matterhorn:commit:f1d1c5107598c6166c60b0663d6bb0051f01db4f](<https://github.com/misshqiong/matterhorn/commit/f1d1c5107598c6166c60b0663d6bb0051f01db4f>), [github:misshqiong/matterhorn:commit:af545f71b5178c17f66f75cb6a75f705e36afe7c](<https://github.com/misshqiong/matterhorn/commit/af545f71b5178c17f66f75cb6a75f705e36afe7c>), [github:misshqiong/matterhorn:commit:ca21c2fee400c9d0c5d5e3b04d03acacb961515a](<https://github.com/misshqiong/matterhorn/commit/ca21c2fee400c9d0c5d5e3b04d03acacb961515a>)
 
 </details>
 

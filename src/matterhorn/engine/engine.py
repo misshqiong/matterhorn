@@ -1329,12 +1329,12 @@ class Engine:
         subject_key: str | None = None,
         source_refs: list[SourceRef | dict[str, Any]],
     ) -> ReviewItem:
-        if action not in {"attach", "new"}:
-            raise ValueError("review action MUST be 'attach' or 'new'")
+        if action not in {"attach", "new", "drop"}:
+            raise ValueError("review action MUST be 'attach', 'new', or 'drop'")
         if action == "attach" and not subject_key:
             raise ValueError("attach review action requires subject_key")
-        if action == "new" and subject_key is not None:
-            raise ValueError("new review action MUST NOT include subject_key")
+        if action in {"new", "drop"} and subject_key is not None:
+            raise ValueError(f"{action} review action MUST NOT include subject_key")
         refs = _source_refs(source_refs, operation="review resolutions")
         with self.store.transaction():
             item = self.store.review_item(scope_id, review_id)
@@ -1345,6 +1345,24 @@ class Engine:
                     f"review_id {review_id!r} is already resolved"
                 )
             original_card = EpisodeCard.model_validate(item.card_json)
+            if action == "drop":
+                # Auditor verdict: this card is noise (process log, junk) —
+                # discard it with provenance. The review row keeps the card
+                # and the resolution for the audit trail; nothing is ingested.
+                resolved_at = self._clock()
+                for source_ref in refs:
+                    self.store.observe_source(scope_id, source_ref)
+                return self.store.resolve_review_item(
+                    scope_id,
+                    review_id,
+                    resolved_at=resolved_at,
+                    resolution={
+                        "action": "drop",
+                        "source_refs": [
+                            ref.model_dump(mode="json") for ref in refs
+                        ],
+                    },
+                )
             combined_refs = _stable_source_refs(
                 [*original_card.source_refs, *refs]
             )

@@ -456,3 +456,64 @@ def test_attach_may_cite_evidence_by_alias() -> None:
     )
     assert gate.outcome == "attach"
     assert gate.subject_key == "matter-1"
+
+
+def test_review_drop_discards_card_with_provenance(tmp_path) -> None:
+    engine = Engine(
+        tmp_path / "review-drop.db",
+        gateway=AbstainingGateway(),
+        clock=lambda: NOW,
+    )
+    engine._ingest_cards_sync(
+        [
+            {
+                "card_id": "drop-seed",
+                "scope_id": "review-scope",
+                "subject_key": "atlas-matter",
+                "date": "2026-08-04",
+                "title": "Fictional Atlas follow-up matter",
+                "status": "open",
+                "source_refs": [_source("drop-seed-source", "Atlas is open.")],
+            }
+        ]
+    )
+    engine.add(
+        "review-scope",
+        [
+            {
+                "id": "r1",
+                "sender": {"id": "dana", "name": "Dana Reyes"},
+                "text": "The Atlas follow-up needs identity review.",
+                "sent_at": "2026-08-04T15:58:00Z",
+                "conversation_id": "updates",
+            }
+        ],
+    )
+    engine.flush("review-scope")
+    item = engine.review_items("review-scope")[0]
+    before = len(engine.matters("review-scope"))
+
+    resolved = engine.resolve_review(
+        "review-scope",
+        item.review_id,
+        action="drop",
+        source_refs=[_source("audit-drop", "Auditor verdict: process noise.")],
+    )
+
+    assert resolved.resolved_at is not None
+    assert resolved.resolution_json["action"] == "drop"
+    # Nothing ingested: matter count unchanged, queue empty.
+    assert len(engine.matters("review-scope")) == before
+    assert engine.review_items("review-scope") == []
+    # Resolving again is refused.
+    import pytest as _pytest
+
+    from matterhorn.errors import ReviewConflictError
+
+    with _pytest.raises(ReviewConflictError):
+        engine.resolve_review(
+            "review-scope",
+            item.review_id,
+            action="drop",
+            source_refs=[_source("audit-drop-2", "again")],
+        )
