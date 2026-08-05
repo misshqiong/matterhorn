@@ -97,8 +97,10 @@ def build_adjudication_prompt(
         "You adjudicate whether one evidence-backed card belongs to one offered "
         "open matter. Use only the offered candidates. Cite evidence by the "
         "short source_alias values (m1, m2, ...) shown with the card's "
-        "sources. Return exactly one closed JSON object. Choose abstain when "
-        "the evidence does not safely support attach or new. Literal example: "
+        "sources. Return exactly one closed JSON object. When the card is "
+        "clearly a topic no candidate covers, answer new with confidence - "
+        "new is the safe default for novel topics. Abstain ONLY when you are "
+        "genuinely torn between candidates. Literal example: "
         + PINNED_ADJUDICATION_EXAMPLE
     )
     user = canonical_json(

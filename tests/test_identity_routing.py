@@ -297,7 +297,7 @@ def test_review_route_is_persisted_in_enclosing_task_gate(tmp_path) -> None:
                 "scope_id": "review-scope",
                 "subject_key": "atlas-matter",
                 "date": "2026-08-04",
-                "title": "Fictional Atlas matter",
+                "title": "Fictional Atlas follow-up matter",
                 "status": "open",
                 "source_refs": [
                     _source("review-task-seed-source", "Atlas remains open.")
@@ -337,7 +337,7 @@ def test_review_survives_restart_and_rest_resolution_is_human_and_once(tmp_path)
                 "scope_id": "review-scope",
                 "subject_key": "atlas-matter",
                 "date": "2026-08-04",
-                "title": "Fictional Atlas matter",
+                "title": "Fictional Atlas follow-up matter",
                 "status": "open",
                 "source_refs": [
                     _source("review-seed-source", "Atlas remains open.")

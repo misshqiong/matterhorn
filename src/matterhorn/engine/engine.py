@@ -887,8 +887,11 @@ class Engine:
         # lineup of unrelated matters, the adjudicator abstained, the card
         # queued for review, and the topic could never form a matter — every
         # later batch repeated the loop. No positive candidate → clean new.
+        # A single shared token (often a common word from evidence text) is
+        # noise, and noise candidates make the adjudicator abstain — every
+        # abstain costs a human review. Require a real lexical relationship.
         positive = sorted(
-            (item for item in recalled if item[0] > 0),
+            (item for item in recalled if item[0] >= 2),
             key=lambda item: (-item[0], item[1].subject_key.encode("utf-8")),
         )
         return [candidate for _, candidate in positive[:5]]
