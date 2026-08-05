@@ -122,11 +122,13 @@ class Matter:
     owners_display: list[Any] | None = None
     participants_display: list[Any] | None = None
     sources_display: list[str] | None = None
+    progress: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "status": self.status,
+            "progress": self.progress,
             "owners": self.owners,
             "participants": self.participants,
             "blocked_by": self.blocked_by,
@@ -138,6 +140,22 @@ class Matter:
             "sources_display": self.sources_display or [],
             "aliases": self.aliases,
             "updated_at": self.updated_at,
+        }
+
+
+@dataclass(frozen=True)
+class RelatedMatter:
+    scope_id: str
+    subject_key: str
+    title: str
+    via: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "scope_id": self.scope_id,
+            "subject_key": self.subject_key,
+            "title": self.title,
+            "via": self.via,
         }
 
 
@@ -1549,6 +1567,11 @@ class Engine:
             for subject in self.store.subjects(scope_id)
         }
         conversation_names = self.conversation_display_names(scope_id)
+        progress_subjects = {
+            predicate.subject
+            for predicate in self.profile.predicates
+            if predicate.name == "progress"
+        }
         updated_at: dict[str, datetime] = {}
         for assertion in _canonicalized_assertions(
             self.store.assertions(scope_id),
@@ -1559,10 +1582,17 @@ class Engine:
                 updated_at[assertion.subject_key] = assertion.recorded_at
         for subject in self.query.list_matters(scope_id):
             current = subject.current
+            progress_values = (
+                self.query.current(scope_id, subject.subject_key, "progress")
+                if subject.subject_type in progress_subjects
+                else []
+            )
+            progress = progress_values[0].value if progress_values else None
             result.append(
                 Matter(
                     title=subject.title,
                     status=current.get("status"),
+                    progress=progress if isinstance(progress, str) else None,
                     owners=_as_list(current.get("owned_by")),
                     participants=_as_list(current.get("participated_by")),
                     blocked_by=_as_list(current.get("blocked_by")),
@@ -1587,6 +1617,119 @@ class Engine:
                 )
             )
         return result
+
+    def related_matters(
+        self,
+        scope_id: str,
+        subject_key: str,
+        *,
+        limit: int = 5,
+    ) -> list[RelatedMatter]:
+        """Return deterministic cross-scope links without touching the LLM."""
+
+        if limit < 1:
+            raise ValueError("related matter limit MUST be positive")
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        scopes = self.store.list_scopes()
+        if len(scopes) > 20:
+            return []
+
+        merge_edges = {
+            selected_scope: _merge_edges(
+                self.store.subject_merges(selected_scope)
+            )
+            for selected_scope in scopes
+        }
+        canonical_key = _canonical_subject_key(
+            subject_key,
+            merge_edges.get(scope_id, {}),
+        )
+        matters_by_scope = {
+            selected_scope: self.query.list_matters(selected_scope)
+            for selected_scope in scopes
+        }
+        selected = next(
+            item
+            for item in matters_by_scope.get(scope_id, [])
+            if item.subject_key == canonical_key
+        )
+        aliases_by_scope = {
+            selected_scope: self._subject_aliases(selected_scope)
+            for selected_scope in scopes
+        }
+        selected_tokens = _normalized_title_tokens(
+            selected.title,
+            *aliases_by_scope.get(scope_id, {}).get(canonical_key, []),
+        )
+
+        handles_by_subject: dict[
+            tuple[str, str], set[tuple[str, str]]
+        ] = {}
+        for handle in self.store.active_subject_handles_across_scopes(scopes):
+            key = (
+                handle.scope_id,
+                _canonical_subject_key(
+                    handle.subject_key,
+                    merge_edges.get(handle.scope_id, {}),
+                ),
+            )
+            handles_by_subject.setdefault(key, set()).add(
+                (handle.handle_type, handle.normalized_value)
+            )
+        selected_handles = handles_by_subject.get(
+            (scope_id, canonical_key), set()
+        )
+
+        ranked: list[tuple[bool, float, bytes, bytes, RelatedMatter]] = []
+        for candidate_scope in scopes:
+            for candidate in matters_by_scope[candidate_scope]:
+                if (
+                    candidate_scope == scope_id
+                    and candidate.subject_key == canonical_key
+                ):
+                    continue
+                candidate_tokens = _normalized_title_tokens(
+                    candidate.title,
+                    *aliases_by_scope.get(candidate_scope, {}).get(
+                        candidate.subject_key, []
+                    ),
+                )
+                score = _jaccard(selected_tokens, candidate_tokens)
+                shared_handles = sorted(
+                    selected_handles
+                    & handles_by_subject.get(
+                        (candidate_scope, candidate.subject_key), set()
+                    ),
+                    key=lambda item: (
+                        item[0].encode("utf-8"),
+                        item[1].encode("utf-8"),
+                    ),
+                )
+                if not shared_handles and score < 0.5:
+                    continue
+                via = "title"
+                if shared_handles:
+                    handle_type, value = shared_handles[0]
+                    via = f"handle:{handle_type}:{value}"
+                ranked.append(
+                    (
+                        not bool(shared_handles),
+                        -score,
+                        candidate_scope.encode("utf-8"),
+                        candidate.subject_key.encode("utf-8"),
+                        RelatedMatter(
+                            scope_id=candidate_scope,
+                            subject_key=candidate.subject_key,
+                            title=candidate.title,
+                            via=via,
+                        ),
+                    )
+                )
+        ranked.sort(key=lambda item: item[:4])
+        return [item[4] for item in ranked[:limit]]
 
     def task(self, task_id: str) -> TaskResult:
         row = self.store.task(task_id)
@@ -2421,6 +2564,20 @@ def _canonical_subject_key(subject_key: str, edges: dict[str, str]) -> str:
     return current
 
 
+def _normalized_title_tokens(*values: str) -> frozenset[str]:
+    return frozenset(
+        token
+        for token in normalize_title(" ".join(values)).split()
+        if token
+    )
+
+
+def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
 def _canonicalized_subject(
     subject: SubjectRecord,
     existing: list[SubjectRecord],
@@ -2656,7 +2813,7 @@ def _conversation_labels(
     labels = set()
     prefix = f"{scope_id}:"
     for source_id in source_ids:
-        rest = source_id[len(prefix):] if source_id.startswith(prefix) else source_id
+        rest = source_id.removeprefix(prefix)
         cut = rest.rfind(":")
         if cut <= 0:
             continue

@@ -1013,6 +1013,26 @@ class SQLiteStore:
         rows = self.connection.execute(sql, tuple(parameters))
         return [self._row_to_subject_handle(row) for row in rows]
 
+    def active_subject_handles_across_scopes(
+        self, scope_ids: list[str]
+    ) -> list[SubjectHandle]:
+        if not scope_ids:
+            return []
+        placeholders = ",".join("?" for _ in scope_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT * FROM subject_handles
+            WHERE revoked_at IS NULL AND scope_id IN ({placeholders})
+            ORDER BY scope_id COLLATE BINARY,
+                     handle_type COLLATE BINARY,
+                     normalized_value COLLATE BINARY,
+                     subject_key COLLATE BINARY,
+                     binding_id COLLATE BINARY
+            """,
+            tuple(scope_ids),
+        )
+        return [self._row_to_subject_handle(row) for row in rows]
+
     def add_subject_handle(self, handle: SubjectHandle) -> str:
         cursor = self.connection.execute(
             """

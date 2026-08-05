@@ -423,8 +423,6 @@ def test_review_survives_restart_and_rest_resolution_is_human_and_once(tmp_path)
 
 
 def test_abstain_with_subject_key_or_missing_key_is_abstain_not_malformed() -> None:
-    import json as _json
-
     from matterhorn.engine.routing import gate_adjudication
 
     card = _card()

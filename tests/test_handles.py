@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import UTC, datetime
 
 import httpx
@@ -11,6 +12,7 @@ from matterhorn import Engine
 from matterhorn.api import create_app
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.engine.handles import normalize_handle, scan_handles
+from matterhorn.store import SQLiteStore
 
 NOW = datetime(2026, 8, 4, 14, tzinfo=UTC)
 
@@ -225,6 +227,119 @@ def test_backfill_is_offline_and_idempotent(tmp_path) -> None:
         (item.handle_type, item.normalized_value)
         for item in engine.subject_handles("fictional-team", "fictional-target")
     } == {("invoice", "inv-2026-007"), ("issue", "oct-9201")}
+
+
+def test_related_matters_prefers_cross_scope_handle_then_title(tmp_path) -> None:
+    engine = Engine(tmp_path / "related.db", clock=lambda: NOW)
+
+    def related_card(scope_id: str, subject_key: str, title: str) -> dict:
+        return {
+            **_card(subject_key, title=title),
+            "card_id": f"{scope_id}-{subject_key}",
+            "scope_id": scope_id,
+            "source_refs": [_source(f"{scope_id}-{subject_key}")],
+        }
+
+    engine._ingest_cards_sync(
+        [
+            related_card("fictional-alpha", "launch", "Fictional Atlas launch"),
+            related_card(
+                "fictional-alpha", "launch-alias", "Atlas launch planning"
+            ),
+            related_card("fictional-beta", "handle-match", "Unrelated work item"),
+            related_card("fictional-gamma", "title-match", "Atlas launch planning"),
+        ]
+    )
+    engine.merge_subjects(
+        "fictional-alpha",
+        "launch-alias",
+        "launch",
+        source_refs=[_source("related-title-alias")],
+        valid_from=NOW,
+    )
+    for scope_id, subject_key in [
+        ("fictional-alpha", "launch"),
+        ("fictional-beta", "handle-match"),
+    ]:
+        engine.bind_handle(
+            scope_id,
+            subject_key,
+            "issue",
+            "OCT-9401",
+            source_refs=[_source(f"bind-{scope_id}")],
+        )
+
+    related = engine.related_matters("fictional-alpha", "launch")
+
+    assert [item.to_dict() for item in related] == [
+        {
+            "scope_id": "fictional-beta",
+            "subject_key": "handle-match",
+            "title": "Unrelated work item",
+            "via": "handle:issue:oct-9401",
+        },
+        {
+            "scope_id": "fictional-gamma",
+            "subject_key": "title-match",
+            "title": "Atlas launch planning",
+            "via": "title",
+        },
+    ]
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+def test_active_handle_read_spans_both_backends(backend, tmp_path) -> None:
+    if backend == "sqlite":
+        store = SQLiteStore(tmp_path / "related-handles.db")
+    else:
+        dsn = os.environ.get("MATTERHORN_TEST_POSTGRES_DSN")
+        if not dsn:
+            pytest.skip(
+                "MATTERHORN_TEST_POSTGRES_DSN is unset; PostgreSQL related-handle test skipped"
+            )
+        from matterhorn.store.postgres import PostgresStore
+
+        store = PostgresStore(dsn)
+    scopes = ["related-backend-alpha", "related-backend-beta"]
+    try:
+        for scope_id in scopes:
+            store.clear_scope(scope_id)
+        engine = Engine(store, clock=lambda: NOW)
+        engine._ingest_cards_sync(
+            [
+                {**_card("alpha"), "scope_id": scopes[0]},
+                {**_card("beta"), "scope_id": scopes[1]},
+            ]
+        )
+        for scope_id, subject_key in zip(scopes, ["alpha", "beta"], strict=True):
+            engine.bind_handle(
+                scope_id,
+                subject_key,
+                "issue",
+                "OCT-9402",
+                source_refs=[_source(f"read-{scope_id}")],
+            )
+
+        rows = store.active_subject_handles_across_scopes(scopes)
+
+        assert [(row.scope_id, row.normalized_value) for row in rows] == [
+            (scopes[0], "oct-9402"),
+            (scopes[1], "oct-9402"),
+        ]
+    finally:
+        for scope_id in scopes:
+            store.clear_scope(scope_id)
+        store.close()
+
+
+def test_related_matters_skips_work_above_twenty_scopes(tmp_path) -> None:
+    engine = Engine(tmp_path / "related-cap.db", clock=lambda: NOW)
+    engine._ingest_cards_sync([_card()])
+    with engine.store.transaction():
+        for index in range(20):
+            engine.store.mark_card(f"fictional-extra-{index:02}", "card", "hash")
+
+    assert engine.related_matters("fictional-team", "fictional-target") == []
 
 
 def test_backfill_preserves_pre_merge_evidence_ownership(tmp_path) -> None:

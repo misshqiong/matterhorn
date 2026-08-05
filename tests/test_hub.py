@@ -556,7 +556,7 @@ def test_console_contains_live_hub_panels_and_five_second_poll(tmp_path) -> None
         for marker in [
             'id="connection-list"',
             'id="activity-list"',
-            'api("/v1/events?limit=40")',
+            'api("/v1/events?limit=200")',
             'api("/v1/connections")',
             "loadScopes()",
             "loadMatters()",

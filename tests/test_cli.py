@@ -11,7 +11,7 @@ import yaml
 from typer.core import TyperGroup
 from typer.main import get_command
 
-from matterhorn.cli.app import app
+from matterhorn.cli.app import _console_groups, _load_config, app
 from matterhorn.contracts import Record
 from matterhorn.store import SQLiteStore
 
@@ -39,6 +39,19 @@ def _cli_metadata(*path: str) -> Any:
 
 def _parameter(command: Any, name: str) -> Any:
     return next(parameter for parameter in command.params if parameter.name == name)
+
+
+def test_console_groups_load_from_the_existing_toml_config(monkeypatch, tmp_path) -> None:
+    (tmp_path / "matterhorn.toml").write_text(
+        '[console.groups]\ndumbo = ["dumbo", "dumbo-*"]\npersonal = ["mail"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert _console_groups(_load_config()) == {
+        "dumbo": ["dumbo", "dumbo-*"],
+        "personal": ["mail"],
+    }
 
 
 def test_cli_smoke_end_to_end(tmp_path) -> None:

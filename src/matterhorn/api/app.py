@@ -62,6 +62,7 @@ from matterhorn.connectors.mail import (
     MailConfig,
     MailRuntimeRegistry,
 )
+from matterhorn.console.groups import resolve_console_groups
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
@@ -103,6 +104,7 @@ def create_app(
     ai_runtime: Any = None,
     ai_config_path: str | Path | None = None,
     ai_gateway_factory: Any = None,
+    console_groups: dict[str, list[str]] | None = None,
 ) -> FastAPI:
     if service is None:
         if engine is None:
@@ -618,9 +620,14 @@ def create_app(
     )
     def console_config():
         runner = app.state.console_chat_runner
+        groups, scope_to_group = resolve_console_groups(
+            console_groups or {}, service.list_scopes()
+        )
         return {
             "chat_enabled": runner is not None,
             "chat_provider": runner.provider if runner is not None else None,
+            "groups": groups,
+            "scope_to_group": scope_to_group,
         }
 
     @app.post(

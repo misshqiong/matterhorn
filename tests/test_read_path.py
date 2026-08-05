@@ -44,6 +44,8 @@ def test_every_query_ignores_exploding_llm_gateway(tmp_path) -> None:
     assert engine.query.by_person("s", "u1")
     assert engine.query.list_matters("s")
     assert engine.query.completion("s")["completed"] == 1
+    assert engine.matters("s")[0].progress == "finished"
+    assert engine.related_matters("s", "x") == []
 
 
 def test_query_package_does_not_import_distill() -> None:

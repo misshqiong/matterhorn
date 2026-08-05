@@ -85,22 +85,57 @@ surfaces the existing explicit gateway-required error.
 file uploads. The exact fictional Dana Reyes / octo-org sample can use the
 packaged fixture gateway.
 
-### Center — unified matter wall
+### Center — focused matter ledger
 
-The default wall calls `GET /v1/matters` and displays every scope. Each
-ledger-paper card includes its scope tag, status stamp, owners, due date
-(overdue in red), next step, and a subtle **updated** stamp when its newest
-assertion is newer than the locally recorded seen version. Filter chips select
-All or one scope. Opening
-a card opens a modal with its scope-aware current values, evidence state/source
-IDs, aliases from merged titles, and per-value human correction action. A
+The wall calls `GET /v1/matters` and defaults to **Focus**. A matter is active
+when its status is `open`, `in_progress`, `blocked`, `pending`, or `ready`; or
+its `updated_at` is within the last seven days; or `next_step`/`due` is set.
+Active rows sort by newest `updated_at` (nulls last, then bytewise subject key).
+Everything else is dimmed inside a collapsed **Archive (n)** drawer. The
+**Focus / All** choice is stored in localStorage, while the scope chips still
+select All or one scope and compose with that choice.
+
+Scopes can be collected into ordered project sections in `matterhorn.toml`:
+
+```toml
+[console.groups]
+dumbo = ["dumbo", "dumbo-dev", "cc-dumbo-server-*"]
+matterhorn = ["dev", "matterhorn-dev"]
+personal = ["mail"]
+```
+
+Values are scope patterns. Only a single trailing `*` wildcard is supported,
+so `cc-dumbo-server-*` is a prefix match; all other patterns are exact. The
+first group in declaration order that matches wins. Unmatched scopes enter the
+final `other` section. Section headers show `active n · archived m`, and each
+section's collapsed state is stored locally.
+
+The wall is a horizontal register with one matter per row. From left to right,
+each row contains the status and optional **updated** stamps; scope and strong
+serif title; one-line current progress; a red blocker segment when `blocked_by`
+is non-empty; then up to two source-conversation chips (`+n` for the rest),
+owners, due date (red when overdue), next step, and compact update time. The
+whole row opens the detail dialog.
+
+Above the sections, **Today** shows up to three latest `status`/`progress`
+changes per group whose `recorded_at` falls on the browser's current date. It
+is built client-side from `GET /v1/events` and the matter payload, and is hidden
+when there are no matching changes.
+
+Opening a row opens a modal with its scope-aware current values, evidence
+state/source IDs, aliases from merged titles, and per-value human correction action. A
 ledger-style **Timeline** flattens the chronological `status`, `progress`, and
 present `outcome` histories, showing each effective date, predicate, value,
 source sender, and excerpt snippet. It is supplied by the same public
 `GET /v1/scopes/{scope}/matters/{subject_key}` detail request; its timeline
 values include additive `source_details` entries (`source_id`, `sender`,
 `excerpt`, `uri`, `status`, `revoked_at`). The same detail modal has a
-ledger-style **Merge into…** form populated from the
+deterministic **Related** section. It links matters from any stored scope when
+they share an active normalized handle or have normalized title-plus-alias
+token Jaccard overlap of at least 0.5. Handle links rank first; clicking one
+switches the existing dialog to that scope and matter. The read is skipped when
+more than 20 scopes are present and never invokes a model. The detail modal
+also has a ledger-style **Merge into…** form populated from the
 other matters currently on the wall in that scope. It requires a reason and
 name, reuses the correction sender preference, submits only to
 `POST /v1/scopes/{scope}/merges`, then closes and refreshes the wall.
@@ -128,7 +163,7 @@ pattern and are not refetched by that poll.
 ### Right — consumption
 
 Chat and the deterministic query workbench share an explicit scope selector.
-It follows a single wall filter; otherwise it follows the last-opened card,
+It follows a single wall filter; otherwise it follows the last-opened row,
 falling back to the first scope. Chat tools remain strictly scope-scoped and
 are exactly `list_matters`, `query_current`, `query_timeline`, `query_at`, and
 `query_by_person`. The model receives query results and evidence IDs, never raw
@@ -147,7 +182,7 @@ The redacted AI status is also included in `GET /v1/connections`.
 1. Start `mh console`, expand **Feed input**, choose **Load sample**, then
    **Extract**. The exact fictional text routes to the packaged fixture and
    does not need an AI key.
-2. Keep the **All** scope chip selected and open the new matter card. Its
+2. Keep the **All** scope chip selected and open the new matter row. Its
    evidence-bearing detail appears in a modal over the unified wall.
 3. Choose **correct** beside a value to open the correction modal; close it
    without submitting if you only want a read-only walkthrough.

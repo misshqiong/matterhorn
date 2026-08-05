@@ -187,6 +187,7 @@ class SubjectListResponse(RootModel[list[SubjectResponse]]):
 class MatterResponse(StrictModel):
     title: str
     status: Any = None
+    progress: str | None = None
     owners: list[Any]
     participants: list[Any]
     blocked_by: list[Any]
@@ -230,6 +231,13 @@ class StreamListResponse(RootModel[list[StreamItemResponse]]):
     pass
 
 
+class RelatedMatterResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    title: str
+    via: str
+
+
 class MatterDetailResponse(StrictModel):
     subject_key: str
     subject_type: str
@@ -238,6 +246,7 @@ class MatterDetailResponse(StrictModel):
     conversation_names: dict[str, str] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
     handles: list[SubjectHandleResponse] = Field(default_factory=list)
+    related: list[RelatedMatterResponse] = Field(default_factory=list)
     current: list[ValueResponse]
     timeline: dict[str, list[ValueResponse]]
 
@@ -269,6 +278,8 @@ class ChatResponse(StrictModel):
 class ConsoleConfigResponse(StrictModel):
     chat_enabled: bool
     chat_provider: str | None = None
+    groups: dict[str, list[str]] = Field(default_factory=dict)
+    scope_to_group: dict[str, str] = Field(default_factory=dict)
 
 
 class MailConfigRequest(StrictModel):

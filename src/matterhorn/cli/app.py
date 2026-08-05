@@ -28,6 +28,7 @@ from matterhorn.connectors.mail import (
     reset_mail_sync_position,
     save_mail_config,
 )
+from matterhorn.console.groups import console_group_patterns
 from matterhorn.contracts import Correction, ExportEnvelope, SourceRef
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
 from matterhorn.defaults import Engine
@@ -81,6 +82,13 @@ def _setting(value: Any, default: Any, key: str) -> Any:
     if value != default:
         return value
     return _load_config().get(key, default)
+
+
+def _console_groups(config: dict[str, Any]) -> dict[str, list[str]]:
+    try:
+        return console_group_patterns(config)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
 
 
 def _engine(
@@ -1545,6 +1553,7 @@ def serve(
         webhook_url=webhook,
         console_enabled=console,
         open_browser=False,
+        console_groups=_console_groups(config) if console else {},
     )
 
 
@@ -1611,6 +1620,7 @@ def console_command(
         webhook_url=webhook_url or config.get("webhook_url"),
         console_enabled=True,
         open_browser=open_browser,
+        console_groups=_console_groups(config),
     )
 
 
@@ -1630,6 +1640,7 @@ def _run_service(
     webhook_url: str | None,
     console_enabled: bool,
     open_browser: bool,
+    console_groups: dict[str, list[str]],
 ) -> None:
     import uvicorn
 
@@ -1670,6 +1681,7 @@ def _run_service(
         webhook_url=webhook_url,
         console_enabled=console_enabled,
         ai_runtime=ai_runtime,
+        console_groups=console_groups,
     )
     if console_enabled:
         console_url = f"http://{host}:{port}/console"

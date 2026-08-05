@@ -247,6 +247,10 @@ class MatterhornService:
                 item.model_dump(mode="json")
                 for item in self.engine.subject_handles(scope_id, subject_key)
             ],
+            "related": [
+                item.to_dict()
+                for item in self.engine.related_matters(scope_id, subject_key)
+            ],
             "current": current,
             "timeline": {
                 predicate: values

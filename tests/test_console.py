@@ -217,6 +217,7 @@ def test_matter_detail_timeline_exposes_chronological_source_details(
 
         assert response.status_code == 200
         timeline = response.json()["timeline"]
+        assert response.json()["related"] == []
         assert [item["value"] for item in timeline["status"]] == [
             "open",
             "done",
@@ -627,6 +628,8 @@ def test_keyless_console_hides_chat_and_serves_static_page(
             assert config.json() == {
                 "chat_enabled": False,
                 "chat_provider": None,
+                "groups": {},
+                "scope_to_group": {},
             }
 
     asyncio.run(scenario())
@@ -687,6 +690,7 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
                         status="blocked",
                     ),
                     "title": "octo-org work launch",
+                    "progress": "A fictional rollout is halfway complete.",
                     "next_step": "Dana Reyes reviews the blocker",
                     "due": "2026-07-30T17:00:00Z",
                 },
@@ -716,14 +720,28 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
         }
         assert [item["scope_id"] for item in personal.json()] == ["personal"]
         assert all(item["updated_at"] for item in all_matters.json())
+        assert next(
+            item for item in all_matters.json() if item["scope_id"] == "work"
+        )["progress"] == "A fictional rollout is halfway complete."
         assert "/v1/matters" in paths
         for marker in [
             'id="matter-list"',
             'class="matter-wall"',
+            'id="focus-toggle"',
+            'data-wall-mode="focus"',
+            "matterhorn.console.wall.mode",
+            "matterhorn.console.groups.collapsed",
+            'class="sheet matter-group',
+            'class="matter-row',
+            "Archive (",
+            'id="today-strip"',
+            "renderToday()",
+            'class="related-panel"',
+            "data-related-subject",
             'id="chat-scope"',
             'api(`/v1/matters${query}`)',
             "scope_id",
-            "last-opened card",
+            "last-opened row",
             'id="merge-form"',
             'id="merge-target"',
             'id="review-list"',
@@ -747,6 +765,49 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             "markMatterSeen(matter)",
         ]:
             assert marker in page.text
+
+    asyncio.run(scenario())
+
+
+def test_console_config_resolves_ordered_groups_and_suffix_wildcards(tmp_path) -> None:
+    async def scenario() -> None:
+        engine = _engine(tmp_path / "console-groups.db")
+        engine._ingest_cards_sync(
+            [
+                _card(scope_id="dumbo", subject_key="one"),
+                _card(scope_id="dumbo-dev", subject_key="two"),
+                _card(scope_id="cc-dumbo-server-api", subject_key="three"),
+                _card(scope_id="dev", subject_key="four"),
+                _card(scope_id="misc", subject_key="five"),
+            ]
+        )
+        app = create_app(
+            engine=engine,
+            console_groups={
+                "dumbo": ["dumbo", "dumbo-*", "cc-dumbo-server-*"],
+                "later": ["dumbo-dev"],
+                "matterhorn": ["dev", "matterhorn-dev"],
+            },
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://matterhorn.test"
+        ) as client:
+            payload = (await client.get("/v1/console/config")).json()
+
+        assert payload["groups"] == {
+            "dumbo": ["cc-dumbo-server-api", "dumbo", "dumbo-dev"],
+            "later": [],
+            "matterhorn": ["dev"],
+            "other": ["misc"],
+        }
+        assert payload["scope_to_group"] == {
+            "cc-dumbo-server-api": "dumbo",
+            "dev": "matterhorn",
+            "dumbo": "dumbo",
+            "dumbo-dev": "dumbo",
+            "misc": "other",
+        }
 
     asyncio.run(scenario())
 

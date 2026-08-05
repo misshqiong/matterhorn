@@ -71,18 +71,46 @@ timeout = 60.0
 **Feed input** 支持粘贴 chat、YAML/JSON Message、EML/mbox 与文件上传。精确匹配的
 虚构 Dana Reyes / octo-org 样例可使用随包 fixture gateway。
 
-### 中心：统一事项墙
+### 中心：聚焦事项台账
 
-默认调用 `GET /v1/matters` 展示全部 scope。每张 ledger-paper 卡显示 scope tag、
-status stamp、owner、due（逾期红色）与 next step。当 subject 的最新 assertion 晚于
-本地 seen version 时，卡片还显示较淡的 **updated** stamp。顶部 chips 可切 All 或单 scope。
-点击卡片会打开 modal，展示 scope-aware 当前值、evidence 状态/source ID 以及每个值
+事项墙调用 `GET /v1/matters`，默认处于 **Focus**。满足以下任一条件即为 active：
+status 为 `open`、`in_progress`、`blocked`、`pending` 或 `ready`；`updated_at`
+在最近七天内；或者设置了 `next_step` / `due`。active 行按 `updated_at` 新到旧排序
+（null 最后，再按 subject key 字节序）；其余事项以较淡样式放进默认收起的
+**Archive (n)** drawer。**Focus / All** 选择保存在 localStorage，scope chips 仍可切
+All 或单 scope，并与 Focus 组合使用。
+
+可在 `matterhorn.toml` 中按声明顺序配置项目 section：
+
+```toml
+[console.groups]
+dumbo = ["dumbo", "dumbo-dev", "cc-dumbo-server-*"]
+matterhorn = ["dev", "matterhorn-dev"]
+personal = ["mail"]
+```
+
+值为 scope pattern；只支持一个位于末尾的 `*`，因此 `cc-dumbo-server-*` 表示前缀
+匹配，其余均为精确匹配。第一个匹配的 group 获胜，未匹配 scope 进入最后的
+`other`。section header 显示 `active n · archived m`，收起状态也保存在本地。
+
+墙体改为横向 register，每个事项一行：从左到右依次为 status 与可选 **updated**
+stamp、scope 与加粗 serif 标题、单行 progress、`blocked_by` 非空时的红色 blocker、
+最多两个来源会话 chip（其余显示 `+n`）、owner、due（逾期红色）、next step 与紧凑
+更新时间。点击整行打开详情。
+
+section 上方的 **Today** 按 group 展示浏览器当天最新至多三条 `status` / `progress`
+变化；它在客户端用 `GET /v1/events` 与 matters payload 拼接，无内容时整体隐藏。
+
+点击事项行会打开 modal，展示 scope-aware 当前值、evidence 状态/source ID 以及每个值
 的人工纠错入口；被归并标题会以「又名」显示。ledger-paper 风格的 **Timeline**
 按时间展示 `status`、`progress` 以及存在时的 `outcome` 历史，每条包含生效日期、
 predicate、值、来源发送者与 excerpt 摘要。数据仍来自同一个公共
 `GET /v1/scopes/{scope}/matters/{subject_key}` 详情请求；timeline value 新增的
 `source_details` 包含 `source_id`、`sender`、`excerpt`、`uri`、`status`、
-`revoked_at`。同一个详情 modal 内还有
+`revoked_at`。同一个详情 modal 还有确定性的 **Related**：只要其他 scope（或同 scope
+内其他事项）共享 active normalized handle，或标题加别名的 normalized token Jaccard
+不低于 0.5，就会列出关联项；handle 匹配优先，点击后复用现有 dialog 切换到对应
+scope/事项。scope 超过 20 个时直接返回空结果，整个读取过程不调用模型。详情内还保留
 **Merge into…** 表单，候选只来自当前事项墙同 scope 的其他事项，并要求填写原因与
 姓名（复用纠错 sender 偏好）。它只调用公共
 `POST /v1/scopes/{scope}/merges`，成功后关闭 modal 并刷新事项墙。纠错使用第二个
@@ -123,7 +151,7 @@ scope，只有 `list_matters`、`query_current`、`query_timeline`、`query_at`�
 
 1. 启动 `mh console`，展开 **Feed input**，依次点 **Load sample**、**Extract**；
    精确匹配的虚构文本走随包 fixture，不需要 AI key。
-2. 保持 **All** scope chip，点击新事项卡；带证据详情会以 modal 覆盖在统一墙上。
+2. 保持 **All** scope chip，点击新事项行；带证据详情会以 modal 覆盖在统一墙上。
 3. 点击某个值旁的 **correct** 打开纠错 modal；只读演示可直接关闭而不提交。
 4. 同一 scope 有两个事项时，打开重复项，在 **Merge into…** 选择 canonical target
    并填写原因；重复卡会从墙上消失，标题成为 target 的「又名」。可用 `mh unmerge`

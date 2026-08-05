@@ -210,20 +210,60 @@
       font: 11px var(--mono);
     }
     .filter-chip.active { border-color: var(--ink); background: var(--ink); color: var(--sheet); }
-    .matter-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .75rem; }
-    .matter-card {
+    .focus-toggle { display: inline-flex; border: 1px solid var(--rule-strong); }
+    .focus-toggle .filter-chip { border: 0; border-right: 1px solid var(--rule-strong); }
+    .focus-toggle .filter-chip:last-child { border-right: 0; }
+    .matter-wall { display: grid; gap: .75rem; }
+    .matter-group { padding: 0; overflow: hidden; }
+    .matter-group-header {
+      cursor: pointer; width: 100%; display: flex; justify-content: space-between;
+      align-items: baseline; gap: .8rem; padding: .65rem .85rem; border: 0;
+      border-bottom: 1.5px solid var(--ink); background: transparent; color: inherit;
+      text-align: left;
+    }
+    .matter-group-header strong { font: 700 17px var(--serif); }
+    .matter-group-header span { color: var(--muted); font: 10.5px var(--mono); }
+    .matter-group.collapsed .matter-group-header { border-bottom: 0; }
+    .matter-group.collapsed .matter-group-body { display: none; }
+    .matter-rows { display: grid; }
+    .matter-row {
       cursor: pointer;
       position: relative;
-      min-height: 11rem;
       width: 100%;
       text-align: left;
-      background: var(--sheet);
+      display: grid;
+      grid-template-columns: auto minmax(11rem, 1.15fr) minmax(8rem, 1fr) minmax(8rem, .8fr) minmax(12rem, 1.25fr);
+      gap: .6rem;
+      align-items: center;
+      background: transparent;
       color: var(--ink);
-      border: 1px solid var(--rule-strong);
-      box-shadow: 2px 3px 0 rgb(40 35 27 / 7%);
-      padding: .85rem .9rem;
+      border: 0;
+      border-bottom: 1px solid var(--rule);
+      padding: .65rem .85rem;
     }
-    .matter-card:hover, .matter-card.active { outline: 2px solid var(--ink); outline-offset: -2px; }
+    .matter-row:hover, .matter-row.active { background: var(--soft); box-shadow: inset 3px 0 0 var(--ink); }
+    .matter-row.archived { opacity: .58; }
+    .matter-row-title { min-width: 0; }
+    .matter-row-title strong { display: block; margin-top: .2rem; font: 700 15px var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .matter-row-summary, .matter-row-blocker { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 12px var(--serif); color: var(--muted); }
+    .matter-row-blocker { color: var(--red); font-weight: 700; }
+    .matter-row-meta { min-width: 0; display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: .25rem .4rem; color: var(--muted); font: 10px var(--mono); }
+    .matter-row-meta .conv-chip { margin-left: 0; max-width: 8.5rem; }
+    .row-label { display: block; color: var(--faint); font: 700 8px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+    .next-chip { max-width: 11rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .archive-drawer { background: var(--soft); }
+    .archive-drawer > summary { cursor: pointer; list-style: none; padding: .42rem .85rem; color: var(--faint); font: italic 11px var(--serif); }
+    .archive-drawer > summary::-webkit-details-marker { display: none; }
+    .archive-drawer > summary::before { content: "+ "; font: 10px var(--mono); }
+    .archive-drawer[open] > summary::before { content: "− "; }
+    .today-strip { display: flex; gap: .45rem; align-items: stretch; overflow-x: auto; padding: .65rem .75rem; }
+    .today-heading { flex: 0 0 auto; padding-right: .65rem; border-right: 2px double var(--rule-strong); font: 700 16px var(--serif); }
+    .today-entries { display: flex; gap: .45rem; min-width: 0; }
+    .today-entry { cursor: pointer; flex: 0 0 min(18rem, 66vw); border: 1px solid var(--rule); background: transparent; color: inherit; padding: .42rem .55rem; text-align: left; }
+    .today-entry:hover { border-color: var(--ink); }
+    .today-entry strong, .today-entry span:last-child { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .today-entry strong { margin: .15rem 0 .08rem; font: 700 12px var(--serif); }
+    .today-entry span:last-child { color: var(--muted); font: 10.5px var(--mono); }
     #detail-dialog { width: min(34rem, calc(100vw - 3rem)); max-height: min(78vh, 40rem); overflow: auto; }
     .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; margin-bottom: .3rem; }
     .detail-head h2 { margin: 0; font-size: 19px; }
@@ -246,11 +286,9 @@
       max-width: 100%;
       display: block;
     }
-    .matter-card.flash { animation: flash 1.15s ease; }
+    .matter-row.flash { animation: flash 1.15s ease; }
     @keyframes flash { 0% { background: var(--amber-soft); } 100% { background: var(--sheet); } }
-    .matter-top { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
     .stamp-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .3rem; }
-    .matter-card h3 { margin: .55rem 0 .7rem; font-size: 17px; }
     .stamp {
       border: 2px solid var(--green);
       color: var(--green);
@@ -262,9 +300,6 @@
     }
     .stamp.blocked, .stamp.overdue { border-color: var(--red); color: var(--red); }
     .stamp.updated { border-width: 1px; border-color: var(--amber); color: var(--amber); rotate: 1deg; opacity: .88; }
-    .matter-facts { display: grid; grid-template-columns: 4.5rem 1fr; gap: .25rem .45rem; margin: 0; }
-    .matter-facts dt { color: var(--faint); font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
-    .matter-facts dd { margin: 0; font: 12px var(--serif); }
     .review-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
     .review-item { border-top: 1px solid var(--rule-strong); padding-top: .6rem; }
     .review-item:first-child { border-top: 0; padding-top: 0; }
@@ -297,8 +332,6 @@
     .timeline-source { margin-top: .28rem; color: var(--muted); font: 10.5px/1.35 var(--mono); }
     .timeline-source strong { color: var(--ink); font-weight: 700; }
     .conv-chip { display: inline-block; margin-left: .45rem; padding: 0 .35rem; border: 1px solid var(--rule); border-radius: 2px; color: var(--muted); font: 9.5px var(--mono); vertical-align: middle; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
-    .matter-facts dd { min-width: 0; overflow: hidden; }
-    .matter-facts dd .conv-chip { margin-left: 0; margin-right: .3rem; max-width: 100%; }
     .conv-chip.repeat { opacity: .45; }
     #stale-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: none; padding: .5rem 1rem; background: var(--ink); color: var(--sheet); font: 12px var(--mono); text-align: center; cursor: pointer; }
     #stale-banner.show { display: block; }
@@ -308,6 +341,11 @@
     .clamp:not(.open)::after { content: ""; }
     .merge-panel { margin-top: .85rem; padding-top: .75rem; border-top: 2px double var(--rule); }
     .merge-panel h3 { margin: 0 0 .45rem; font-size: 14px; }
+    .related-panel { margin-top: .85rem; padding-top: .75rem; border-top: 2px double var(--rule); }
+    .related-list { list-style: none; margin: 0; padding: 0; display: grid; }
+    .related-item { cursor: pointer; display: flex; align-items: baseline; gap: .5rem; width: 100%; border: 0; border-bottom: 1px solid var(--rule); background: transparent; color: inherit; padding: .42rem 0; text-align: left; }
+    .related-item strong { font: 700 13px var(--serif); }
+    .related-via { margin-left: auto; color: var(--faint); font: 9px var(--mono); }
     .evidence { color: var(--muted); font: 10.5px var(--mono); }
     .evidence-chip { cursor: pointer; border: 0; border-bottom: 1px solid var(--green); background: none; color: var(--green); padding: 0; font: 10.5px var(--mono); }
     .hub-strip { display: grid; grid-template-columns: minmax(15rem, .8fr) minmax(20rem, 1.4fr); gap: .7rem; }
@@ -354,13 +392,16 @@
       .hub-strip { grid-template-columns: 1fr; }
       .raw-stream-item { grid-template-columns: 5rem auto minmax(7rem, .7fr) minmax(9rem, 1.5fr); }
       .raw-stream-sender { display: none; }
+      .matter-row { grid-template-columns: auto minmax(10rem, 1fr) minmax(8rem, 1fr); }
+      .matter-row-blocker, .matter-row-meta { grid-column: 2 / -1; justify-content: flex-start; }
     }
     @media (max-width: 38rem) {
       .shell { width: calc(100% - .7rem); }
       .topbar { align-items: flex-start; flex-direction: column; }
       .field-grid { grid-template-columns: 1fr; }
       .span-two { grid-column: auto; }
-      .matter-wall { grid-template-columns: 1fr; }
+      .matter-row { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+      .matter-row-summary, .matter-row-blocker, .matter-row-meta { grid-column: 1 / -1; }
     }
   </style>
 </head>
@@ -505,9 +546,19 @@
         <section class="sheet">
           <div class="sheet-head">
             <div><p class="eyebrow">All scopes · deterministic read</p><h2 id="wall-title">Matters</h2></div>
-            <button class="button quiet" id="refresh-matters" type="button">Refresh</button>
+            <div class="buttons">
+              <span class="focus-toggle" id="focus-toggle" aria-label="Wall mode">
+                <button type="button" class="filter-chip" data-wall-mode="focus">Focus</button>
+                <button type="button" class="filter-chip" data-wall-mode="all">All</button>
+              </span>
+              <button class="button quiet" id="refresh-matters" type="button">Refresh</button>
+            </div>
           </div>
           <div class="filter-bar" id="scope-list" aria-label="Scope filters"></div>
+        </section>
+        <section class="sheet today-strip" id="today-strip" aria-labelledby="today-title" hidden>
+          <h2 class="today-heading" id="today-title">Today</h2>
+          <div class="today-entries" id="today-entries"></div>
         </section>
         <div class="matter-wall" id="matter-list"><p class="empty">No matters yet.</p></div>
         <details class="sheet" id="raw-stream-panel" open>
@@ -536,7 +587,7 @@
           <div class="sheet-head"><div><p class="eyebrow">Scoped tools</p><h2>Working scope</h2></div></div>
           <label for="chat-scope">Chat and query scope</label>
           <select id="chat-scope"><option value="">No scopes yet</option></select>
-          <p class="help">Follows a single wall filter or the last-opened card.</p>
+          <p class="help">Follows a single wall filter or the last-opened row.</p>
         </section>
         <section class="sheet" aria-labelledby="review-title">
           <div class="sheet-head">
@@ -612,8 +663,13 @@
       scopes: [], filter: "all", matters: [], detail: null, selected: "",
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
       queryResult: null, activity: [], connections: null,
-      reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null
+      reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null,
+      focusMode: true, groups: {}, scopeToGroup: {}, collapsedGroups: new Set(), openArchives: new Set()
     };
+    const WALL_MODE_KEY = "matterhorn.console.wall.mode";
+    const COLLAPSED_GROUPS_KEY = "matterhorn.console.groups.collapsed";
+    const ACTIVE_STATUSES = new Set(["open", "in_progress", "blocked", "pending", "ready"]);
+    const utf8 = new TextEncoder();
     const mailPresets = {
       gmail: { host: "imap.gmail.com", port: 993, ssl: true },
       outlook: { host: "outlook.office365.com", port: 993, ssl: true },
@@ -651,6 +707,56 @@
     const accountPath = (accountId, action = "") =>
       `/v1/connectors/mail/accounts/${encodeURIComponent(accountId)}${action}`;
     const seenStorageKey = (scope) => `matterhorn.console.seen.${scope}`;
+
+    function restoreWallPreferences() {
+      try {
+        state.focusMode = localStorage.getItem(WALL_MODE_KEY) !== "all";
+        const collapsed = JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) || "[]");
+        state.collapsedGroups = new Set(Array.isArray(collapsed) ? collapsed : []);
+      } catch (_) {
+        state.focusMode = true;
+        state.collapsedGroups = new Set();
+      }
+      renderFocusToggle();
+    }
+
+    function renderFocusToggle() {
+      document.querySelectorAll("[data-wall-mode]").forEach((button) => {
+        const active = (button.dataset.wallMode === "focus") === state.focusMode;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    }
+
+    function setWallMode(mode) {
+      state.focusMode = mode !== "all";
+      const groups = groupOrder(state.matters);
+      state.openArchives = state.focusMode ? new Set() : new Set(groups);
+      try { localStorage.setItem(WALL_MODE_KEY, state.focusMode ? "focus" : "all"); } catch (_) { /* Optional preference. */ }
+      renderFocusToggle();
+      renderMatters();
+    }
+
+    function bytewise(left, right) {
+      const a = utf8.encode(String(left));
+      const b = utf8.encode(String(right));
+      const length = Math.min(a.length, b.length);
+      for (let index = 0; index < length; index += 1) {
+        if (a[index] !== b[index]) return a[index] - b[index];
+      }
+      return a.length - b.length;
+    }
+
+    function groupForScope(scope) {
+      return state.scopeToGroup[scope] || "other";
+    }
+
+    function groupOrder(matters) {
+      const present = new Set(matters.map((matter) => groupForScope(matter.scope_id)));
+      const configured = Object.keys(state.groups).filter((group) => group !== "other" && present.has(group));
+      const extras = [...present].filter((group) => group !== "other" && !configured.includes(group)).sort(bytewise);
+      return [...configured, ...extras, ...(present.has("other") ? ["other"] : [])];
+    }
 
     function seenMatters(scope) {
       try {
@@ -717,6 +823,7 @@
       const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
       state.matters = await api(`/v1/matters${query}`);
       renderMatters();
+      renderToday();
     }
 
     function streamPath() {
@@ -865,6 +972,11 @@
           ).join("")}</div>`
         : "";
       const timeline = timelineHtml(detail, personNames);
+      const related = detail.related?.length
+        ? `<section class="related-panel"><h3>Related</h3><ul class="related-list">${detail.related.map((matter) =>
+            `<li><button type="button" class="related-item" data-related-scope="${escapeHtml(matter.scope_id)}" data-related-subject="${escapeHtml(matter.subject_key)}"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong><span class="related-via">${escapeHtml(matter.via)}</span></button></li>`
+          ).join("")}</ul></section>`
+        : '<section class="related-panel"><h3>Related</h3><p class="empty">No deterministic handle or title matches.</p></section>';
       const mergeTargets = state.matters.filter((matter) =>
         matter.scope_id === detail.scope_id && matter.subject_key !== detail.subject_key
       );
@@ -882,7 +994,7 @@
           </section>`
         : '<section class="merge-panel"><h3>Merge into…</h3><p class="empty">No other matters in this scope are currently on the wall.</p></section>';
       return `<div class="detail-head"><div><p class="eyebrow">${escapeHtml(detail.scope_id)} · ${escapeHtml(detail.subject_key)}</p><h2>${escapeHtml(detail.title)}</h2></div><button type="button" class="detail-close">Close</button></div>
-        ${aliases}${handles}<ul class="detail-values">${values}</ul>${timeline}${mergeControl}`;
+        ${aliases}${handles}<ul class="detail-values">${values}</ul>${timeline}${related}${mergeControl}`;
     }
 
     function timelineHtml(detail, personNames = {}) {
@@ -928,29 +1040,83 @@
       return `<section class="timeline-panel"><h3>Timeline</h3><ol class="matter-timeline">${rows}</ol></section>`;
     }
 
+    function matterIsActive(matter, now = Date.now()) {
+      const updated = Date.parse(matter.updated_at || "");
+      return ACTIVE_STATUSES.has(String(matter.status ?? ""))
+        || (Number.isFinite(updated) && updated >= now - (7 * 24 * 60 * 60 * 1000) && updated <= now)
+        || matter.next_step != null
+        || matter.due != null;
+    }
+
+    function matterSort(left, right) {
+      const leftUpdated = Date.parse(left.updated_at || "");
+      const rightUpdated = Date.parse(right.updated_at || "");
+      const leftHasDate = Number.isFinite(leftUpdated);
+      const rightHasDate = Number.isFinite(rightUpdated);
+      if (leftHasDate !== rightHasDate) return leftHasDate ? -1 : 1;
+      if (leftHasDate && leftUpdated !== rightUpdated) return rightUpdated - leftUpdated;
+      return bytewise(left.subject_key, right.subject_key) || bytewise(left.scope_id, right.scope_id);
+    }
+
+    function compactTime(value) {
+      const instant = new Date(value || "");
+      if (Number.isNaN(instant.valueOf())) return "—";
+      const two = (number) => String(number).padStart(2, "0");
+      return `${instant.getMonth() + 1}/${instant.getDate()} ${two(instant.getHours())}:${two(instant.getMinutes())}`;
+    }
+
+    function matterRowHtml(matter, archived = false) {
+      const key = `${matter.scope_id}:${matter.subject_key}`;
+      const dueDate = matter.due ? new Date(matter.due) : null;
+      const validDue = dueDate && !Number.isNaN(dueDate.valueOf());
+      const overdue = validDue && dueDate < new Date();
+      const status = compactValue(matter.status);
+      const updated = isMatterUpdated(matter)
+        ? '<span class="stamp updated">updated</span>' : "";
+      const blockers = (matter.blocked_by || []).map(compactValue).join(", ");
+      const sources = matter.sources_display || [];
+      const sourceChips = sources.slice(0, 2).map((source) =>
+        `<span class="conv-chip" title="${escapeHtml(source)}">${escapeHtml(source)}</span>`
+      ).join("");
+      const extraSources = sources.length > 2 ? `<span class="scope-chip">+${sources.length - 2}</span>` : "";
+      const ownerItems = matter.owners_display?.length
+        ? matter.owners_display : (matter.owners || []);
+      const owners = ownerItems.length ? compactValue(ownerItems) : null;
+      return `<button type="button" class="matter-row ${archived ? "archived" : ""} ${state.selected === key ? "active" : ""}"
+          data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
+        <span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span></span>
+        <span class="matter-row-title"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong></span>
+        <span class="matter-row-summary"><span class="row-label">Summary</span>${escapeHtml(matter.progress || "—")}</span>
+        <span class="matter-row-blocker">${blockers ? `<span class="row-label">Problem</span>blocked: ${escapeHtml(blockers)}` : ""}</span>
+        <span class="matter-row-meta">${sourceChips}${extraSources}${owners ? `<span title="Owners">${escapeHtml(owners)}</span>` : ""}<span class="${overdue ? "overdue" : ""}" title="Due">due ${escapeHtml(validDue ? compactTime(matter.due) : "—")}</span>${matter.next_step != null ? `<span class="next-chip" title="${escapeHtml(compactValue(matter.next_step))}">next ${escapeHtml(compactValue(matter.next_step))}</span>` : ""}<time datetime="${escapeHtml(matter.updated_at || "")}" title="Updated">${escapeHtml(compactTime(matter.updated_at))}</time></span>
+      </button>`;
+    }
+
     function renderMatters() {
-      byId("matter-list").innerHTML = state.matters.length
-        ? state.matters.map((matter) => {
-            const key = `${matter.scope_id}:${matter.subject_key}`;
-            const dueDate = matter.due ? new Date(matter.due) : null;
-            const overdue = dueDate && !Number.isNaN(dueDate.valueOf()) && dueDate < new Date();
-            const status = compactValue(matter.status);
-            const updated = isMatterUpdated(matter)
-              ? '<span class="stamp updated">updated</span>' : "";
-            return `<button type="button" class="matter-card ${state.selected === key ? "active" : ""}"
-                data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
-              <div class="matter-top"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span></span></div>
-              <h3>${escapeHtml(matter.title)}</h3>
-              <dl class="matter-facts">
-                <dt>Owners</dt><dd>${escapeHtml(compactValue(matter.owners_display || matter.owners))}</dd>
-                <dt>Due</dt><dd class="${overdue ? "overdue" : ""}">${escapeHtml(dueDate && !Number.isNaN(dueDate.valueOf()) ? dueDate.toLocaleString() : "—")}</dd>
-                <dt>Next</dt><dd>${escapeHtml(compactValue(matter.next_step))}</dd>
-                <dt>Source</dt><dd>${(matter.sources_display || []).length ? (matter.sources_display || []).map((s) => `<span class="conv-chip" title="${escapeHtml(s)}">${escapeHtml(s)}</span>`).join(" ") : "—"}</dd>
-              </dl>
-            </button>`;
-          }).join("")
-        : '<p class="empty">No matters match this scope filter.</p>';
-      byId("top-summary").textContent = `${state.matters.length} matter${state.matters.length === 1 ? "" : "s"} · ${state.scopes.length} scope${state.scopes.length === 1 ? "" : "s"}`;
+      const now = Date.now();
+      const grouped = new Map(groupOrder(state.matters).map((group) => [group, []]));
+      state.matters.forEach((matter) => {
+        const group = groupForScope(matter.scope_id);
+        if (!grouped.has(group)) grouped.set(group, []);
+        grouped.get(group).push(matter);
+      });
+      const sections = [...grouped.entries()].map(([group, matters]) => {
+        const active = matters.filter((matter) => matterIsActive(matter, now)).sort(matterSort);
+        const archived = matters.filter((matter) => !matterIsActive(matter, now)).sort(matterSort);
+        const collapsed = state.collapsedGroups.has(group);
+        const archiveOpen = !state.focusMode || state.openArchives.has(group);
+        const archive = archived.length
+          ? `<details class="archive-drawer" data-archive="${escapeHtml(group)}" ${archiveOpen ? "open" : ""}><summary>Archive (${archived.length})</summary><div class="matter-rows">${archived.map((matter) => matterRowHtml(matter, true)).join("")}</div></details>`
+          : "";
+        return `<section class="sheet matter-group ${collapsed ? "collapsed" : ""}" data-group="${escapeHtml(group)}">
+          <button type="button" class="matter-group-header" data-group-toggle="${escapeHtml(group)}" aria-expanded="${String(!collapsed)}"><strong>${escapeHtml(group)}</strong><span>active ${active.length} · archived ${archived.length}</span></button>
+          <div class="matter-group-body"><div class="matter-rows">${active.map((matter) => matterRowHtml(matter)).join("") || '<p class="empty" style="padding:.6rem .85rem">No active matters.</p>'}</div>${archive}</div>
+        </section>`;
+      }).join("");
+      byId("matter-list").innerHTML = sections || '<p class="empty">No matters match this scope filter.</p>';
+      const activeCount = state.matters.filter((matter) => matterIsActive(matter, now)).length;
+      byId("top-summary").textContent = `${activeCount} active · ${state.matters.length - activeCount} archived · ${state.scopes.length} scope${state.scopes.length === 1 ? "" : "s"}`;
+      renderToday();
     }
 
     async function loadDetail(scope, subject) {
@@ -1227,11 +1393,42 @@
       }
     }
 
+    function renderToday() {
+      const matterByKey = new Map(state.matters.map((matter) =>
+        [`${matter.scope_id}:${matter.subject_key}`, matter]
+      ));
+      const today = new Date();
+      const sameLocalDay = (value) => {
+        const date = new Date(value);
+        return !Number.isNaN(date.valueOf())
+          && date.getFullYear() === today.getFullYear()
+          && date.getMonth() === today.getMonth()
+          && date.getDate() === today.getDate();
+      };
+      const byGroup = new Map();
+      for (const event of state.activity) {
+        if (!["progress", "status"].includes(event.predicate) || !sameLocalDay(event.recorded_at)) continue;
+        const matter = matterByKey.get(`${event.scope_id}:${event.subject_key}`);
+        if (!matter) continue;
+        const group = groupForScope(event.scope_id);
+        if (!byGroup.has(group)) byGroup.set(group, []);
+        if (byGroup.get(group).length < 3) byGroup.get(group).push({ event, matter });
+      }
+      const entries = groupOrder(state.matters).flatMap((group) =>
+        (byGroup.get(group) || []).map(({ event, matter }) =>
+          `<button type="button" class="today-entry" data-scope="${escapeHtml(event.scope_id)}" data-subject="${escapeHtml(event.subject_key)}"><span class="scope-chip">${escapeHtml(group)}</span><strong>${escapeHtml(matter.title)}</strong><span>${escapeHtml(event.predicate)} · ${escapeHtml(compactValue(event.new_value))}</span></button>`
+        )
+      );
+      byId("today-entries").innerHTML = entries.join("");
+      byId("today-strip").hidden = entries.length === 0;
+    }
+
     async function loadActivity() {
-      state.activity = await api("/v1/events?limit=40");
+      state.activity = await api("/v1/events?limit=200");
       byId("activity-list").innerHTML = state.activity.length
         ? state.activity.map((event) => `<li class="activity-item"><strong>${escapeHtml(event.matter_title)}</strong><div>${escapeHtml(event.predicate)}: ${escapeHtml(compactValue(event.old_value))} → ${escapeHtml(compactValue(event.new_value))}</div><div class="activity-meta">${escapeHtml(event.scope_id)} · ${escapeHtml(event.origin)} · ${escapeHtml(new Date(event.recorded_at).toLocaleString())}</div></li>`).join("")
         : '<li class="empty">No projection changes yet.</li>';
+      renderToday();
     }
 
     async function loadConnections() {
@@ -1267,6 +1464,7 @@
       let scopes = await api("/v1/scopes");
       if (JSON.stringify(scopes) !== JSON.stringify(state.scopes)) {
         await loadScopes(state.chatScope);
+        await loadConsoleConfig();
         scopes = state.scopes;
       }
       const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
@@ -1285,13 +1483,20 @@
       }
     }
 
-    async function loadChatConfig() {
-      await loadAIStatus();
+    async function loadConsoleConfig() {
       const config = await api("/v1/console/config");
+      state.groups = config.groups || {};
+      state.scopeToGroup = config.scope_to_group || {};
+      renderMatters();
       if (config.chat_enabled) {
         byId("chat-panel").hidden = false;
         byId("chat-provider").textContent = config.chat_provider;
       }
+    }
+
+    async function loadChatConfig() {
+      await loadAIStatus();
+      await loadConsoleConfig();
     }
 
     async function askChat(event) {
@@ -1327,12 +1532,12 @@
 
     function highlightSubjects(subjects) {
       const keys = new Set(subjects.split(",").filter(Boolean));
-      document.querySelectorAll(".matter-card").forEach((card) => {
-        card.classList.remove("flash");
-        if (keys.has(card.dataset.subject)) {
-          void card.offsetWidth;
-          card.classList.add("flash");
-          card.scrollIntoView({ behavior: "smooth", block: "center" });
+      document.querySelectorAll(".matter-row").forEach((row) => {
+        row.classList.remove("flash");
+        if (keys.has(row.dataset.subject)) {
+          void row.offsetWidth;
+          row.classList.add("flash");
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
         }
       });
     }
@@ -1382,15 +1587,40 @@
       const button = event.target.closest("[data-scope]");
       if (button) selectWallFilter(button.dataset.scope);
     });
+    byId("focus-toggle").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-wall-mode]");
+      if (button) setWallMode(button.dataset.wallMode);
+    });
     byId("matter-list").addEventListener("click", (event) => {
-      const card = event.target.closest("[data-subject]");
-      if (card) loadDetail(card.dataset.scope, card.dataset.subject);
+      const groupToggle = event.target.closest("[data-group-toggle]");
+      if (groupToggle) {
+        const group = groupToggle.dataset.groupToggle;
+        if (state.collapsedGroups.has(group)) state.collapsedGroups.delete(group);
+        else state.collapsedGroups.add(group);
+        try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...state.collapsedGroups])); } catch (_) { /* Optional preference. */ }
+        renderMatters();
+        return;
+      }
+      const row = event.target.closest("[data-subject]");
+      if (row) loadDetail(row.dataset.scope, row.dataset.subject);
+    });
+    byId("matter-list").addEventListener("toggle", (event) => {
+      const drawer = event.target.closest("[data-archive]");
+      if (!drawer) return;
+      if (drawer.open) state.openArchives.add(drawer.dataset.archive);
+      else state.openArchives.delete(drawer.dataset.archive);
+    }, true);
+    byId("today-entries").addEventListener("click", (event) => {
+      const entry = event.target.closest("[data-subject]");
+      if (entry) loadDetail(entry.dataset.scope, entry.dataset.subject);
     });
     byId("review-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-review-action]");
       if (button) resolveReview(button);
     });
     byId("detail-dialog").addEventListener("click", (event) => {
+      const related = event.target.closest("[data-related-subject]");
+      if (related) { loadDetail(related.dataset.relatedScope, related.dataset.relatedSubject); return; }
       const correct = event.target.closest(".correct-value");
       if (correct) { openCorrection(correct); return; }
       const clamp = event.target.closest(".clamp");
@@ -1443,6 +1673,7 @@
       byId("query-human").hidden = !byId("query-json").hidden;
     });
 
+    restoreWallPreferences();
     byId("correction-sender").value = localStorage.getItem("matterhorn.console.sender") || "";
     updateQueryFields();
     applyMailPreset();

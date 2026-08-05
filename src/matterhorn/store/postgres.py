@@ -1011,6 +1011,26 @@ class PostgresStore:
         rows = self._execute(sql, tuple(parameters))
         return [self._row_to_subject_handle(row) for row in rows]
 
+    def active_subject_handles_across_scopes(
+        self, scope_ids: list[str]
+    ) -> list[SubjectHandle]:
+        if not scope_ids:
+            return []
+        placeholders = ",".join("%s" for _ in scope_ids)
+        rows = self._execute(
+            f"""
+            SELECT * FROM subject_handles
+            WHERE revoked_at IS NULL AND scope_id IN ({placeholders})
+            ORDER BY scope_id COLLATE "C",
+                     handle_type COLLATE "C",
+                     normalized_value COLLATE "C",
+                     subject_key COLLATE "C",
+                     binding_id COLLATE "C"
+            """,
+            tuple(scope_ids),
+        )
+        return [self._row_to_subject_handle(row) for row in rows]
+
     def add_subject_handle(self, handle: SubjectHandle) -> str:
         cursor = self._execute(
             """

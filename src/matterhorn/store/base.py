@@ -235,6 +235,10 @@ class Store(Protocol):
         normalized_value: str | None = None,
     ) -> list[SubjectHandle]: ...
 
+    def active_subject_handles_across_scopes(
+        self, scope_ids: list[str]
+    ) -> list[SubjectHandle]: ...
+
     def add_subject_handle(
         self, handle: SubjectHandle
     ) -> Literal["bound", "already_bound", "conflict"]: ...
