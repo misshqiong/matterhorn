@@ -936,6 +936,7 @@
                 <dt>Owners</dt><dd>${escapeHtml(compactValue(matter.owners_display || matter.owners))}</dd>
                 <dt>Due</dt><dd class="${overdue ? "overdue" : ""}">${escapeHtml(dueDate && !Number.isNaN(dueDate.valueOf()) ? dueDate.toLocaleString() : "—")}</dd>
                 <dt>Next</dt><dd>${escapeHtml(compactValue(matter.next_step))}</dd>
+                <dt>Source</dt><dd>${(matter.sources_display || []).length ? (matter.sources_display || []).map((s) => `<span class="conv-chip" title="${escapeHtml(s)}">${escapeHtml(s)}</span>`).join(" ") : "—"}</dd>
               </dl>
             </button>`;
           }).join("")

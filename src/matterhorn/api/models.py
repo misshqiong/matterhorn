@@ -197,6 +197,7 @@ class MatterResponse(StrictModel):
     updated_at: datetime | None = None
     owners_display: list[Any] = Field(default_factory=list)
     participants_display: list[Any] = Field(default_factory=list)
+    sources_display: list[str] = Field(default_factory=list)
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):

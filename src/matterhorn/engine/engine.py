@@ -121,6 +121,7 @@ class Matter:
     updated_at: datetime | None
     owners_display: list[Any] | None = None
     participants_display: list[Any] | None = None
+    sources_display: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -134,6 +135,7 @@ class Matter:
             "subject_key": self.subject_key,
             "owners_display": self.owners_display or self.owners,
             "participants_display": self.participants_display or self.participants,
+            "sources_display": self.sources_display or [],
             "aliases": self.aliases,
             "updated_at": self.updated_at,
         }
@@ -1525,6 +1527,10 @@ class Engine:
         result = []
         aliases = self._subject_aliases(scope_id)
         names = self.store.person_names(scope_id)
+        evidence_by_subject = {
+            subject.subject_key: subject.source_ids
+            for subject in self.store.subjects(scope_id)
+        }
         updated_at: dict[str, datetime] = {}
         for assertion in _canonicalized_assertions(
             self.store.assertions(scope_id),
@@ -1554,6 +1560,10 @@ class Engine:
                         names.get(str(item), item)
                         for item in _as_list(current.get("participated_by"))
                     ],
+                    sources_display=_conversation_labels(
+                        scope_id,
+                        evidence_by_subject.get(subject.subject_key, frozenset()),
+                    ),
                     updated_at=updated_at.get(subject.subject_key),
                 )
             )
@@ -2577,6 +2587,30 @@ def validate_max_batch_delay_minutes(value: object) -> float:
     if not math.isfinite(parsed) or parsed <= 0:
         raise ValueError("max batch delay minutes MUST be a positive finite number")
     return parsed
+
+
+def _conversation_labels(
+    scope_id: str, source_ids: frozenset[str] | set[str], *, limit: int = 3
+) -> list[str]:
+    """Deterministic source-conversation labels from evidence record ids.
+
+    Record ids follow "<scope>:<conversation>:<native_id>"; corrections and
+    other non-record provenance (single-segment after scope-strip) are
+    skipped. Zero-model, display only.
+    """
+
+    labels = set()
+    prefix = f"{scope_id}:"
+    for source_id in source_ids:
+        rest = source_id[len(prefix):] if source_id.startswith(prefix) else source_id
+        cut = rest.rfind(":")
+        if cut <= 0:
+            continue
+        labels.add(rest[:cut])
+    ordered = sorted(labels, key=lambda item: item.encode("utf-8"))
+    if len(ordered) > limit:
+        return ordered[:limit] + [f"+{len(ordered) - limit}"]
+    return ordered
 
 
 def _record_observed_at(record: Record) -> datetime:
