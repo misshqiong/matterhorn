@@ -305,6 +305,7 @@ class Store(Protocol):
         *,
         accepted: int,
         rejections: dict[str, int],
+        unchanged_dropped: int = 0,
         handle_conflicts: int = 0,
         route_counts: dict[str, int] | None = None,
     ) -> None: ...
@@ -340,6 +341,7 @@ class Store(Protocol):
         status: TaskStatus,
         cards_produced: int = 0,
         new_assertions: int = 0,
+        unchanged_dropped: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
         handle_conflicts: int = 0,

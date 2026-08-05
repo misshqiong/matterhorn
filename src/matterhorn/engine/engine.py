@@ -22,6 +22,7 @@ from matterhorn.contracts import (
     FIELD_WIDE_RETRACT,
     AddRecordsReport,
     Assertion,
+    Cardinality,
     ChangeEvent,
     Correction,
     DreamReport,
@@ -169,6 +170,14 @@ class _HandleCounts:
         self.bound += other.bound
         self.already_bound += other.already_bound
         self.conflicts += other.conflicts
+
+
+@dataclass
+class _AdmissionCounts:
+    unchanged_dropped: int = 0
+
+    def add(self, other: _AdmissionCounts) -> None:
+        self.unchanged_dropped += other.unchanged_dropped
 
 
 @dataclass
@@ -354,6 +363,7 @@ class Engine:
         *,
         record_by_id: dict[str, Record] | None = None,
         handle_counts: _HandleCounts | None = None,
+        admission_counts: _AdmissionCounts | None = None,
     ) -> list[Assertion]:
         validated = [
             card if isinstance(card, EpisodeCard) else EpisodeCard.model_validate(card)
@@ -380,7 +390,11 @@ class Engine:
                     existing,
                     self.store.subject_merges(card.scope_id),
                 )
-                self.store.upsert_subject(subject)
+                subject_exists = any(
+                    item.subject_key == subject.subject_key for item in existing
+                )
+                if not subject_exists:
+                    self.store.upsert_subject(subject)
                 recorded_at = self._clock()
                 assertions = extract_card(
                     card,
@@ -389,9 +403,21 @@ class Engine:
                     self.profile,
                     recorded_at,
                 )
-                for assertion in assertions:
-                    if self.store.add_assertion(assertion):
-                        emitted.append(assertion)
+                card_emitted, card_admission = self._admit_card_assertions(
+                    assertions
+                )
+                emitted.extend(card_emitted)
+                if subject_exists and (card_emitted or not assertions):
+                    self.store.upsert_subject(subject)
+                if card_admission.unchanged_dropped:
+                    self.store.record_gate_report(
+                        card.scope_id,
+                        accepted=0,
+                        rejections={},
+                        unchanged_dropped=card_admission.unchanged_dropped,
+                    )
+                if admission_counts is not None:
+                    admission_counts.add(card_admission)
                 self.store.enqueue_distill(
                     card,
                     subject_key=subject.subject_key,
@@ -410,6 +436,59 @@ class Engine:
             for scope in scopes:
                 self._rebuild(scope)
         return emitted
+
+    def _admit_card_assertions(
+        self,
+        assertions: list[Assertion],
+    ) -> tuple[list[Assertion], _AdmissionCounts]:
+        emitted: list[Assertion] = []
+        counts = _AdmissionCounts()
+        for assertion in assertions:
+            stored = self.store.assertions(assertion.scope_id)
+            if any(
+                existing.assertion_id == assertion.assertion_id
+                for existing in stored
+            ):
+                if self.store.add_assertion(assertion):
+                    emitted.append(assertion)
+                continue
+            if self._model_assertion_is_unchanged(assertion, stored):
+                counts.unchanged_dropped += 1
+                continue
+            if self.store.add_assertion(assertion):
+                emitted.append(assertion)
+        return emitted, counts
+
+    def _model_assertion_is_unchanged(
+        self,
+        assertion: Assertion,
+        stored: list[Assertion],
+    ) -> bool:
+        if (
+            assertion.origin != Origin.model
+            or assertion.operation != Operation.ASSERT
+        ):
+            return False
+        intervals, _ = project_assertions(
+            _canonicalized_assertions(
+                stored,
+                self.store.subject_merges(assertion.scope_id),
+            ),
+            self.profile,
+        )
+        matching = [
+            interval
+            for interval in intervals
+            if interval.subject_key == assertion.subject_key
+            and interval.predicate == assertion.predicate
+            and interval.object_key == assertion.object_key
+        ]
+        cardinality = self.profile.predicate(assertion.predicate).cardinality
+        if cardinality in {Cardinality.SINGLE, Cardinality.SET}:
+            return any(interval.valid_to is None for interval in matching)
+        if cardinality == Cardinality.APPEND:
+            return bool(matching)
+        raise ValueError(f"unsupported cardinality: {cardinality}")
 
     def add_records(
         self,
@@ -469,6 +548,7 @@ class Engine:
         cards: list[EpisodeCard] = []
         rejection_counts: dict[str, int] = {}
         emitted: list[Assertion] = []
+        admission_counts = _AdmissionCounts()
         handle_counts = _HandleCounts()
         route_counts = _RouteCounts()
         if revoked:
@@ -509,6 +589,7 @@ class Engine:
             ]
             (
                 chunk_emitted,
+                chunk_admission_counts,
                 chunk_handle_counts,
                 chunk_route_counts,
             ) = self._commit_record_chunk(
@@ -526,6 +607,7 @@ class Engine:
                 extraction.rejection_counts,
             )
             emitted.extend(chunk_emitted)
+            admission_counts.add(chunk_admission_counts)
             handle_counts.add(chunk_handle_counts)
             route_counts.add(chunk_route_counts)
 
@@ -543,6 +625,7 @@ class Engine:
             card_ids=[card.card_id for card in cards],
             assertions_emitted=len(emitted),
             assertion_ids=[assertion.assertion_id for assertion in emitted],
+            unchanged_dropped=admission_counts.unchanged_dropped,
             handles_bound=handle_counts.bound,
             handles_already_bound=handle_counts.already_bound,
             handle_conflicts=handle_counts.conflicts,
@@ -560,8 +643,14 @@ class Engine:
         context: list[Record],
         cursors: dict[str, str] | None,
         backfill: bool,
-    ) -> tuple[list[Assertion], _HandleCounts, _RouteCounts]:
+    ) -> tuple[
+        list[Assertion],
+        _AdmissionCounts,
+        _HandleCounts,
+        _RouteCounts,
+    ]:
         emitted: list[Assertion] = []
+        admission_counts = _AdmissionCounts()
         handle_counts = _HandleCounts()
         route_counts = _RouteCounts()
         with self.store.transaction():
@@ -620,12 +709,18 @@ class Engine:
                 route_plans or [],
                 strict=True,
             ):
-                card_emitted, card_handles, card_routes = self._apply_route_plan(
+                (
+                    card_emitted,
+                    card_admission_counts,
+                    card_handles,
+                    card_routes,
+                ) = self._apply_route_plan(
                     card,
                     plan,
                     record_by_id=record_by_id,
                 )
                 emitted.extend(card_emitted)
+                admission_counts.add(card_admission_counts)
                 handle_counts.add(card_handles)
                 route_counts.add(card_routes)
             if observations and not backfill:
@@ -639,7 +734,7 @@ class Engine:
                         watermark=max(_record_observed_at(item) for item in items),
                         cursor=(cursors or {}).get(container_id),
                     )
-        return emitted, handle_counts, route_counts
+        return emitted, admission_counts, handle_counts, route_counts
 
     def _route_record_card(
         self,
@@ -920,13 +1015,18 @@ class Engine:
         plan: _RoutePlan,
         *,
         record_by_id: dict[str, Record],
-    ) -> tuple[list[Assertion], _HandleCounts, _RouteCounts]:
+    ) -> tuple[
+        list[Assertion],
+        _AdmissionCounts,
+        _HandleCounts,
+        _RouteCounts,
+    ]:
         handles = _HandleCounts()
         routes = _RouteCounts(
             route_disagreements=int(plan.disagreement),
         )
         if plan.duplicate:
-            return [], _HandleCounts(), _RouteCounts()
+            return [], _AdmissionCounts(), _HandleCounts(), _RouteCounts()
         if plan.route == "review":
             handles.conflicts = plan.handle_conflicts
             routes.route_review = 1
@@ -949,7 +1049,7 @@ class Engine:
                 handle_conflicts=handles.conflicts,
                 route_counts=routes.to_dict(),
             )
-            return [], handles, routes
+            return [], _AdmissionCounts(), handles, routes
 
         existing = self.store.subjects(card.scope_id)
         merges = self.store.subject_merges(card.scope_id)
@@ -969,7 +1069,11 @@ class Engine:
         else:
             subject = new_subject(card, self.profile, existing)
         subject = _canonicalized_subject(subject, existing, merges)
-        self.store.upsert_subject(subject)
+        subject_exists = any(
+            item.subject_key == subject.subject_key for item in existing
+        )
+        if not subject_exists:
+            self.store.upsert_subject(subject)
         recorded_at = self._clock()
         assertions = extract_card(
             card,
@@ -978,11 +1082,9 @@ class Engine:
             self.profile,
             recorded_at,
         )
-        emitted = [
-            assertion
-            for assertion in assertions
-            if self.store.add_assertion(assertion)
-        ]
+        emitted, admission_counts = self._admit_card_assertions(assertions)
+        if subject_exists and (emitted or not assertions):
+            self.store.upsert_subject(subject)
         self.store.enqueue_distill(
             card,
             subject_key=subject.subject_key,
@@ -1007,11 +1109,12 @@ class Engine:
             card.scope_id,
             accepted=0,
             rejections={},
+            unchanged_dropped=admission_counts.unchanged_dropped,
             handle_conflicts=handles.conflicts,
             route_counts=routes.to_dict(),
         )
         self._rebuild(card.scope_id)
-        return emitted, handles, routes
+        return emitted, admission_counts, handles, routes
 
     def _bind_card_handles(
         self,
@@ -1756,6 +1859,7 @@ class Engine:
                 item.assertion_id for item in self.store.assertions(scope_id)
             }
             cards_produced = gate_accepted = handle_conflicts = 0
+            unchanged_dropped = 0
             task_routes = _RouteCounts()
             gate_rejected: dict[str, int] = {}
             failed = False
@@ -1774,6 +1878,7 @@ class Engine:
                         gate_rejected, record_report.drop_reasons
                     )
                     handle_conflicts += record_report.handle_conflicts
+                    unchanged_dropped += record_report.unchanged_dropped
                     task_routes.add(
                         _RouteCounts(
                             **{
@@ -1791,7 +1896,13 @@ class Engine:
                         self.store.card_payload_hash(scope_id, card.card_id) is None
                         for card in cards
                     )
-                    self._ingest_cards_sync(cards, scope_id=scope_id)
+                    admission_counts = _AdmissionCounts()
+                    self._ingest_cards_sync(
+                        cards,
+                        scope_id=scope_id,
+                        admission_counts=admission_counts,
+                    )
+                    unchanged_dropped += admission_counts.unchanged_dropped
                     gate_accepted += cards_produced
                 else:
                     raise ValueError(f"unknown task kind: {row.kind}")
@@ -1826,6 +1937,7 @@ class Engine:
                     status=TaskStatus.failed if failed else TaskStatus.completed,
                     cards_produced=cards_produced,
                     new_assertions=len(after_assertions - before_assertions),
+                    unchanged_dropped=unchanged_dropped,
                     gate_accepted=gate_accepted,
                     gate_rejected=gate_rejected,
                     handle_conflicts=handle_conflicts,

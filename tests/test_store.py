@@ -303,6 +303,7 @@ def test_sqlite_migrates_legacy_task_retry_columns(tmp_path) -> None:
     assert {
         "attempts",
         "last_error",
+        "unchanged_dropped",
         "handle_conflicts",
         "route_handle",
         "route_thread",
@@ -326,6 +327,8 @@ def test_sqlite_migrates_legacy_task_retry_columns(tmp_path) -> None:
     )
     result = store.task("task-legacy")
     assert result is not None
+    assert result.result.unchanged_dropped == 0
+    assert result.result.gate.unchanged_dropped == 0
     assert result.result.attempts == 0
     assert result.result.last_error is None
 

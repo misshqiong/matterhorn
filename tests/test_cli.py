@@ -660,7 +660,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=75 failed=0 total=75" in completed.stdout
+    assert "SUMMARY passed=80 failed=0 total=80" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:
@@ -944,6 +944,7 @@ def test_init_config_and_five_minute_commands_work_offline(tmp_path) -> None:
     assert json.loads(task.stdout)["gate"] == {
         "accepted": 1,
         "rejected": {},
+        "unchanged_dropped": 0,
         "handle_conflicts": 0,
         "route_handle": 0,
         "route_thread": 0,

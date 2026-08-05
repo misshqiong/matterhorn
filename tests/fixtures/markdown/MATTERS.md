@@ -20,9 +20,9 @@ Scope: <code>dev</code>
 - <code>2026-07-28T09:00:00.000000Z</code> — <code>next_step</code> → <code>"Fix CI"</code>
   - Evidence: [github:matterhorn:commit:abc](<https://github.com/misshqiong/matterhorn/commit/abc>)
 - <code>2026-07-28T09:00:00.000000Z</code> — <code>owned_by</code> → <code>"ada"</code>
-  - Evidence: [github:matterhorn:commit:abc](<https://github.com/misshqiong/matterhorn/commit/abc>), [github:matterhorn:issue:42](<https://github.com/misshqiong/matterhorn/issues/42>)
+  - Evidence: [github:matterhorn:commit:abc](<https://github.com/misshqiong/matterhorn/commit/abc>)
 - <code>2026-07-28T09:00:00.000000Z</code> — <code>participated_by</code> → <code>"ada"</code>
-  - Evidence: [github:matterhorn:commit:abc](<https://github.com/misshqiong/matterhorn/commit/abc>), [github:matterhorn:issue:42](<https://github.com/misshqiong/matterhorn/issues/42>)
+  - Evidence: [github:matterhorn:commit:abc](<https://github.com/misshqiong/matterhorn/commit/abc>)
 - <code>2026-07-28T09:00:00.000000Z</code> — <code>progress</code> → <code>"Release branch opened"</code>
   - Evidence: [github:matterhorn:commit:abc](<https://github.com/misshqiong/matterhorn/commit/abc>)
 - <code>2026-07-28T09:00:00.000000Z</code> — <code>status</code> → <code>"blocked"</code>

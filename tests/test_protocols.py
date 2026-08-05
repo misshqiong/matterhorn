@@ -176,6 +176,7 @@ def test_rest_round_trip_all_endpoints_and_correction(tmp_path) -> None:
             assert task.json()["gate"] == {
                 "accepted": 1,
                 "rejected": {},
+                "unchanged_dropped": 0,
                 "handle_conflicts": 0,
                 "route_handle": 0,
                 "route_thread": 0,

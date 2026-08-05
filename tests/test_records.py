@@ -597,7 +597,7 @@ def test_record_edit_appends_and_delete_revokes_without_removing(tmp_path) -> No
     assert after_delete.source_refs[0].uri.endswith("p1699887654123456")
 
 
-def test_edit_metadata_alone_creates_new_assertion_for_same_fact(tmp_path) -> None:
+def test_edit_metadata_alone_drops_same_value_assertion(tmp_path) -> None:
     gateway = SequenceGateway([_response("open"), _response("open")])
     engine = Engine(
         tmp_path / "same-fact-edit.db",
@@ -608,11 +608,11 @@ def test_edit_metadata_alone_creates_new_assertion_for_same_fact(tmp_path) -> No
             datetime(2026, 7, 29, 9, 6, tzinfo=UTC),
         ],
     )
-    engine.add_records(
+    first = engine.add_records(
         [_record(content="Release is open.")],
         scope_id="team",
     )
-    engine.add_records(
+    edited = engine.add_records(
         [
             _record(
                 content="Release is open.",
@@ -627,11 +627,12 @@ def test_edit_metadata_alone_creates_new_assertion_for_same_fact(tmp_path) -> No
         for item in engine.store.assertions("team")
         if item.predicate == "status"
     ]
-    assert len(assertions) == 2
+    assert first.assertions_emitted == 1
+    assert edited.assertions_emitted == 0
+    assert edited.unchanged_dropped == 1
+    assert len(assertions) == 1
     assert {item.object_value for item in assertions} == {"open"}
-    assert len({item.assertion_id for item in assertions}) == 2
-    assert len({item.observation_id for item in assertions}) == 2
-    assert len({item.recorded_at for item in assertions}) == 2
+    assert engine.gate_statistics("team").unchanged_dropped == 1
 
 
 def test_overlapping_windows_are_noop_and_backfill_does_not_move_cursor(tmp_path) -> None:

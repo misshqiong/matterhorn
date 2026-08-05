@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL,
     cards_produced INTEGER NOT NULL DEFAULT 0,
     new_assertions INTEGER NOT NULL DEFAULT 0,
+    unchanged_dropped INTEGER NOT NULL DEFAULT 0,
     gate_accepted INTEGER NOT NULL DEFAULT 0,
     gate_rejected_json TEXT NOT NULL DEFAULT '{}',
     handle_conflicts INTEGER NOT NULL DEFAULT 0,
@@ -353,6 +354,11 @@ class SQLiteStore:
         if "handle_conflicts" not in task_columns:
             self.connection.execute(
                 "ALTER TABLE tasks ADD COLUMN handle_conflicts "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+        if "unchanged_dropped" not in task_columns:
+            self.connection.execute(
+                "ALTER TABLE tasks ADD COLUMN unchanged_dropped "
                 "INTEGER NOT NULL DEFAULT 0"
             )
         for counter in ROUTE_COUNTER_NAMES:
@@ -1415,11 +1421,13 @@ class SQLiteStore:
         *,
         accepted: int,
         rejections: dict[str, int],
+        unchanged_dropped: int = 0,
         handle_conflicts: int = 0,
         route_counts: dict[str, int] | None = None,
     ) -> None:
         counters = {
             "ACCEPTED": accepted,
+            "UNCHANGED_DROPPED": unchanged_dropped,
             "HANDLE_CONFLICTS": handle_conflicts,
             **{
                 counter.upper(): (route_counts or {}).get(counter, 0)
@@ -1451,6 +1459,7 @@ class SQLiteStore:
         return GateStatistics(
             scope_id=scope_id,
             accepted=counters.pop("ACCEPTED", 0),
+            unchanged_dropped=counters.pop("UNCHANGED_DROPPED", 0),
             handle_conflicts=counters.pop("HANDLE_CONFLICTS", 0),
             **{
                 counter: counters.pop(counter.upper(), 0)
@@ -1546,6 +1555,7 @@ class SQLiteStore:
         status: TaskStatus,
         cards_produced: int = 0,
         new_assertions: int = 0,
+        unchanged_dropped: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
         handle_conflicts: int = 0,
@@ -1555,7 +1565,7 @@ class SQLiteStore:
         cursor = self.connection.execute(
             """
             UPDATE tasks SET
-              status=?,cards_produced=?,new_assertions=?,
+              status=?,cards_produced=?,new_assertions=?,unchanged_dropped=?,
               gate_accepted=?,gate_rejected_json=?,handle_conflicts=?,
               route_handle=?,route_thread=?,route_evidence=?,route_model=?,
               route_new=?,route_review=?,route_disagreements=?,
@@ -1571,6 +1581,7 @@ class SQLiteStore:
                 status.value,
                 cards_produced,
                 new_assertions,
+                unchanged_dropped,
                 gate_accepted,
                 canonical_json(gate_rejected or {}),
                 handle_conflicts,
@@ -2122,11 +2133,13 @@ class SQLiteStore:
                 status=status,
                 cards_produced=row["cards_produced"],
                 new_assertions=row["new_assertions"],
+                unchanged_dropped=row["unchanged_dropped"],
                 attempts=row["attempts"],
                 last_error=row["last_error"],
                 gate=TaskGate(
                     accepted=row["gate_accepted"],
                     rejected=json.loads(row["gate_rejected_json"]),
+                    unchanged_dropped=row["unchanged_dropped"],
                     handle_conflicts=row["handle_conflicts"],
                     **{counter: row[counter] for counter in ROUTE_COUNTER_NAMES},
                 ),

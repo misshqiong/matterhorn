@@ -1,0 +1,39 @@
+case_id: unchanged-drop-replay
+title: Replay after an unchanged drop preserves identical state
+invariants: [P7, P9, INV-2, INV-3, INV-16]
+schema_profile: org-matters/v1
+scope_id: unchanged-replay
+clock:
+  - "2026-08-05T13:00:00Z"
+  - "2026-08-05T13:01:00Z"
+cards:
+  - card_id: replay-opening
+    scope_id: unchanged-replay
+    subject_key: replay-matter
+    date: 2026-08-01
+    title: Replay matter
+    status: in_progress
+    source_refs:
+      - {source_id: replay-opening-source, sent_at: "2026-08-01T08:00:00Z", sender: Ada}
+  - card_id: replay-unchanged
+    scope_id: unchanged-replay
+    subject_key: replay-matter
+    date: 2026-08-02
+    title: Replay matter
+    status: in_progress
+    source_refs:
+      - {source_id: replay-unchanged-source, sent_at: "2026-08-02T08:00:00Z", sender: Bob}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, object_value: in_progress, source_refs: [{source_id: replay-opening-source, sent_at: "2026-08-01T08:00:00.000000Z", sender: Ada, excerpt: null, uri: null}]}
+  intervals:
+    - {predicate: status, object_value: in_progress, valid_to: null}
+  gate_statistics: {unchanged_dropped: 1}
+  export_replay_identity: true
+  replay_events_emitted: 0
+  queries:
+    - name: timeline
+      args: {subject_key: replay-matter, predicate: status}
+      result:
+        - {value: in_progress, source_ids: [replay-opening-source]}

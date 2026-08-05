@@ -1,0 +1,49 @@
+case_id: model-unchanged-later-batch-drops
+title: Same-value model assertion in a later Record batch is dropped
+invariants: [P5, P7, P9, INV-2, INV-3, INV-16]
+schema_profile: org-matters/v1
+scope_id: change-only-later-batch
+clock:
+  - "2026-08-05T09:00:00Z"
+  - "2026-08-05T09:01:00Z"
+cards:
+  - card_id: opening-card
+    scope_id: change-only-later-batch
+    subject_key: tracked-matter
+    date: 2026-08-01
+    title: Tracked matter
+    status: open
+    source_refs:
+      - {source_id: opening-source, sent_at: "2026-08-01T08:00:00Z", sender: Ada}
+record_batches:
+  - records:
+      - record_id: change-only:r1
+        container_id: change-only
+        sent_at: "2026-08-02T08:00:00Z"
+        author: {id: bob, display_name: Bob, kind: human}
+        content: The tracked matter is still open.
+record_model_responses:
+  - cards:
+      - date: "2026-08-02"
+        title: Tracked matter follow-up
+        status: open
+        source_ids: [change-only:r1]
+        subject_key: tracked-matter
+corrections: []
+expect:
+  record_reports:
+    - {cards_accepted: 1, assertions_emitted: 0, unchanged_dropped: 1, route_model: 1}
+  assertions:
+    - {subject_key: tracked-matter, predicate: status, object_value: open, source_refs: [{source_id: opening-source, sent_at: "2026-08-01T08:00:00.000000Z", sender: Ada, excerpt: null, uri: null}]}
+  intervals:
+    - {subject_key: tracked-matter, predicate: status, object_value: open, valid_to: null}
+  gate_statistics: {unchanged_dropped: 1, route_model: 1}
+  queries:
+    - name: current
+      args: {subject_key: tracked-matter, predicate: status}
+      result:
+        - {value: open, source_ids: [opening-source]}
+    - name: timeline
+      args: {subject_key: tracked-matter, predicate: status}
+      result:
+        - {value: open, valid_from: "2026-08-01T00:00:00.000000Z", valid_to: null, source_ids: [opening-source]}

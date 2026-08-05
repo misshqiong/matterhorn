@@ -587,6 +587,7 @@ class GateStatistics(StrictModel):
     scope_id: str
     accepted: int = 0
     rejections: dict[str, int] = Field(default_factory=dict)
+    unchanged_dropped: int = 0
     handle_conflicts: int = 0
     route_handle: int = 0
     route_thread: int = 0
@@ -612,6 +613,7 @@ class TaskReceipt(StrictModel):
 class TaskGate(StrictModel):
     accepted: int = 0
     rejected: dict[str, int] = Field(default_factory=dict)
+    unchanged_dropped: int = 0
     handle_conflicts: int = 0
     route_handle: int = 0
     route_thread: int = 0
@@ -627,6 +629,7 @@ class TaskResult(StrictModel):
     status: TaskStatus
     cards_produced: int = 0
     new_assertions: int = 0
+    unchanged_dropped: int = 0
     attempts: int = 0
     last_error: str | None = None
     gate: TaskGate = Field(default_factory=TaskGate)
@@ -663,6 +666,7 @@ class AddRecordsReport(StrictModel):
     card_ids: list[str] = Field(default_factory=list)
     assertions_emitted: int
     assertion_ids: list[str] = Field(default_factory=list)
+    unchanged_dropped: int = 0
     handles_bound: int = 0
     handles_already_bound: int = 0
     handle_conflicts: int = 0

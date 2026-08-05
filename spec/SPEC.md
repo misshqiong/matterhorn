@@ -100,11 +100,13 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   MUST NOT affect any read.
 - **INV-11 — Immutable source lifecycle.** An edited Record is a new
   observation. It MUST produce a new deterministic card observation and new
-  assertions with a distinct non-null `observation_id` and `recorded_at`;
-  prior assertions MUST remain untouched. A revoked Record MUST persist the
-  revocation for its `record_id`, MUST NOT invoke card extraction, and MUST NOT
-  mutate or delete any assertion, interval, or materialization. Every value
-  query MUST expose each source's `uri`, `status` (`active` or `revoked`), and
+  assertion candidates with a distinct non-null `observation_id` and
+  `recorded_at`; prior assertions MUST remain untouched. An unchanged-value
+  origin-model candidate is nevertheless dropped by INV-16, while an actual
+  projected-value change MUST persist the new assertion. A revoked Record MUST
+  persist the revocation for its `record_id`, MUST NOT invoke card extraction,
+  and MUST NOT mutate or delete any assertion, interval, or materialization.
+  Every value query MUST expose each source's `uri`, `status` (`active` or `revoked`), and
   nullable `revoked_at`, plus aggregate `evidence_status`: `active` when none
   are revoked, `partially_revoked` when some are revoked, and `revoked` when
   all are revoked. A conclusion supported only by revoked evidence therefore
@@ -143,6 +145,15 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   rungs miss, and an attach outcome MUST pass the independent deterministic
   candidate, evidence, and confidence gate. Replay MUST NOT rerun routing or
   any gateway call: persisted assertions already carry their resolved subject.
+- **INV-16 — Change-only model assertion admission.** Before storing an
+  origin-model ASSERT extracted from an EpisodeCard, the Engine MUST compare
+  its `object_key` with the resolved subject's projected values for that
+  predicate at admission time. A SINGLE assertion is redundant when its key
+  equals the live value; a SET assertion is redundant when that member is
+  already live; and an APPEND assertion is redundant when an identical-key
+  point already exists. A redundant assertion MUST NOT be stored or emit an
+  event and MUST increment `unchanged_dropped`. RETRACT, `cleared_fields`, and
+  origin-human assertions MUST NOT be dropped by this rule.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -340,12 +351,15 @@ SET it is defined as an explicit retraction of every currently live object key.
 An Interval contains the opening assertion evidence plus `interval_id`,
 `valid_from`, nullable `valid_to`, and `supporting_assertion_ids`.
 `supporting_assertion_ids` MUST start with the opening `assertion_id`; every
-later assertion that reconfirms the same live `object_key` MUST be appended in
-stable rank order without closing or reopening the interval. `source_refs`
-MUST be the stable union of evidence from every supporting assertion: traverse
-supporting assertions in list order, preserve each assertion's source order,
-and retain the first SourceRef for each `source_id`. Non-point intervals are
-half-open `[valid_from, valid_to)`; null `valid_to` means open-ended.
+later admitted assertion that reconfirms the same live `object_key` MUST be
+appended in stable rank order without closing or reopening the interval.
+Origin-model reconfirmations from EpisodeCard ingestion are not admitted under
+INV-16; origin-human affirmations and assertions from paths outside that
+admission rule remain eligible support. `source_refs` MUST be the stable union
+of evidence from every supporting assertion: traverse supporting assertions in
+list order, preserve each assertion's source order, and retain the first
+SourceRef for each `source_id`. Non-point intervals are half-open
+`[valid_from, valid_to)`; null `valid_to` means open-ended.
 
 A MemoryCard contains `scope_id`, `subject_key`, `subject_type`, title, a
 profile-keyed current-value map, latest current `valid_from` as `updated_at`,
@@ -441,7 +455,8 @@ No other field, including `recorded_at` or origin, participates. For
 Record-derived assertions, the card ID participates only through the explicit
 `observation_id` rule above. Equal observations therefore produce the same ID
 and re-ingest is a no-op, while a changed/edited Record produces a different
-deterministic card and assertion.
+deterministic card and assertion candidate whose admission is governed by
+section 8.1.
 
 ## 7. Subject identity primitives
 
@@ -565,6 +580,42 @@ through card extraction; and `implicit` retracts whenever extraction yields no
 value, including an absent field, explicit null, or empty list. The same
 `observe_field` return value MUST remain the one shared gate for RETRACT
 emission and projection/materialization update.
+
+### 8.1 Change-only assertion admission
+
+For every candidate Assertion returned by `extract_card`, after subject
+resolution and before `store.add_assertion`, the Engine MUST read only the
+resolved subject's committed/projected store state and apply this rule:
+
+- for `SINGLE`, an origin-model `ASSERT` is redundant when the current live
+  value has the same `object_key`;
+- for `SET`, an origin-model `ASSERT` is redundant when the same `object_key`
+  member is already live; and
+- for `APPEND`, an origin-model `ASSERT` is redundant when a projected point
+  with the same `object_key` already exists for the subject and predicate.
+
+Every redundant assertion MUST be dropped before persistence, MUST NOT create
+or alter an interval, MemoryCard, or ChangeEvent, and MUST increment the
+operation and persistent `unchanged_dropped` counters exactly once. The rule
+MUST NOT drop a `RETRACT`, including a field-wide retraction produced by
+`cleared_fields`, and MUST NOT drop an origin-human assertion. Human repetition
+is an affirmation with provenance. The rule applies only to deterministic
+card-ingest assertions; semantic `dream()` distillation and Correction writes
+are outside this admission rule.
+
+Sources from a dropped assertion are not lost as inputs: Record observations
+and raw staging retain them under sections 11, 16, and 16.1. They MUST NOT be
+attached to the subject, its live interval, or its MemoryCard through the
+dropped assertion. Matterhorn timelines record **change**, not model
+confirmation; this is an explicit evidence trade-off.
+
+The check MUST execute in the same card-application transaction as assertion
+persistence and projection replacement. It reads only projected Store state at
+admission time. Cards and their extracted assertions are considered in stable
+input and predicate order, so re-ingesting the same cards in the same order
+reproduces the same admission outcomes. Exact duplicate `assertion_id`
+handling remains the distinct INV-2 rule and MUST NOT increment
+`unchanged_dropped`.
 
 ## 9. Exact projection algorithm
 
@@ -725,11 +776,13 @@ response have exactly:
   "status": "pending" | "running" | "completed" | "failed",
   "cards_produced": integer,
   "new_assertions": integer,
+  "unchanged_dropped": integer,
   "attempts": integer,
   "last_error": string | null,
   "gate": {
     "accepted": integer,
     "rejected": {reason_code: count},
+    "unchanged_dropped": integer,
     "handle_conflicts": integer,
     "route_handle": integer,
     "route_thread": integer,
@@ -742,8 +795,9 @@ response have exactly:
 }
 ```
 
-`attempts` and `last_error` are additive task-result fields with compatible
-defaults of `0` and null. Each failed flush run MUST increment `attempts` once
+`unchanged_dropped`, `attempts`, and `last_error` are additive task-result
+fields with compatible defaults of `0`, `0`, and null. Each failed flush run
+MUST increment `attempts` once
 and store a conservatively credential-redacted exception summary of at most
 500 characters in `last_error`. A successful retry MUST retain the attempt
 count, set status to `completed`, and clear `last_error`. A failed task with
@@ -760,8 +814,9 @@ finite, is independent of the quiet period, and MUST NOT be weakened by newer
 Messages arriving in the same scope.
 
 The gate object MUST aggregate the task's Record-to-card and semantic gate
-outcomes plus its section 23 routing counters without borrowing prior scope
-counters. Repeating an identical
+outcomes, section 8.1 unchanged-value drops, and section 23 routing counters
+without borrowing prior scope counters. The TaskResult's top-level
+`unchanged_dropped` MUST equal its gate's value. Repeating an identical
 Message batch MUST create a new receipt, but the observation ledger and
 assertion IDs MUST make the later completed task report zero new assertions.
 
@@ -873,7 +928,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-15`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-16`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
@@ -1048,9 +1103,10 @@ inclusive.
 The gate MUST return a structured `GateReport` containing accepted candidates,
 rejections with reason and candidate when parseable, accepted count, rejected
 count, and per-reason counts. The store MUST accumulate accepted and
-per-reason rejection counters by scope, plus `handle_conflicts`,
-`route_handle`, `route_thread`, `route_evidence`, `route_model`, `route_new`,
-`route_review`, and `route_disagreements` from section 23.
+per-reason rejection counters by scope, plus `unchanged_dropped`,
+`handle_conflicts`, `route_handle`, `route_thread`, `route_evidence`,
+`route_model`, `route_new`, `route_review`, and `route_disagreements` from
+section 23.
 `gate_statistics(scope_id)` MUST return all of those fields with `scope_id`,
 `accepted`, and `rejections` without calling a gateway.
 
@@ -1091,10 +1147,11 @@ advanced/internal `add_records`. `matters(scope_id)` MUST return
 projection-derived objects with at least `title`, `status`, `owners`,
 `participants`, `blocked_by`, `next_step`, `due`, `subject_key`, and
 `aliases`. Public matter-list objects MUST add `updated_at`, defined as the
-newest canonicalized assertion `recorded_at` for that subject, or null when it
-has no assertion. It MUST advance when new evidence is asserted even when the
-business-effective current value is unchanged, and its computation MUST NOT
-call a gateway.
+newest canonicalized admitted assertion `recorded_at` for that subject, or null
+when it has no assertion. It MUST advance when an admitted assertion adds new
+evidence even when the business-effective current value is unchanged, as may
+occur for an origin-human affirmation; a dropped section 8.1 model
+reconfirmation MUST NOT advance it. Its computation MUST NOT call a gateway.
 
 `mh dream` MUST treat `--api-key` and `--base-url` as explicit overrides.
 Without an API-key override it MUST read `MATTERHORN_API_KEY` first, then
@@ -1244,9 +1301,9 @@ The Engine MUST pass exactly one such chunk to each RecordExtractor call while
 retaining the extractor Protocol signature and `batch_size` argument. A direct
 SDK extractor call MAY retain its own boundary batching. `AddRecordsReport` and
 the enclosing task gate MUST sum accepted cards, rejected cards, rejection
-reasons, card IDs, and emitted assertions across all chunks exactly as if the
-operation had one response. Replay MUST rebuild only from persisted
-cards/assertions and MUST NOT rerun any extraction call.
+reasons, card IDs, emitted assertions, and `unchanged_dropped` across all
+chunks exactly as if the operation had one response. Replay MUST rebuild only
+from persisted cards/assertions and MUST NOT rerun any extraction call.
 
 The response schema and prompt MUST be derived from the active
 `SchemaProfile`. In addition to required card `date`, `title`, and
@@ -1731,7 +1788,8 @@ Every winning rung increments exactly one of `route_handle`, `route_thread`,
 `route_evidence`, `route_model`, `route_new`, or `route_review`. These counters,
 plus `handle_conflicts` and `route_disagreements`, MUST be persisted in
 `gate_stats`, returned by `gate_statistics`, and included in the enclosing
-task gate or direct `AddRecordsReport`. Exact observation re-ingest MUST
+task gate or direct `AddRecordsReport`, alongside the section 8.1
+`unchanged_dropped` counter. Exact observation re-ingest MUST
 increment none of them. Counter updates and the chosen route, subject write or
 review enqueue MUST commit atomically in the card-application transaction.
 Candidate reads MUST use a short Store transaction; the adjudication gateway

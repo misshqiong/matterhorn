@@ -267,6 +267,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL,
     cards_produced INTEGER NOT NULL DEFAULT 0,
     new_assertions INTEGER NOT NULL DEFAULT 0,
+    unchanged_dropped INTEGER NOT NULL DEFAULT 0,
     gate_accepted INTEGER NOT NULL DEFAULT 0,
     gate_rejected_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     handle_conflicts INTEGER NOT NULL DEFAULT 0,
@@ -357,6 +358,13 @@ class PostgresStore:
                 """
                 ALTER TABLE tasks
                 ADD COLUMN IF NOT EXISTS handle_conflicts
+                INTEGER NOT NULL DEFAULT 0
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE tasks
+                ADD COLUMN IF NOT EXISTS unchanged_dropped
                 INTEGER NOT NULL DEFAULT 0
                 """
             )
@@ -1432,11 +1440,13 @@ class PostgresStore:
         *,
         accepted: int,
         rejections: dict[str, int],
+        unchanged_dropped: int = 0,
         handle_conflicts: int = 0,
         route_counts: dict[str, int] | None = None,
     ) -> None:
         counters = {
             "ACCEPTED": accepted,
+            "UNCHANGED_DROPPED": unchanged_dropped,
             "HANDLE_CONFLICTS": handle_conflicts,
             **{
                 counter.upper(): (route_counts or {}).get(counter, 0)
@@ -1467,6 +1477,7 @@ class PostgresStore:
         return GateStatistics(
             scope_id=scope_id,
             accepted=counters.pop("ACCEPTED", 0),
+            unchanged_dropped=counters.pop("UNCHANGED_DROPPED", 0),
             handle_conflicts=counters.pop("HANDLE_CONFLICTS", 0),
             **{
                 counter: counters.pop(counter.upper(), 0)
@@ -1558,6 +1569,7 @@ class PostgresStore:
         status: TaskStatus,
         cards_produced: int = 0,
         new_assertions: int = 0,
+        unchanged_dropped: int = 0,
         gate_accepted: int = 0,
         gate_rejected: dict[str, int] | None = None,
         handle_conflicts: int = 0,
@@ -1567,7 +1579,7 @@ class PostgresStore:
         cursor = self._execute(
             """
             UPDATE tasks SET
-              status=%s,cards_produced=%s,new_assertions=%s,
+              status=%s,cards_produced=%s,new_assertions=%s,unchanged_dropped=%s,
               gate_accepted=%s,gate_rejected_json=%s,handle_conflicts=%s,
               route_handle=%s,route_thread=%s,route_evidence=%s,route_model=%s,
               route_new=%s,route_review=%s,route_disagreements=%s,
@@ -1583,6 +1595,7 @@ class PostgresStore:
                 status.value,
                 cards_produced,
                 new_assertions,
+                unchanged_dropped,
                 gate_accepted,
                 self._json_param(gate_rejected or {}),
                 handle_conflicts,
@@ -2151,11 +2164,13 @@ class PostgresStore:
                 status=status,
                 cards_produced=row["cards_produced"],
                 new_assertions=row["new_assertions"],
+                unchanged_dropped=row["unchanged_dropped"],
                 attempts=row["attempts"],
                 last_error=row["last_error"],
                 gate=TaskGate(
                     accepted=row["gate_accepted"],
                     rejected=row["gate_rejected_json"],
+                    unchanged_dropped=row["unchanged_dropped"],
                     handle_conflicts=row["handle_conflicts"],
                     **{counter: row[counter] for counter in ROUTE_COUNTER_NAMES},
                 ),

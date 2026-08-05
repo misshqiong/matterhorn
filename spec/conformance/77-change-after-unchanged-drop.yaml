@@ -1,0 +1,53 @@
+case_id: change-after-unchanged-drop
+title: A real SINGLE value change records after an unchanged drop
+invariants: [P7, P9, INV-2, INV-3, INV-16]
+schema_profile: org-matters/v1
+scope_id: change-after-drop
+clock:
+  - "2026-08-05T10:00:00Z"
+  - "2026-08-05T10:01:00Z"
+  - "2026-08-05T10:02:00Z"
+cards:
+  - card_id: status-open
+    scope_id: change-after-drop
+    subject_key: release
+    date: 2026-08-01
+    title: Release
+    status: open
+    source_refs:
+      - {source_id: status-open-source, sent_at: "2026-08-01T08:00:00Z", sender: Ada}
+  - card_id: status-open-again
+    scope_id: change-after-drop
+    subject_key: release
+    date: 2026-08-02
+    title: Release
+    status: open
+    source_refs:
+      - {source_id: unchanged-source, sent_at: "2026-08-02T08:00:00Z", sender: Bob}
+  - card_id: status-completed
+    scope_id: change-after-drop
+    subject_key: release
+    date: 2026-08-03
+    title: Release
+    status: completed
+    source_refs:
+      - {source_id: completed-source, sent_at: "2026-08-03T08:00:00Z", sender: Cy}
+corrections: []
+expect:
+  assertions:
+    - {predicate: status, operation: ASSERT, object_value: open}
+    - {predicate: status, operation: ASSERT, object_value: completed}
+  intervals:
+    - {predicate: status, object_value: open, valid_from: "2026-08-01T00:00:00.000000Z", valid_to: "2026-08-03T00:00:00.000000Z"}
+    - {predicate: status, object_value: completed, valid_from: "2026-08-03T00:00:00.000000Z", valid_to: null}
+  gate_statistics: {unchanged_dropped: 1}
+  queries:
+    - name: current
+      args: {subject_key: release, predicate: status}
+      result:
+        - {value: completed, source_ids: [completed-source]}
+    - name: timeline
+      args: {subject_key: release, predicate: status}
+      result:
+        - {value: open, valid_to: "2026-08-03T00:00:00.000000Z"}
+        - {value: completed, valid_to: null}

@@ -662,6 +662,7 @@ def test_keyless_console_sample_uses_packaged_fixture(tmp_path) -> None:
             assert receipt["gate"] == {
                 "accepted": 1,
                 "rejected": {},
+                "unchanged_dropped": 0,
                 "handle_conflicts": 0,
                 "route_handle": 0,
                 "route_thread": 0,

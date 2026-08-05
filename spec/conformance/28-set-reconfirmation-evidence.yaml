@@ -1,6 +1,6 @@
 case_id: set-reconfirmation-evidence
-title: SET reconfirmation accumulates evidence on the live object interval
-invariants: [INV-3, INV-7]
+title: SET model reconfirmation drops and keeps only opening evidence
+invariants: [INV-3, INV-7, INV-16]
 schema_profile: org-matters/v1
 scope_id: alpha
 clock: ["2026-01-10T09:00:00Z", "2026-01-10T09:01:00Z"]
@@ -25,7 +25,6 @@ corrections: []
 expect:
   assertions:
     - {predicate: blocked_by, operation: ASSERT, object_value: legal}
-    - {predicate: blocked_by, operation: ASSERT, object_value: legal}
   intervals:
     - predicate: blocked_by
       object_value: legal
@@ -33,9 +32,9 @@ expect:
       valid_to: null
       supporting_assertion_ids:
         - 44cb4c1e96152c647b6d70955acb4fb2df551ed52d68da7d994c8e3e262eefba
-        - dad21015c98e06cf2b76a29c4a2ea8ebd3aa3259c92bbf4e8a060f09e3608be2
   queries:
     - name: current
       args: {subject_key: s1, predicate: blocked_by}
       result:
-        - {value: legal, source_ids: [m1, m2]}
+        - {value: legal, source_ids: [m1]}
+  gate_statistics: {unchanged_dropped: 1}

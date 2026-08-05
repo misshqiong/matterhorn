@@ -1,0 +1,42 @@
+case_id: set-member-unchanged-drop
+title: A live SET member drops while a new member records
+invariants: [P7, P9, INV-2, INV-3, INV-16]
+schema_profile: org-matters/v1
+scope_id: change-only-set
+clock:
+  - "2026-08-05T11:00:00Z"
+  - "2026-08-05T11:01:00Z"
+cards:
+  - card_id: participant-opening
+    scope_id: change-only-set
+    subject_key: project
+    date: 2026-08-01
+    title: Project
+    participants: [{id: ada, display_name: Ada}]
+    source_refs:
+      - {source_id: participant-opening-source, sent_at: "2026-08-01T08:00:00Z", sender: Ada}
+  - card_id: participant-expanded
+    scope_id: change-only-set
+    subject_key: project
+    date: 2026-08-02
+    title: Project
+    participants:
+      - {id: ada, display_name: Ada}
+      - {id: bob, display_name: Bob}
+    source_refs:
+      - {source_id: participant-expanded-source, sent_at: "2026-08-02T08:00:00Z", sender: Bob}
+corrections: []
+expect:
+  assertions:
+    - {predicate: participated_by, operation: ASSERT, object_value: ada}
+    - {predicate: participated_by, operation: ASSERT, object_value: bob}
+  intervals:
+    - {predicate: participated_by, object_value: ada, valid_to: null}
+    - {predicate: participated_by, object_value: bob, valid_to: null}
+  gate_statistics: {unchanged_dropped: 1}
+  queries:
+    - name: current
+      args: {subject_key: project, predicate: participated_by}
+      result:
+        - {value: ada, source_ids: [participant-opening-source]}
+        - {value: bob, source_ids: [participant-expanded-source]}

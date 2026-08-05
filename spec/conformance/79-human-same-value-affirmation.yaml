@@ -1,0 +1,39 @@
+case_id: human-same-value-affirmation
+title: A human correction repeating a live value remains stored
+invariants: [P7, P8, P9, INV-3, INV-9, INV-16]
+schema_profile: org-matters/v1
+scope_id: human-affirmation
+clock:
+  - "2026-08-05T12:00:00Z"
+  - "2026-08-05T12:01:00Z"
+cards:
+  - card_id: opening-status
+    scope_id: human-affirmation
+    subject_key: affirmed-matter
+    date: 2026-08-01
+    title: Affirmed matter
+    status: open
+    source_refs:
+      - {source_id: model-opening-source, sent_at: "2026-08-01T08:00:00Z", sender: Ada}
+corrections:
+  - scope_id: human-affirmation
+    subject_key: affirmed-matter
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    valid_from: "2026-08-02T00:00:00Z"
+    source_refs:
+      - {source_id: human-affirmation-source, sent_at: "2026-08-02T08:00:00Z", sender: Reviewer}
+expect:
+  assertions:
+    - {predicate: status, object_value: open, origin: model}
+    - {predicate: status, object_value: open, origin: human}
+  intervals:
+    - {predicate: status, object_value: open, valid_from: "2026-08-01T00:00:00.000000Z", valid_to: null}
+  gate_statistics: {unchanged_dropped: 0}
+  queries:
+    - name: current
+      args: {subject_key: affirmed-matter, predicate: status}
+      result:
+        - {value: open, source_ids: [model-opening-source, human-affirmation-source]}
