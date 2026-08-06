@@ -331,6 +331,16 @@
     .time-tree-svg .tree-node:hover rect { stroke-width: 2.2; }
     .mini-tree { display: block; width: min(240px, 100%); height: 14px; margin-top: .28rem; }
     .mini-tree line { stroke: var(--rule-strong); stroke-width: 1.4; }
+    .expand-toggle { cursor: pointer; user-select: none; }
+    .expand-toggle:hover { border-color: var(--ink); color: var(--ink); }
+    .child-rows { border-left: 2px solid var(--rule-strong); margin: 0 0 .35rem 1.35rem; }
+    .child-row { display: flex; align-items: baseline; gap: .55rem; width: calc(100% - 1.35rem);
+      background: none; border: 0; border-bottom: 1px dotted var(--rule); cursor: pointer;
+      text-align: left; padding: .32rem .4rem; font: 12.5px var(--serif); color: var(--ink); }
+    .child-row:hover { background: var(--soft); }
+    .child-row .child-elbow { color: var(--faint); font: 11px var(--mono); }
+    .child-row strong { font-weight: 600; }
+    .child-row time { margin-left: auto; color: var(--faint); font: 10px var(--mono); }
     .time-tree-list { list-style: none; margin: .45rem 0; padding: 0; display: grid; gap: .3rem; }
     .time-tree-node { display: flex; align-items: center; gap: .35rem; }
     .tree-link { border: 0; border-bottom: 1px dotted var(--rule-strong); background: none; color: inherit; padding: 0; cursor: pointer; font: 12px var(--serif); }
@@ -701,7 +711,8 @@
       queryResult: null, activity: [], connections: null,
       reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null,
       brief: { needs_me: [], worth_knowing: [], groups: [], quiet: [] }, briefFingerprint: null,
-      focusMode: true, groups: {}, scopeToGroup: {}, collapsedGroups: new Set(), openArchives: new Set()
+      focusMode: true, groups: {}, scopeToGroup: {}, collapsedGroups: new Set(), openArchives: new Set(),
+      expandedRoots: new Set()
     };
     const WALL_MODE_KEY = "matterhorn.console.wall.mode";
     const COLLAPSED_GROUPS_KEY = "matterhorn.console.groups.collapsed";
@@ -1288,9 +1299,20 @@
       const bubbledBlockers = (matter.bubbled_blockers || []).map((item) =>
         `${item.subject_key}: ${compactValue(item.blocker)}`
       ).join(" · ");
+      const expandKey = `${matter.scope_id}:${matter.subject_key}`;
+      const expanded = state.expandedRoots.has(expandKey);
       const rollup = matter.descendants_total
-        ? `<span class="scope-chip">${matter.descendants_completed}/${matter.descendants_total} 子目标</span>` : "";
+        ? `<span class="expand-toggle scope-chip" data-expand-root="${escapeHtml(expandKey)}" role="button" aria-expanded="${String(expanded)}">${expanded ? "▾" : "▸"} ${matter.descendants_completed}/${matter.descendants_total} 子目标</span>` : "";
       const miniTree = miniTreeSvg(matter);
+      const childRows = expanded && (matter.children_preview || []).length
+        ? `<div class="child-rows">${(matter.children_preview || []).slice().sort((left, right) =>
+            new Date(left.birth_instant || 0) - new Date(right.birth_instant || 0)).map((kid) =>
+            `<button type="button" class="child-row" data-subject="${escapeHtml(kid.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
+              <span class="child-elbow">└</span>
+              <span class="stamp ${String(compactValue(kid.status) || "").toLowerCase() === "blocked" ? "blocked" : ""}">${escapeHtml(compactValue(kid.status) || "open")}</span>
+              <strong>${escapeHtml(kid.title)}</strong>
+              <time>${escapeHtml(compactTime(kid.birth_instant))}</time>
+            </button>`).join("")}</div>` : "";
       const sources = matter.sources_display || [];
       const sourceChips = sources.slice(0, 2).map((source) =>
         `<span class="conv-chip" title="${escapeHtml(source)}">${escapeHtml(source)}</span>`
@@ -1306,7 +1328,7 @@
         <span class="matter-row-summary"><span class="row-label">Summary</span>${escapeHtml(matter.progress || "—")}</span>
         <span class="matter-row-blocker">${blockers || bubbledBlockers ? `<span class="row-label">Problem</span>${blockers ? `blocked: ${escapeHtml(blockers)}` : ""}${blockers && bubbledBlockers ? " · " : ""}${bubbledBlockers ? `子目标: ${escapeHtml(bubbledBlockers)}` : ""}` : ""}</span>
         <span class="matter-row-meta">${sourceChips}${extraSources}${owners ? `<span title="Owners">${escapeHtml(owners)}</span>` : ""}<span class="${overdue ? "overdue" : ""}" title="Due">due ${escapeHtml(validDue ? compactTime(matter.due) : "—")}</span>${matter.next_step != null ? `<span class="next-chip" title="${escapeHtml(compactValue(matter.next_step))}">next ${escapeHtml(compactValue(matter.next_step))}</span>` : ""}<time datetime="${escapeHtml(matter.updated_at || "")}" title="Updated">${escapeHtml(compactTime(matter.updated_at))}</time></span>
-      </button>`;
+      </button>${childRows}`;
     }
 
     function renderMatters() {
@@ -1874,6 +1896,15 @@
         if (state.collapsedGroups.has(group)) state.collapsedGroups.delete(group);
         else state.collapsedGroups.add(group);
         try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...state.collapsedGroups])); } catch (_) { /* Optional preference. */ }
+        renderMatters();
+        return;
+      }
+      const expand = event.target.closest("[data-expand-root]");
+      if (expand) {
+        event.stopPropagation();
+        const key = expand.dataset.expandRoot;
+        if (state.expandedRoots.has(key)) state.expandedRoots.delete(key);
+        else state.expandedRoots.add(key);
         renderMatters();
         return;
       }
