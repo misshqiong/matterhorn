@@ -348,8 +348,10 @@ def test_rest_brief_seen_signals_ack_and_console_markup(tmp_path) -> None:
             matters = await client.get("/v1/matters", params={"scope": "octo-team"})
             assert matters.json()[0]["unseen"] is False
             page = await client.get("/console")
-            assert "需要我" in page.text
-            assert "pollBrief" in page.text
+            # 2026-08-06 user direction: the first screen leads with core
+            # projects; the briefing surface serves REST/CLI only.
+            assert "需要我" not in page.text
+            assert "pollBrief" not in page.text
             assert "/seen" in page.text
 
     asyncio.run(scenario())

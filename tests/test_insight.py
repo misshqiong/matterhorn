@@ -391,8 +391,10 @@ def test_rest_brief_topic_detail_and_console_worth_knowing(tmp_path) -> None:
             assert detail.json()["subject_type"] == "TOPIC"
             assert list(detail.json()["timeline"]) == ["viewpoint"]
             page = await client.get("/console")
-            assert "值得知道" in page.text
-            assert 'id="brief-worth-knowing"' in page.text
+            # 2026-08-06 user direction: briefing surface (incl. worth-knowing)
+            # left the first screen; topic detail rendering stays.
+            assert "值得知道" not in page.text
+            assert 'id="brief-worth-knowing"' not in page.text
             assert 'detail.subject_type === "TOPIC"' in page.text
             assert '["viewpoint"]' in page.text
 
