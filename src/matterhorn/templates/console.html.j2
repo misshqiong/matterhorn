@@ -265,9 +265,6 @@
     .today-entry strong { margin: .15rem 0 .08rem; font: 700 12px var(--serif); }
     .today-entry span:last-child { color: var(--muted); font: 10.5px var(--mono); }
     .brief-screen { border: 2px solid var(--ink); }
-    .needs-me-strip { display: flex; gap: .4rem; overflow-x: auto; padding: .55rem 0; border-bottom: 2px double var(--rule-strong); }
-    .needs-me-item { cursor: pointer; flex: 0 0 auto; max-width: 22rem; border: 1px solid var(--amber); background: var(--amber-soft); color: inherit; padding: .38rem .52rem; text-align: left; }
-    .needs-me-item.critical { border: 2px solid var(--red); color: var(--red); font-weight: 700; }
     .brief-groups { display: grid; margin-top: .35rem; }
     .worth-knowing-lines { display: grid; gap: .3rem; padding: .55rem 0; border-bottom: 1px solid var(--rule); }
     .brief-group-line { display: grid; grid-template-columns: minmax(7rem, .45fr) auto minmax(10rem, 1.5fr); gap: .55rem; padding: .38rem 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
@@ -607,8 +604,7 @@
       <section class="wall" aria-labelledby="wall-title">
         <div class="rail-head"><strong>2</strong><span>Unified matter wall</span></div>
         <section class="sheet brief-screen" id="brief-screen" aria-labelledby="brief-title">
-          <div class="sheet-head"><div><p class="eyebrow">Today · deterministic briefing</p><h2 id="brief-title">需要我</h2></div></div>
-          <div class="needs-me-strip" id="needs-me-strip"><p class="empty">Nothing needs attention.</p></div>
+          <div class="sheet-head"><div><p class="eyebrow">Today · deterministic briefing</p><h2 id="brief-title">今日简报</h2></div></div>
           <div class="worth-knowing-lines"><strong>值得知道</strong><div id="brief-worth-knowing"><p class="empty">No viewpoint activity.</p></div></div>
           <div class="brief-groups" id="brief-groups"></div>
           <details class="quiet-fold" id="brief-quiet"><summary>Quiet conversations</summary><div id="brief-quiet-lines"></div></details>
@@ -907,14 +903,9 @@
     }
 
     function renderBrief() {
-      const needs = state.brief.needs_me || [];
-      byId("needs-me-strip").innerHTML = needs.length
-        ? needs.map((item) => {
-            const linked = item.subject_key ? "critical" : "";
-            const label = item.title || item.matched_text || item.record_id;
-            return `<button type="button" class="needs-me-item ${linked}" data-brief-scope="${escapeHtml(item.scope_id)}" data-brief-subject="${escapeHtml(item.subject_key || "")}"><span class="scope-chip">${escapeHtml(item.scope_id)}</span> ${escapeHtml(label)}<small>${escapeHtml(item.reason)}</small></button>`;
-          }).join("")
-        : '<p class="empty">Nothing needs attention.</p>';
+      // The needs_me lane still flows through the API; the strip left the
+      // first screen on 2026-08-06 (user: focus on core projects) until the
+      // self-mention noise filter lands.
       const worthKnowing = state.brief.worth_knowing || [];
       byId("brief-worth-knowing").innerHTML = worthKnowing.length
         ? worthKnowing.map((item) => `<button type="button" class="brief-title" data-brief-scope="${escapeHtml(item.scope_id)}" data-brief-subject="${escapeHtml(item.subject_key)}">${escapeHtml(item.title)} · ${item.viewpoint_count} viewpoints · ${escapeHtml((item.distinct_speakers || []).join(", "))} · ${escapeHtml(compactTime(item.newest_viewpoint_at))}</button>`).join(" · ")
