@@ -333,6 +333,30 @@
     .mini-tree line { stroke: var(--rule-strong); stroke-width: 1.4; }
     .expand-toggle { cursor: pointer; user-select: none; }
     .expand-toggle:hover { border-color: var(--ink); color: var(--ink); }
+    .project-deck { margin-bottom: .9rem; }
+    .deck-header { display: flex; justify-content: space-between; align-items: baseline;
+      border-bottom: 1px solid var(--rule-strong); padding: .55rem .85rem; }
+    .deck-header span { color: var(--faint); font: 10.5px var(--mono); }
+    .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: .7rem; padding: .8rem .85rem; }
+    .project-card { border: 1px solid var(--rule-strong); background: var(--sheet); padding: .7rem .8rem .55rem; cursor: pointer; display: flex; flex-direction: column; gap: .35rem; }
+    .project-card.unseen { border-left: 3px solid var(--amber); }
+    .project-card.expanded { grid-column: 1 / -1; }
+    .project-card header { display: flex; align-items: center; gap: .4rem; }
+    .project-card .pin-toggle { margin-left: auto; border: 0; background: none; cursor: pointer; color: var(--faint); font-size: 14px; padding: 0 .1rem; }
+    .project-card .pin-toggle.pinned { color: var(--amber); }
+    .project-title { font-size: 1.02rem; font-weight: 600; margin: 0; cursor: pointer; }
+    .project-title:hover { text-decoration: underline; }
+    .project-progress { height: 5px; background: var(--soft); border: 1px solid var(--rule); }
+    .project-progress span { display: block; height: 100%; background: var(--green); }
+    .project-count { color: var(--muted); font: 10.5px var(--mono); margin: 0; }
+    .project-blockers { color: var(--red); font: 11px var(--mono); margin: 0; }
+    .project-next { color: var(--muted); font: 10.5px var(--mono); margin: 0; }
+    .project-card footer { color: var(--faint); font: 10px var(--mono); margin-top: auto; text-align: right; }
+    .project-card .child-rows { margin-left: .4rem; }
+    .others-drawer > summary { cursor: pointer; padding: .6rem .85rem; font-weight: 600;
+      border: 1px solid var(--rule); background: var(--sheet); list-style: none; }
+    .others-drawer > summary::before { content: "▸ "; color: var(--faint); }
+    .others-drawer[open] > summary::before { content: "▾ "; }
     .child-rows { border-left: 2px solid var(--rule-strong); margin: 0 0 .35rem 1.35rem; }
     .child-row { display: flex; align-items: baseline; gap: .55rem; width: calc(100% - 1.35rem);
       background: none; border: 0; border-bottom: 1px dotted var(--rule); cursor: pointer;
@@ -712,7 +736,8 @@
       reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null,
       brief: { needs_me: [], worth_knowing: [], groups: [], quiet: [] }, briefFingerprint: null,
       focusMode: true, groups: {}, scopeToGroup: {}, collapsedGroups: new Set(), openArchives: new Set(),
-      expandedRoots: new Set()
+      expandedRoots: new Set(), othersOpen: false,
+      pinnedProjects: new Set(JSON.parse(localStorage.getItem("matterhorn.console.pins") || "[]"))
     };
     const WALL_MODE_KEY = "matterhorn.console.wall.mode";
     const COLLAPSED_GROUPS_KEY = "matterhorn.console.groups.collapsed";
@@ -1331,6 +1356,55 @@
       </button>${childRows}`;
     }
 
+    function projectKey(matter) {
+      return `${matter.scope_id}:${matter.subject_key}`;
+    }
+
+    function isProject(matter) {
+      return (matter.descendants_total || 0) > 0 || state.pinnedProjects.has(projectKey(matter));
+    }
+
+    function projectSort(left, right) {
+      const blockedDelta = (right.bubbled_blockers?.length || 0) - (left.bubbled_blockers?.length || 0);
+      if (blockedDelta) return blockedDelta;
+      const unseenDelta = Number(Boolean(right.unseen)) - Number(Boolean(left.unseen));
+      if (unseenDelta) return unseenDelta;
+      return new Date(right.latest_activity || right.updated_at || 0) - new Date(left.latest_activity || left.updated_at || 0);
+    }
+
+    function projectCardHtml(matter) {
+      const key = projectKey(matter);
+      const expanded = state.expandedRoots.has(key);
+      const status = compactValue(matter.status) || "open";
+      const total = matter.descendants_total || 0;
+      const doneShare = total ? (matter.descendants_completed / total) * 100 : 0;
+      const blockers = (matter.bubbled_blockers || []).map((item) =>
+        `${item.subject_key}: ${compactValue(item.blocker)}`).join(" · ");
+      const kids = expanded ? (matter.children_preview || []).slice().sort((left, right) =>
+        new Date(left.birth_instant || 0) - new Date(right.birth_instant || 0)).map((kid) =>
+        `<button type="button" class="child-row" data-subject="${escapeHtml(kid.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
+          <span class="child-elbow">└</span>
+          <span class="stamp ${String(compactValue(kid.status) || "").toLowerCase() === "blocked" ? "blocked" : ""}">${escapeHtml(compactValue(kid.status) || "open")}</span>
+          <strong>${escapeHtml(kid.title)}</strong>
+          <time>${escapeHtml(compactTime(kid.birth_instant))}</time>
+        </button>`).join("") : "";
+      return `<article class="project-card ${expanded ? "expanded" : ""} ${matter.unseen ? "unseen" : ""}" data-expand-root="${escapeHtml(key)}">
+        <header>
+          <span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span>
+          <span class="scope-chip">${escapeHtml(matter.scope_id)}</span>
+          <button type="button" class="pin-toggle ${state.pinnedProjects.has(key) ? "pinned" : ""}" data-pin="${escapeHtml(key)}" title="置顶/取消置顶">${state.pinnedProjects.has(key) ? "★" : "☆"}</button>
+        </header>
+        <h3 class="project-title" data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">${escapeHtml(matter.title)}</h3>
+        ${total ? `<div class="project-progress"><span style="width:${doneShare.toFixed(0)}%"></span></div>
+        <p class="project-count">${matter.descendants_completed}/${total} 子目标 ${expanded ? "▾" : "▸ 点击展开"}</p>` : '<p class="project-count">独立事项 · 置顶项目</p>'}
+        ${miniTreeSvg(matter)}
+        ${blockers ? `<p class="project-blockers">⛔ ${escapeHtml(blockers)}</p>` : ""}
+        ${matter.next_step != null ? `<p class="project-next">next · ${escapeHtml(compactValue(matter.next_step))}</p>` : ""}
+        <footer><time>${escapeHtml(compactTime(matter.latest_activity || matter.updated_at))}</time></footer>
+        ${kids ? `<div class="child-rows">${kids}</div>` : ""}
+      </article>`;
+    }
+
     function renderMatters() {
       const now = Date.now();
       const grouped = new Map(groupOrder(state.matters).map((group) => [group, []]));
@@ -1339,6 +1413,9 @@
         if (!grouped.has(group)) grouped.set(group, []);
         grouped.get(group).push(matter);
       });
+      const projects = state.matters.filter((matter) => isProject(matter) && matterIsActive(matter, now)).sort(projectSort);
+      const projectSection = `<section class="sheet project-deck"><header class="deck-header"><strong>核心项目</strong><span>${projects.length} 个 · 其余事项收在下方抽屉</span></header>
+        <div class="project-grid">${projects.map(projectCardHtml).join("") || '<p class="empty" style="padding:.6rem .85rem">还没有项目——给任一事项挂上子目标,或用 ☆ 把它置顶成项目。</p>'}</div></section>`;
       const sections = [...grouped.entries()].map(([group, matters]) => {
         const active = matters.filter((matter) => matterIsActive(matter, now)).sort(matterSort);
         const archived = matters.filter((matter) => !matterIsActive(matter, now)).sort(matterSort);
@@ -1352,7 +1429,10 @@
           <div class="matter-group-body"><div class="matter-rows">${active.map((matter) => matterRowHtml(matter)).join("") || '<p class="empty" style="padding:.6rem .85rem">No active matters.</p>'}</div>${archive}</div>
         </section>`;
       }).join("");
-      byId("matter-list").innerHTML = sections || '<p class="empty">No matters match this scope filter.</p>';
+      const othersCount = state.matters.filter((matter) => !isProject(matter)).length;
+      const othersOpen = state.othersOpen ? "open" : "";
+      byId("matter-list").innerHTML = projectSection +
+        `<details class="others-drawer" id="others-drawer" ${othersOpen}><summary>其他事项(${othersCount})· 按组浏览</summary>${sections || '<p class="empty">No matters match this scope filter.</p>'}</details>`;
       const activeCount = state.matters.filter((matter) => matterIsActive(matter, now)).length;
       byId("top-summary").textContent = `${activeCount} active · ${state.matters.length - activeCount} archived · ${state.scopes.length} scope${state.scopes.length === 1 ? "" : "s"}`;
       renderToday();
@@ -1899,17 +1979,30 @@
         renderMatters();
         return;
       }
-      const expand = event.target.closest("[data-expand-root]");
-      if (expand) {
+      const pin = event.target.closest("[data-pin]");
+      if (pin) {
         event.stopPropagation();
-        const key = expand.dataset.expandRoot;
-        if (state.expandedRoots.has(key)) state.expandedRoots.delete(key);
-        else state.expandedRoots.add(key);
+        const key = pin.dataset.pin;
+        if (state.pinnedProjects.has(key)) state.pinnedProjects.delete(key);
+        else state.pinnedProjects.add(key);
+        try { localStorage.setItem("matterhorn.console.pins", JSON.stringify([...state.pinnedProjects])); } catch (_) { /* Optional preference. */ }
         renderMatters();
         return;
       }
       const row = event.target.closest("[data-subject]");
-      if (row) loadDetail(row.dataset.scope, row.dataset.subject);
+      const expand = event.target.closest("[data-expand-root]");
+      // Deeper element wins: a title/child inside a card opens detail; the
+      // rollup toggle inside a wall row expands.
+      if (row && (!expand || expand.contains(row))) {
+        loadDetail(row.dataset.scope, row.dataset.subject);
+        return;
+      }
+      if (expand) {
+        const key = expand.dataset.expandRoot;
+        if (state.expandedRoots.has(key)) state.expandedRoots.delete(key);
+        else state.expandedRoots.add(key);
+        renderMatters();
+      }
     });
     byId("brief-screen").addEventListener("click", (event) => {
       const target = event.target.closest("[data-brief-subject]");
@@ -1918,6 +2011,10 @@
       }
     });
     byId("matter-list").addEventListener("toggle", (event) => {
+      if (event.target.id === "others-drawer") {
+        state.othersOpen = event.target.open;
+        return;
+      }
       const drawer = event.target.closest("[data-archive]");
       if (!drawer) return;
       if (drawer.open) state.openArchives.add(drawer.dataset.archive);
