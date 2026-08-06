@@ -134,6 +134,13 @@ class TaskRow:
     result: TaskResult
 
 
+@dataclass(frozen=True)
+class ThemeScheduleState:
+    scope_id: str
+    last_enqueued_at: datetime | None
+    last_run_at: datetime | None
+
+
 class Store(Protocol):
     def transaction(self) -> AbstractContextManager[None]: ...
 
@@ -440,6 +447,18 @@ class Store(Protocol):
     def pending_scopes(
         self, *, max_attempts: int = MAX_TASK_ATTEMPTS
     ) -> list[str]: ...
+
+    def theme_schedule_state(
+        self, scope_id: str
+    ) -> ThemeScheduleState | None: ...
+
+    def set_theme_schedule_state(
+        self,
+        scope_id: str,
+        *,
+        last_enqueued_at: datetime | None = None,
+        last_run_at: datetime | None = None,
+    ) -> ThemeScheduleState: ...
 
     def add_event(self, event: ChangeEvent) -> bool: ...
 

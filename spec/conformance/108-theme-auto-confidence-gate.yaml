@@ -1,0 +1,56 @@
+case_id: theme-auto-confidence-gate
+title: Auto theme application requires deterministic multi-kind confidence
+invariants: [INV-20, INV-21]
+schema_profile: org-matters/v1
+scope_id: octo-theme-confidence
+clock: ['2026-08-06T10:00:00Z']
+cards:
+  - {card_id: h-a-card, scope_id: octo-theme-confidence, subject_key: h-a, date: 2026-08-06, title: Dana launch alpha, status: open, source_refs: [{source_id: high-room:h-a, sent_at: '2026-08-06T09:00:00Z', sender: Dana Reyes}]}
+  - {card_id: h-b-card, scope_id: octo-theme-confidence, subject_key: h-b, date: 2026-08-06, title: Dana launch beta, status: open, source_refs: [{source_id: high-room:h-b, sent_at: '2026-08-06T09:01:00Z', sender: Dana Reyes}]}
+  - {card_id: h-c-card, scope_id: octo-theme-confidence, subject_key: h-c, date: 2026-08-06, title: Dana launch gamma, status: open, source_refs: [{source_id: high-room:h-c, sent_at: '2026-08-06T09:02:00Z', sender: Dana Reyes}]}
+  - {card_id: l-a-card, scope_id: octo-theme-confidence, subject_key: l-a, date: 2026-08-06, title: Octo lunar alpha, status: open, source_refs: [{source_id: low-a:l-a, sent_at: '2026-08-06T09:03:00Z', sender: Dana Reyes}]}
+  - {card_id: l-b-card, scope_id: octo-theme-confidence, subject_key: l-b, date: 2026-08-06, title: Octo lunar beta, status: open, source_refs: [{source_id: low-b:l-b, sent_at: '2026-08-06T09:04:00Z', sender: Dana Reyes}]}
+  - {card_id: l-c-card, scope_id: octo-theme-confidence, subject_key: l-c, date: 2026-08-06, title: Octo lunar gamma, status: open, source_refs: [{source_id: low-c:l-c, sent_at: '2026-08-06T09:05:00Z', sender: Dana Reyes}]}
+theme_config: {theme_converge: auto, theme_min_cluster: 3}
+tool_loop_sessions:
+  - turns: [{tool_call: {name: emit, arguments: {title: Dana launch theme, member_subject_keys: [h-a, h-b, h-c], existing_root_subsumes: null}}}]
+  - turns: [{tool_call: {name: emit, arguments: {title: Octo lunar theme, member_subject_keys: [l-a, l-b, l-c], existing_root_subsumes: null}}}]
+theme_operations:
+  - {operation: observe_record, record_id: 'high-room:h-a', observation_hash: obs-h-a, container_id: high-room, observed_at: '2026-08-06T09:00:00Z'}
+  - {operation: observe_record, record_id: 'high-room:h-b', observation_hash: obs-h-b, container_id: high-room, observed_at: '2026-08-06T09:01:00Z'}
+  - {operation: observe_record, record_id: 'high-room:h-c', observation_hash: obs-h-c, container_id: high-room, observed_at: '2026-08-06T09:02:00Z'}
+  - {operation: run}
+expect:
+  assertions:
+    - {subject_key: h-a, predicate: status, object_value: open}
+    - {subject_key: h-b, predicate: status, object_value: open}
+    - {subject_key: h-c, predicate: status, object_value: open}
+    - {subject_key: l-a, predicate: status, object_value: open}
+    - {subject_key: l-b, predicate: status, object_value: open}
+    - {subject_key: l-c, predicate: status, object_value: open}
+    - {subject_key: h-a, predicate: part_of, origin: model}
+    - {subject_key: h-b, predicate: part_of, origin: model}
+    - {subject_key: h-c, predicate: part_of, origin: model}
+  intervals:
+    - {subject_key: h-a, predicate: status, object_value: open}
+    - {subject_key: h-b, predicate: status, object_value: open}
+    - {subject_key: h-c, predicate: status, object_value: open}
+    - {subject_key: l-a, predicate: status, object_value: open}
+    - {subject_key: l-b, predicate: status, object_value: open}
+    - {subject_key: l-c, predicate: status, object_value: open}
+    - {subject_key: h-a, predicate: part_of, origin: model}
+    - {subject_key: h-b, predicate: part_of, origin: model}
+    - {subject_key: h-c, predicate: part_of, origin: model}
+  subject_count: 8
+  review_items:
+    - {reasons: [PARENT_SUGGESTION], card_json: {subject_key: l-a}}
+    - {reasons: [PARENT_SUGGESTION], card_json: {subject_key: l-b}}
+    - {reasons: [PARENT_SUGGESTION], card_json: {subject_key: l-c}}
+  tool_loop_calls: 2
+  theme_reports:
+    - edges_applied: 3
+      reviews_enqueued: 3
+      roots_created: 2
+      proposals:
+        - {disposition: auto, edges_applied: 3}
+        - {disposition: review, reviews_enqueued: 3}

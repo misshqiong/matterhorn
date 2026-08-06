@@ -1,0 +1,18 @@
+fixture_id: dana-octo-two-themes
+scope_id: eval-theme-rediscovery
+matters:
+  - {subject_key: atlas-api, title: Octo atlas API contract}
+  - {subject_key: atlas-client, title: Octo atlas client rollout}
+  - {subject_key: atlas-metrics, title: Octo atlas metrics review}
+  - {subject_key: atlas-permissions, title: Octo atlas permissions audit}
+  - {subject_key: atlas-tests, title: Octo atlas integration tests}
+  - {subject_key: beacon-brief, title: Dana beacon research brief}
+  - {subject_key: beacon-data, title: Dana beacon research dataset}
+  - {subject_key: beacon-interviews, title: Dana beacon research interviews}
+  - {subject_key: beacon-notes, title: Dana beacon research notes}
+  - {subject_key: beacon-review, title: Dana beacon research review}
+themes:
+  - title: Octo atlas theme
+    members: [atlas-api, atlas-client, atlas-metrics, atlas-permissions, atlas-tests]
+  - title: Dana beacon research theme
+    members: [beacon-brief, beacon-data, beacon-interviews, beacon-notes, beacon-review]

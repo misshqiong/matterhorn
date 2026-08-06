@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from matterhorn.adapters.messages import MessageCardExtractor
 from matterhorn.contracts import Message, Record, SubjectRecord
 from matterhorn.defaults import Engine
-from matterhorn.gateway_config import configured_gateway
+from matterhorn.gateway_config import ToolLoopResult, configured_gateway
 
 REPORT_SCHEMA = "matterhorn-eval/v1"
 FIELD_NAMES = ("status", "owner", "next_step")
@@ -213,6 +213,13 @@ def default_dataset() -> Path:
     if installed.is_dir():
         return installed
     raise FileNotFoundError("packaged eval dataset was not found; pass --dataset DIR")
+
+
+def default_theme_fixture() -> Path:
+    path = default_dataset() / "themes" / "rediscovery.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"theme rediscovery fixture was not found: {path}")
+    return path
 
 
 def discover_eval_cases(dataset: str | Path) -> list[Path]:
@@ -489,6 +496,172 @@ def run_live_sample_comparison(
             for mode, score in scores.items()
         },
     }
+
+
+class ThemeRediscoveryGateway:
+    """Script the naming-only answer while leaving clustering under test."""
+
+    def __init__(self, themes: list[dict[str, Any]]) -> None:
+        self.themes = themes
+        self.calls = 0
+
+    def complete(self, **_kwargs: Any) -> str:
+        raise EvalHarnessError("theme rediscovery must use the tool loop")
+
+    def tool_loop(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict[str, Any]],
+        handler: Any,
+        max_tool_calls: int = 16,
+        max_emissions: int = 4,
+    ) -> ToolLoopResult:
+        del system, tools, max_tool_calls, max_emissions
+        payload = json.loads(user)
+        surfaced = {
+            item["subject_key"] for item in payload.get("closed_world", [])
+        }
+        match = next(
+            (
+                theme
+                for theme in self.themes
+                if set(theme["members"]) == surfaced
+            ),
+            None,
+        )
+        if match is None:
+            raise EvalHarnessError(
+                f"no scripted theme answer for surfaced members {sorted(surfaced)}"
+            )
+        output = handler(
+            "emit",
+            {
+                "title": match["title"],
+                "member_subject_keys": match["members"],
+                "existing_root_subsumes": None,
+            },
+        )
+        if output.get("accepted") is not True:
+            raise EvalHarnessError(f"theme naming fixture was rejected: {output}")
+        self.calls += 1
+        return ToolLoopResult("done", tool_calls=1, emissions=1)
+
+
+def run_theme_rediscovery(
+    fixture: str | Path | None = None,
+    *,
+    gateway: Any | None = None,
+) -> dict[str, Any]:
+    """Strip the answer-key hierarchy, converge, and score recovered parents."""
+
+    path = Path(fixture) if fixture is not None else default_theme_fixture()
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as error:
+        raise EvalHarnessError(
+            f"could not load theme rediscovery fixture {path.name}: {error}"
+        ) from error
+    if not isinstance(payload, dict):
+        raise EvalHarnessError("theme rediscovery fixture root MUST be a mapping")
+    matters = payload.get("matters")
+    themes = payload.get("themes")
+    scope_id = payload.get("scope_id")
+    if (
+        not isinstance(scope_id, str)
+        or not isinstance(matters, list)
+        or not isinstance(themes, list)
+    ):
+        raise EvalHarnessError(
+            "theme rediscovery fixture requires scope_id, matters, and themes"
+        )
+    selected_gateway = gateway or ThemeRediscoveryGateway(themes)
+    with tempfile.TemporaryDirectory(prefix="matterhorn-theme-eval-") as temp_dir:
+        engine = Engine(
+            Path(temp_dir) / "themes.db",
+            "org-matters/v1",
+            clock=EvalClock(),
+            gateway=selected_gateway,
+            theme_converge="auto",
+        )
+        cards = []
+        for index, matter in enumerate(matters):
+            cards.append(
+                {
+                    "card_id": f"theme-eval-{matter['subject_key']}",
+                    "scope_id": scope_id,
+                    "subject_key": matter["subject_key"],
+                    "date": "2026-08-06",
+                    "title": matter["title"],
+                    "status": "open",
+                    "source_refs": [
+                        {
+                            "source_id": (
+                                f"fixture-room-{index}:{matter['subject_key']}"
+                            ),
+                            "sent_at": (
+                                datetime(2026, 8, 6, 9, tzinfo=UTC)
+                                + timedelta(minutes=index)
+                            ),
+                            "sender": "Dana Reyes",
+                            "excerpt": (
+                                f"Fictional flat matter {matter['subject_key']}."
+                            ),
+                        }
+                    ],
+                }
+            )
+        engine._ingest_cards_sync(cards, scope_id=scope_id)
+        report = engine.themes(scope_id)
+        title_by_key = {
+            item.subject_key: item.title for item in engine.store.subjects(scope_id)
+        }
+        expected_by_member = {
+            member: theme["title"]
+            for theme in themes
+            for member in theme["members"]
+        }
+        actual_by_member: dict[str, str | None] = {}
+        for member in expected_by_member:
+            parents = engine.query.current(scope_id, member, "part_of")
+            parent_key = parents[0].value if parents else None
+            actual_by_member[member] = title_by_key.get(parent_key)
+        correct = sum(
+            actual_by_member[member] == title
+            for member, title in expected_by_member.items()
+        )
+        total = len(expected_by_member)
+        return {
+            "schema": REPORT_SCHEMA,
+            "mode": "theme-rediscovery",
+            "fixture_id": payload.get("fixture_id", path.stem),
+            "score": {
+                "correct": correct,
+                "total": total,
+                "fraction": correct / total if total else None,
+            },
+            "members": [
+                {
+                    "subject_key": member,
+                    "expected_theme": expected_by_member[member],
+                    "actual_theme": actual_by_member[member],
+                    "correct": actual_by_member[member]
+                    == expected_by_member[member],
+                }
+                for member in sorted(expected_by_member)
+            ],
+            "pass": report.to_dict(),
+        }
+
+
+def format_theme_rediscovery_table(report: dict[str, Any]) -> str:
+    score = report["score"]
+    return (
+        "fixture_id | correct/total | fraction\n"
+        f"{report['fixture_id']} | {score['correct']}/{score['total']} | "
+        f"{score['fraction']:.3f}"
+    )
 
 
 def format_live_sample_table(report: dict[str, Any]) -> str:

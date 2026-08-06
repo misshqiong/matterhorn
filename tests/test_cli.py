@@ -660,7 +660,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=104 failed=0 total=104" in completed.stdout
+    assert "SUMMARY passed=111 failed=0 total=111" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:
@@ -738,6 +738,7 @@ def test_eval_cli_contract_documents_measurement_flags() -> None:
     assert "--json" in _parameter(command, "json_path").opts
     assert "--seed-note" in _parameter(command, "seed_note").opts
     assert "--live-samples" in _parameter(command, "live_samples").opts
+    assert "--themes" in _parameter(command, "themes").opts
     assert "metric values never determine exit status" in " ".join(
         (command.help or "").split()
     )

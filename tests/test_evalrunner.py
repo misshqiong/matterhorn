@@ -15,6 +15,7 @@ from matterhorn.evalrunner import (
     load_alignment_sample,
     run_eval_dataset,
     run_live_sample_comparison,
+    run_theme_rediscovery,
     score_alignment_samples,
     score_assertion_set,
     score_metrics,
@@ -382,3 +383,12 @@ expected_assertions:
             "mis_attached": 0,
         }
         assert report["aggregate"][mode]["typing_accuracy"]["rate"] == 1.0
+
+
+def test_theme_rediscovery_fixture_recovers_both_stripped_groups() -> None:
+    report = run_theme_rediscovery()
+
+    assert report["mode"] == "theme-rediscovery"
+    assert report["score"] == {"correct": 10, "total": 10, "fraction": 1.0}
+    assert report["pass"]["edges_applied"] == 10
+    assert report["pass"]["roots_created"] == 2

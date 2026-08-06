@@ -47,6 +47,7 @@ from matterhorn.store.base import (
     RecordObservationRow,
     StagedRecordRow,
     TaskRow,
+    ThemeScheduleState,
     thread_safe_store,
 )
 
@@ -283,6 +284,11 @@ CREATE TABLE IF NOT EXISTS gate_stats (
     count INTEGER NOT NULL,
     PRIMARY KEY (scope_id, counter)
 );
+CREATE TABLE IF NOT EXISTS theme_schedule_state (
+    scope_id TEXT PRIMARY KEY,
+    last_enqueued_at TIMESTAMPTZ,
+    last_run_at TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS tasks (
     task_id TEXT PRIMARY KEY,
     scope_id TEXT NOT NULL,
@@ -432,6 +438,7 @@ class PostgresStore:
                 "review_queue",
                 "distill_queue",
                 "gate_stats",
+                "theme_schedule_state",
                 "projection_stats",
                 "memory_cards",
                 "intervals",
@@ -460,6 +467,7 @@ class PostgresStore:
             "subject_handles",
             "tasks",
             "review_queue",
+            "theme_schedule_state",
             "events",
             "ingested_cards",
             "record_observations",
@@ -498,6 +506,7 @@ class PostgresStore:
                 UNION ALL SELECT scope_id FROM distill_queue
                 UNION ALL SELECT scope_id FROM review_queue
                 UNION ALL SELECT scope_id FROM gate_stats
+                UNION ALL SELECT scope_id FROM theme_schedule_state
                 UNION ALL SELECT scope_id FROM tasks
                 UNION ALL SELECT scope_id FROM events
                 UNION ALL SELECT scope_id FROM webhook_deliveries
@@ -1945,6 +1954,48 @@ class PostgresStore:
             ),
         )
         return [row["scope_id"] for row in rows]
+
+    def theme_schedule_state(self, scope_id: str) -> ThemeScheduleState | None:
+        row = self._execute(
+            "SELECT * FROM theme_schedule_state WHERE scope_id=%s",
+            (scope_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return ThemeScheduleState(
+            scope_id=scope_id,
+            last_enqueued_at=row["last_enqueued_at"],
+            last_run_at=row["last_run_at"],
+        )
+
+    def set_theme_schedule_state(
+        self,
+        scope_id: str,
+        *,
+        last_enqueued_at: datetime | None = None,
+        last_run_at: datetime | None = None,
+    ) -> ThemeScheduleState:
+        self._execute(
+            """
+            INSERT INTO theme_schedule_state(scope_id,last_enqueued_at,last_run_at)
+            VALUES(%s,%s,%s)
+            ON CONFLICT(scope_id) DO UPDATE SET
+              last_enqueued_at=COALESCE(
+                excluded.last_enqueued_at,theme_schedule_state.last_enqueued_at
+              ),
+              last_run_at=COALESCE(
+                excluded.last_run_at,theme_schedule_state.last_run_at
+              )
+            """,
+            (
+                scope_id,
+                as_utc(last_enqueued_at) if last_enqueued_at else None,
+                as_utc(last_run_at) if last_run_at else None,
+            ),
+        )
+        state = self.theme_schedule_state(scope_id)
+        assert state is not None
+        return state
 
     def add_event(self, event: ChangeEvent) -> bool:
         if event.event_type not in {

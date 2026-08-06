@@ -37,7 +37,21 @@ class Engine(CoreEngine):
         hot_min_messages: int = CoreEngine.DEFAULT_HOT_MIN_MESSAGES,
         unified_loop: bool | None = None,
         alignment_samples_dir: str | Path | None = None,
+        theme_converge: str | None = None,
+        theme_min_cluster: int | None = None,
+        theme_min_backlog: int | None = None,
+        theme_interval_hours: float | None = None,
+        theme_conversation_fanout: int | None = None,
     ):
+        from matterhorn.engine.theme_converge import configured_theme_settings
+
+        theme_settings = configured_theme_settings(
+            mode=theme_converge,
+            min_cluster=theme_min_cluster,
+            min_backlog=theme_min_backlog,
+            interval_hours=theme_interval_hours,
+            conversation_fanout=theme_conversation_fanout,
+        )
         super().__init__(
             store,
             schema,
@@ -55,6 +69,11 @@ class Engine(CoreEngine):
             hot_min_messages=hot_min_messages,
             unified_loop=_unified_loop_enabled(unified_loop),
             alignment_samples_dir=alignment_samples_dir,
+            theme_converge=theme_settings.mode,
+            theme_min_cluster=theme_settings.min_cluster,
+            theme_min_backlog=theme_settings.min_backlog,
+            theme_interval_hours=theme_settings.interval_hours,
+            theme_conversation_fanout=theme_settings.conversation_fanout,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(

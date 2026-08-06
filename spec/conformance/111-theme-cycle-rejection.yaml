@@ -1,0 +1,43 @@
+case_id: theme-cycle-rejection
+title: Theme model edges still reject a cycle in the goal graph
+invariants: [INV-19, INV-20, INV-21]
+schema_profile: org-matters/v1
+scope_id: octo-theme-cycle
+clock: ['2026-08-06T10:00:00Z']
+cards:
+  - {card_id: a-card, scope_id: octo-theme-cycle, subject_key: a, date: 2026-08-06, title: Octo cycle parent, status: open, source_refs: [{source_id: shared-room:a, sent_at: '2026-08-06T09:00:00Z', sender: Dana Reyes}]}
+  - {card_id: b-card, scope_id: octo-theme-cycle, subject_key: b, date: 2026-08-06, title: Octo cycle beta, status: open, source_refs: [{source_id: shared-room:b, sent_at: '2026-08-06T09:01:00Z', sender: Dana Reyes}]}
+  - {card_id: c-card, scope_id: octo-theme-cycle, subject_key: c, date: 2026-08-06, title: Octo cycle gamma, status: open, source_refs: [{source_id: shared-room:c, sent_at: '2026-08-06T09:02:00Z', sender: Dana Reyes}]}
+  - {card_id: child-card, scope_id: octo-theme-cycle, subject_key: child, date: 2026-08-06, title: Fictional cycle child, status: open, source_refs: [{source_id: child-room:child, sent_at: '2026-08-06T09:03:00Z', sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-theme-cycle, subject_key: child, subject_type: MATTER, predicate: part_of, object_value: a, valid_from: '2026-08-06T09:10:00Z', source_refs: [{source_id: review:child-parent, sent_at: '2026-08-06T09:10:00Z', sender: Dana Reyes}]}
+  - {scope_id: octo-theme-cycle, subject_key: a, subject_type: MATTER, predicate: spawned_from, object_value: b, valid_from: '2026-08-06T09:11:00Z', source_refs: [{source_id: review:a-spawn, sent_at: '2026-08-06T09:11:00Z', sender: Dana Reyes}]}
+theme_config: {theme_converge: auto, theme_min_cluster: 3}
+tool_loop_sessions:
+  - turns: [{tool_call: {name: emit, arguments: {title: Octo cycle theme, member_subject_keys: [a, b, c], existing_root_subsumes: true}}}]
+theme_operations:
+  - {operation: observe_record, record_id: 'shared-room:a', observation_hash: obs-a, container_id: shared-room, observed_at: '2026-08-06T09:00:00Z'}
+  - {operation: observe_record, record_id: 'shared-room:b', observation_hash: obs-b, container_id: shared-room, observed_at: '2026-08-06T09:01:00Z'}
+  - {operation: observe_record, record_id: 'shared-room:c', observation_hash: obs-c, container_id: shared-room, observed_at: '2026-08-06T09:02:00Z'}
+  - {operation: run}
+expect:
+  assertions:
+    - {subject_key: a, predicate: status, object_value: open}
+    - {subject_key: b, predicate: status, object_value: open}
+    - {subject_key: c, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: a, origin: human}
+    - {subject_key: a, predicate: spawned_from, object_value: b, origin: human}
+    - {subject_key: c, predicate: part_of, object_value: a, origin: model}
+  intervals:
+    - {subject_key: a, predicate: status, object_value: open}
+    - {subject_key: b, predicate: status, object_value: open}
+    - {subject_key: c, predicate: status, object_value: open}
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: a, origin: human}
+    - {subject_key: a, predicate: spawned_from, object_value: b, origin: human}
+    - {subject_key: c, predicate: part_of, object_value: a, origin: model}
+  gate_statistics: {rejections: {STRUCTURE_CYCLE: 1}}
+  tool_loop_calls: 1
+  theme_reports:
+    - {edges_applied: 1, roots_created: 0, rejection_counts: {STRUCTURE_CYCLE: 1}}

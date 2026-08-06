@@ -1,0 +1,69 @@
+case_id: theme-affinity-kinds
+title: Theme clustering bonds on handles and titles; venues only confirm
+invariants: [INV-21]
+schema_profile:
+  schema: fictional-themes/v1
+  subjects:
+    - {type: MATTER, primary: true}
+  handle_patterns:
+    - handle_type: kind_a
+      pattern: '(?<![A-Za-z0-9])A-0*[1-9][0-9]*(?![A-Za-z0-9])'
+      normalization: {strip_prefixes: [A], strip_leading_zeros: true}
+    - handle_type: kind_b
+      pattern: '(?<![A-Za-z0-9])B-0*[1-9][0-9]*(?![A-Za-z0-9])'
+      normalization: {strip_prefixes: [B], strip_leading_zeros: true}
+    - handle_type: kind_c
+      pattern: '(?<![A-Za-z0-9])C-0*[1-9][0-9]*(?![A-Za-z0-9])'
+      normalization: {strip_prefixes: [C], strip_leading_zeros: true}
+  predicates:
+    - {name: status, subject: MATTER, cardinality: SINGLE, extraction: deterministic, source_field: status, value_domain: [open, completed]}
+    - {name: part_of, subject: MATTER, cardinality: SINGLE, extraction: semantic, object: subject}
+    - {name: spawned_from, subject: MATTER, cardinality: SINGLE, extraction: semantic, object: subject}
+    - {name: decision, subject: MATTER, cardinality: APPEND, extraction: semantic}
+  completion: {predicate: status, completed_values: [completed]}
+scope_id: octo-theme-affinities
+clock: ['2026-08-06T10:00:00Z']
+cards:
+  - {card_id: h-a-card, scope_id: octo-theme-affinities, subject_key: h-a, date: 2026-08-06, title: Amber lattice, source_refs: [{source_id: handle-room:h-a, sent_at: '2026-08-06T09:00:00Z', sender: Dana Reyes}]}
+  - {card_id: h-b-card, scope_id: octo-theme-affinities, subject_key: h-b, date: 2026-08-06, title: Bronze meadow, source_refs: [{source_id: handle-room:h-b, sent_at: '2026-08-06T09:01:00Z', sender: Dana Reyes}]}
+  - {card_id: h-c-card, scope_id: octo-theme-affinities, subject_key: h-c, date: 2026-08-06, title: Coral window, source_refs: [{source_id: handle-room:h-c, sent_at: '2026-08-06T09:02:00Z', sender: Dana Reyes}]}
+  - {card_id: e-a-card, scope_id: octo-theme-affinities, subject_key: e-a, date: 2026-08-06, title: Indigo compass drift, status: open, source_refs: [{source_id: shared-room:e-a, sent_at: '2026-08-06T09:03:00Z', sender: Dana Reyes}]}
+  - {card_id: e-b-card, scope_id: octo-theme-affinities, subject_key: e-b, date: 2026-08-06, title: Indigo compass orchard, status: open, source_refs: [{source_id: shared-room:e-b, sent_at: '2026-08-06T09:04:00Z', sender: Dana Reyes}]}
+  - {card_id: e-c-card, scope_id: octo-theme-affinities, subject_key: e-c, date: 2026-08-06, title: Indigo compass harbor, status: open, source_refs: [{source_id: shared-room:e-c, sent_at: '2026-08-06T09:05:00Z', sender: Dana Reyes}]}
+  - {card_id: t-a-card, scope_id: octo-theme-affinities, subject_key: t-a, date: 2026-08-06, title: Octo lunar alpha, source_refs: [{source_id: title-a:t-a, sent_at: '2026-08-06T09:06:00Z', sender: Dana Reyes}]}
+  - {card_id: t-b-card, scope_id: octo-theme-affinities, subject_key: t-b, date: 2026-08-06, title: Octo lunar beta, source_refs: [{source_id: title-b:t-b, sent_at: '2026-08-06T09:07:00Z', sender: Dana Reyes}]}
+  - {card_id: t-c-card, scope_id: octo-theme-affinities, subject_key: t-c, date: 2026-08-06, title: Octo lunar gamma, source_refs: [{source_id: title-c:t-c, sent_at: '2026-08-06T09:08:00Z', sender: Dana Reyes}]}
+handle_operations:
+  - {operation: bind, subject_key: h-a, handle_type: kind_a, handle_value: A-0042, source_refs: [{source_id: review:h-a, sent_at: '2026-08-06T09:10:00Z', sender: Dana Reyes}]}
+  - {operation: bind, subject_key: h-b, handle_type: kind_b, handle_value: B-42, source_refs: [{source_id: review:h-b, sent_at: '2026-08-06T09:11:00Z', sender: Dana Reyes}]}
+  - {operation: bind, subject_key: h-c, handle_type: kind_c, handle_value: C-00042, source_refs: [{source_id: review:h-c, sent_at: '2026-08-06T09:12:00Z', sender: Dana Reyes}]}
+theme_config: {theme_converge: review, theme_min_cluster: 3}
+tool_loop_sessions:
+  - turns: [{tool_call: {name: emit, arguments: {title: Shared evidence theme, member_subject_keys: [e-a, e-b, e-c], existing_root_subsumes: null}}}]
+  - turns: [{tool_call: {name: emit, arguments: {title: Shared handle theme, member_subject_keys: [h-a, h-b, h-c], existing_root_subsumes: null}}}]
+  - turns: [{tool_call: {name: emit, arguments: {title: Octo lunar theme, member_subject_keys: [t-a, t-b, t-c], existing_root_subsumes: null}}}]
+theme_operations:
+  - {operation: observe_record, record_id: 'shared-room:e-a', observation_hash: obs-e-a, container_id: shared-room, observed_at: '2026-08-06T09:03:00Z'}
+  - {operation: observe_record, record_id: 'shared-room:e-b', observation_hash: obs-e-b, container_id: shared-room, observed_at: '2026-08-06T09:04:00Z'}
+  - {operation: observe_record, record_id: 'shared-room:e-c', observation_hash: obs-e-c, container_id: shared-room, observed_at: '2026-08-06T09:05:00Z'}
+  - {operation: run, dry_run: true}
+expect:
+  assertions:
+    - {subject_key: e-a, predicate: status, object_value: open}
+    - {subject_key: e-b, predicate: status, object_value: open}
+    - {subject_key: e-c, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: e-a, predicate: status, object_value: open}
+    - {subject_key: e-b, predicate: status, object_value: open}
+    - {subject_key: e-c, predicate: status, object_value: open}
+  tool_loop_calls: 3
+  theme_reports:
+    - dry_run: true
+      clusters:
+        - {member_subject_keys: [e-a, e-b, e-c], affinity_kinds: [evidence, title]}
+        - {member_subject_keys: [h-a, h-b, h-c], affinity_kinds: [handle]}
+        - {member_subject_keys: [t-a, t-b, t-c], affinity_kinds: [title]}
+      proposals:
+        - {disposition: dry-run-review}
+        - {disposition: dry-run-review}
+        - {disposition: dry-run-review}

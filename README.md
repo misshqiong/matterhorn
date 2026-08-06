@@ -120,10 +120,19 @@ non-interactive fallback:
 | `MATTERHORN_API_KEY` | Preferred provider credential; provider-native keys remain supported |
 | `MATTERHORN_TIMEOUT` | Positive floating-point request timeout in seconds; defaults to `60` |
 | `MATTERHORN_UNIFIED_LOOP` | Override `[distill] unified_loop`; the section 26 loop defaults to `false` |
+| `MATTERHORN_THEME_CONVERGE` | Override `[themes] theme_converge`; `off`, `review`, or `auto` (default `review`) |
+| `MATTERHORN_THEME_MIN_CLUSTER` | Override `[themes] theme_min_cluster` (default `3`) |
+| `MATTERHORN_THEME_MIN_BACKLOG` | Override `[themes] theme_min_backlog` (default `6`) |
+| `MATTERHORN_THEME_INTERVAL_HOURS` | Override `[themes] theme_interval_hours` (default `6`) |
+| `MATTERHORN_THEME_CONVERSATION_FANOUT` | Override `[themes] theme_conversation_fanout` (default `8`) |
 
 Enable the opt-in loop with `[distill] unified_loop = true` in
 `matterhorn.toml`. The environment override accepts true/false, yes/no,
 on/off, or 1/0.
+
+`mh themes run SCOPE` triggers a naming pass independently of the unified-loop
+flag; add `--dry-run` to print deterministic clusters and proposals without
+writing them.
 
 ## Claude Code
 
@@ -293,13 +302,13 @@ Use `--max-batch-delay-minutes` or `MATTERHORN_MAX_BATCH_DELAY` to override it.
 Service mode can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 100
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 111
 language-neutral golden cases include the Message door, conversation-scoped
 rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=104 failed=0 total=104
+SUMMARY passed=111 failed=0 total=111
 ```
 
 ### Extraction quality evaluation
@@ -312,6 +321,8 @@ table and optional `--json report.json` include over-splitting, wrong merges,
 wrong/missed attachment, field accuracy, evidence validity, and fuzzy title
 matching. Scores are measurements, so a completed run exits zero even when a
 score is poor; fixture, dataset, gateway, and output errors remain failures.
+`mh eval run --themes` runs the fixture-driven flat-matter theme rediscovery
+score used by CI.
 
 ```console
 $ mh eval run --provider fixture-file --json eval-report.json

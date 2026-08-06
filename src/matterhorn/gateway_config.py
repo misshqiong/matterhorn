@@ -13,6 +13,7 @@ from matterhorn.distill import (
     LlmGateway,
     NullGateway,
     OpenAICompatibleGateway,
+    ToolLoopResult,
 )
 from matterhorn.runtime_ai import (
     AIConfig,
@@ -132,6 +133,7 @@ __all__ = [
     "AIConfig",
     "AIRuntime",
     "FixtureFileGateway",
+    "ToolLoopResult",
     "configured_gateway",
     "load_ai_config",
     "save_ai_config",

@@ -2135,6 +2135,77 @@ Alignment samples MUST include at least one window whose expected output is
 a TOPIC with viewpoints instead of a matter (insight-in-matter-clothing),
 and one window expecting both a matter update and a viewpoint.
 
+## 28. Theme convergence
+
+A scope accumulating unparented active matters SHOULD converge them under
+the most reasonable parent themes without user curation. Discovery is
+deterministic; the model only names a cluster and may exclude outliers.
+
+### 28.1 Deterministic clustering
+
+Candidate clusters are connected components over affinity edges between a
+scope's unparented active root matters. A conversation is a venue, not a
+bond: an affinity edge exists ONLY when the pair shares (a) an active
+handle value or (b) title affinity. For title affinity, CJK runs in the
+section 23 normalization additionally contribute character bigrams;
+the pair bonds strongly on ≥2 shared tokens (or a shared handle). A
+single shared distinctive token — latin alphanumeric, at least 4
+characters (technical identifiers such as tool or feature names) — forms
+only a WEAK edge: weak edges may attach matters that belong to no
+strong component, but MUST NOT merge two components that each contain a
+strong edge. Looser weak-edge recall is deliberate: the naming session
+prunes outliers. Shared evidence conversations never form edges; when two
+clustered members do share a conversation cited by at most
+`theme_conversation_fanout` (default 8) of the scope's unparented
+matters, `evidence` counts as an additional affinity kind for the
+section 28.2 confidence gate. Connected components over venue edges
+glue unrelated matters transitively (observed on real IM data,
+2026-08-06) and are forbidden.
+Clusters below `theme_min_cluster` (default 3) are discarded. When a
+cluster member already parents children, the proposal targets that
+existing root instead of a new theme. Clustering MUST be reproducible from
+committed store state alone.
+
+### 28.2 Naming and admission
+
+Each surviving cluster runs one bounded section 26 session whose closed
+world is exactly the cluster (plus an existing target root); the model
+returns a theme title, the member subset (outliers may be dropped, new
+members MUST NOT be invented), and whether an existing root subsumes the
+theme. The emission is ordinary assertions — at most one new root matter
+plus `part_of` edges citing records already present in each member's
+provenance — through every standard gate (INV-19, INV-20).
+
+Application mode `theme_converge ∈ {off, review, auto}` (default
+`review`): `review` enqueues each edge as a PARENT_SUGGESTION; `auto`
+applies directly (model origin, P8 human corrections override) when the
+deterministic confidence gate holds — the cluster exhibits at least two
+distinct affinity kinds, or at least five members with one kind — and
+falls back to review otherwise.
+
+### 28.3 Scheduling
+
+After a flush, a scope with ≥ `theme_min_backlog` (default 6) unparented
+active roots enqueues one theme pass, at most once per
+`theme_interval_hours` (default 6) per scope. Already-parented members
+never re-cluster, so a repeated pass with unchanged state emits nothing.
+
+- **INV-21 — Governed theme convergence.** Clustering MUST be
+  deterministic and zero-model; the naming session MUST NOT reference or
+  create subjects outside its surfaced cluster; auto-application MUST pass
+  the deterministic confidence gate; a repeated pass over unchanged state
+  MUST be a no-op. (Registered here; the section 2 list gains this entry
+  when renumbered.)
+
+### 28.4 Conformance and evaluation
+
+Golden cases MUST cover: affinity-edge kinds and min-cluster discard;
+merge-into-existing-root; the auto/review confidence gate; idempotent
+re-run; cycle rejection through a proposed edge. The evaluation suite
+gains a rediscovery test: a fixture scope whose known theme structure has
+been stripped MUST be rediscovered by the pass (fictionalized from the
+2026-08-06 manual backfill, which is the acceptance answer key).
+
 ## 中文摘要
 
 Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Record 经受控

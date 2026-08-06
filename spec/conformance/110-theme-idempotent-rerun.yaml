@@ -1,0 +1,44 @@
+case_id: theme-idempotent-rerun
+title: Repeated theme convergence on unchanged state emits nothing
+invariants: [INV-21]
+schema_profile: org-matters/v1
+scope_id: octo-theme-idempotent
+clock: ['2026-08-06T10:00:00Z']
+cards:
+  - {card_id: a-card, scope_id: octo-theme-idempotent, subject_key: a, date: 2026-08-06, title: Octo stable alpha, status: open, source_refs: [{source_id: room-a:a, sent_at: '2026-08-06T09:00:00Z', sender: Dana Reyes}]}
+  - {card_id: b-card, scope_id: octo-theme-idempotent, subject_key: b, date: 2026-08-06, title: Octo stable beta, status: open, source_refs: [{source_id: room-b:b, sent_at: '2026-08-06T09:01:00Z', sender: Dana Reyes}]}
+  - {card_id: c-card, scope_id: octo-theme-idempotent, subject_key: c, date: 2026-08-06, title: Octo stable gamma, status: open, source_refs: [{source_id: room-c:c, sent_at: '2026-08-06T09:02:00Z', sender: Dana Reyes}]}
+  - {card_id: d-card, scope_id: octo-theme-idempotent, subject_key: d, date: 2026-08-06, title: Octo stable delta, status: open, source_refs: [{source_id: room-d:d, sent_at: '2026-08-06T09:03:00Z', sender: Dana Reyes}]}
+  - {card_id: e-card, scope_id: octo-theme-idempotent, subject_key: e, date: 2026-08-06, title: Octo stable epsilon, status: open, source_refs: [{source_id: room-e:e, sent_at: '2026-08-06T09:04:00Z', sender: Dana Reyes}]}
+theme_config: {theme_converge: auto, theme_min_cluster: 3}
+tool_loop_sessions:
+  - turns: [{tool_call: {name: emit, arguments: {title: Octo stable theme, member_subject_keys: [a, b, c, d, e], existing_root_subsumes: null}}}]
+theme_operations: [{operation: run}, {operation: run}]
+expect:
+  assertions:
+    - {subject_key: a, predicate: status, object_value: open}
+    - {subject_key: b, predicate: status, object_value: open}
+    - {subject_key: c, predicate: status, object_value: open}
+    - {subject_key: d, predicate: status, object_value: open}
+    - {subject_key: e, predicate: status, object_value: open}
+    - {subject_key: a, predicate: part_of, origin: model}
+    - {subject_key: b, predicate: part_of, origin: model}
+    - {subject_key: c, predicate: part_of, origin: model}
+    - {subject_key: d, predicate: part_of, origin: model}
+    - {subject_key: e, predicate: part_of, origin: model}
+  intervals:
+    - {subject_key: a, predicate: status, object_value: open}
+    - {subject_key: b, predicate: status, object_value: open}
+    - {subject_key: c, predicate: status, object_value: open}
+    - {subject_key: d, predicate: status, object_value: open}
+    - {subject_key: e, predicate: status, object_value: open}
+    - {subject_key: a, predicate: part_of, origin: model}
+    - {subject_key: b, predicate: part_of, origin: model}
+    - {subject_key: c, predicate: part_of, origin: model}
+    - {subject_key: d, predicate: part_of, origin: model}
+    - {subject_key: e, predicate: part_of, origin: model}
+  subject_count: 6
+  tool_loop_calls: 1
+  theme_reports:
+    - {edges_applied: 5, roots_created: 1}
+    - {clusters: [], proposals: [], edges_applied: 0, roots_created: 0}

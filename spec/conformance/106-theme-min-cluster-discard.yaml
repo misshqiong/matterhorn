@@ -1,0 +1,18 @@
+case_id: theme-min-cluster-discard
+title: Theme components below the configured minimum are discarded
+invariants: [INV-21]
+schema_profile: org-matters/v1
+scope_id: octo-theme-minimum
+clock: ['2026-08-06T10:00:00Z']
+cards:
+  - {card_id: a-card, scope_id: octo-theme-minimum, subject_key: a, date: 2026-08-06, title: Octo lunar alpha, source_refs: [{source_id: room-a:a, sent_at: '2026-08-06T09:00:00Z', sender: Dana Reyes}]}
+  - {card_id: b-card, scope_id: octo-theme-minimum, subject_key: b, date: 2026-08-06, title: Octo lunar beta, source_refs: [{source_id: room-b:b, sent_at: '2026-08-06T09:01:00Z', sender: Dana Reyes}]}
+theme_config: {theme_converge: review, theme_min_cluster: 3}
+tool_loop_sessions: []
+theme_operations: [{operation: run, dry_run: true}]
+expect:
+  assertions: []
+  intervals: []
+  tool_loop_calls: 0
+  theme_reports:
+    - {clusters: [], proposals: [], tool_calls: 0, emissions: 0}

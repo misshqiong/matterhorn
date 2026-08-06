@@ -44,6 +44,7 @@ setup_app = typer.Typer(help="Configure agent clients for Matterhorn.")
 hook_app = typer.Typer(help="Fail-open agent lifecycle hooks.")
 handles_app = typer.Typer(help="Maintain the subject handle registry.")
 staging_app = typer.Typer(help="Maintain raw extraction context staging.")
+themes_app = typer.Typer(help="Converge flat matters under parent themes.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
@@ -53,6 +54,7 @@ app.add_typer(setup_app, name="setup")
 app.add_typer(hook_app, name="hook")
 app.add_typer(handles_app, name="handles")
 app.add_typer(staging_app, name="staging")
+app.add_typer(themes_app, name="themes")
 
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
@@ -126,6 +128,44 @@ def _signal_settings(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _theme_settings(config: dict[str, Any]) -> dict[str, Any]:
+    from matterhorn.engine.theme_converge import configured_theme_settings
+
+    themes = config.get("themes", {})
+    distill = config.get("distill", {})
+    if not isinstance(themes, dict):
+        raise typer.BadParameter("[themes] MUST be a TOML table")
+    if not isinstance(distill, dict):
+        raise typer.BadParameter("[distill] MUST be a TOML table")
+    mode = themes.get("theme_converge", distill.get("theme_converge"))
+    try:
+        settings = configured_theme_settings(
+            mode=mode,
+            min_cluster=themes.get(
+                "theme_min_cluster", distill.get("theme_min_cluster")
+            ),
+            min_backlog=themes.get(
+                "theme_min_backlog", distill.get("theme_min_backlog")
+            ),
+            interval_hours=themes.get(
+                "theme_interval_hours", distill.get("theme_interval_hours")
+            ),
+            conversation_fanout=themes.get(
+                "theme_conversation_fanout",
+                distill.get("theme_conversation_fanout"),
+            ),
+        )
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    return {
+        "theme_converge": settings.mode,
+        "theme_min_cluster": settings.min_cluster,
+        "theme_min_backlog": settings.min_backlog,
+        "theme_interval_hours": settings.interval_hours,
+        "theme_conversation_fanout": settings.conversation_fanout,
+    }
+
+
 def _engine(
     db: str,
     schema: str,
@@ -158,6 +198,7 @@ def _engine(
             else min_batch_messages
         ),
         **_signal_settings(config),
+        **_theme_settings(config),
         unified_loop=_unified_loop_setting(config),
     )
 
@@ -554,6 +595,13 @@ def init_project(
                     "[distill]",
                     "unified_loop = false",
                     "",
+                    "[themes]",
+                    'theme_converge = "review"',
+                    "theme_min_cluster = 3",
+                    "theme_min_backlog = 6",
+                    "theme_interval_hours = 6",
+                    "theme_conversation_fanout = 8",
+                    "",
                 ]
             ),
             encoding="utf-8",
@@ -805,6 +853,37 @@ def staging_purge(
     selected_scope = _scope(scope_id)
     deleted = _engine(db, schema, schema_dir).purge_staging(selected_scope)
     _print({"scope_id": selected_scope, "deleted": deleted})
+
+
+@themes_app.command("run")
+def themes_run(
+    scope_id: str = typer.Argument(..., help="Scope whose flat matters are clustered."),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print clusters and naming proposals without writing subjects or edges.",
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+    provider: str | None = typer.Option(None),
+    base_url: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    model: str | None = typer.Option(None),
+) -> None:
+    """Run one governed theme pass; the unified-loop rollout flag is ignored."""
+
+    engine = _engine(
+        db,
+        schema,
+        schema_dir,
+        gateway=_write_gateway(provider, base_url, api_key, model),
+    )
+    try:
+        report = engine.themes(_scope(scope_id), dry_run=dry_run)
+    except (MatterhornError, TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(report.to_dict())
 
 
 @app.command("flush")
@@ -1979,17 +2058,37 @@ def eval_run(
             "configured real gateway. Off by default for CI safety."
         ),
     ),
+    themes: bool = typer.Option(
+        False,
+        "--themes",
+        help="Run the fixture-driven flat-matter theme rediscovery score.",
+    ),
 ) -> None:
     """Run quality measurement; metric values never determine exit status."""
     from matterhorn.evalrunner import (
         format_live_sample_table,
         format_report_table,
+        format_theme_rediscovery_table,
         run_eval_dataset,
         run_live_sample_comparison,
+        run_theme_rediscovery,
     )
 
     try:
-        if live_samples:
+        if live_samples and themes:
+            raise ValueError("--live-samples and --themes are mutually exclusive")
+        if themes:
+            if any(value is not None for value in (case_id, responses, assertion_results)):
+                raise ValueError(
+                    "--themes cannot be combined with --case, --responses, or "
+                    "--assertion-results"
+                )
+            report = run_theme_rediscovery(
+                dataset / "themes" / "rediscovery.yaml"
+                if dataset is not None
+                else None
+            )
+        elif live_samples:
             if any(
                 value is not None
                 for value in (case_id, responses, assertion_results)
@@ -2032,7 +2131,9 @@ def eval_run(
         typer.echo(f"ERROR {error}", err=True)
         raise typer.Exit(code=2) from error
     typer.echo(
-        format_live_sample_table(report)
+        format_theme_rediscovery_table(report)
+        if themes
+        else format_live_sample_table(report)
         if live_samples
         else format_report_table(report)
     )

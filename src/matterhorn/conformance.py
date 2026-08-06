@@ -333,6 +333,12 @@ def _load_case(path: Path) -> dict[str, Any]:
         )
     if "unified_loop" in case and not isinstance(case["unified_loop"], bool):
         raise ValueError(f"malformed conformance case {path}: invalid unified_loop")
+    if "theme_config" in case and not isinstance(case["theme_config"], dict):
+        raise ValueError(f"malformed conformance case {path}: invalid theme_config")
+    if "theme_operations" in case and not isinstance(
+        case["theme_operations"], list
+    ):
+        raise ValueError(f"malformed conformance case {path}: invalid theme_operations")
     if "review_operations" in case and not isinstance(
         case["review_operations"], list
     ):
@@ -403,6 +409,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         gateway=fixture_gateway,
         unified_loop=case.get("unified_loop", False),
         **case.get("signal_config", {}),
+        **case.get("theme_config", {}),
     )
     for normalization_case in case.get("handle_normalization_cases", []):
         _equal(
@@ -451,6 +458,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         engine.correct(correction)
     _run_merge_operations(engine, case)
     _run_structure_operations(engine, case)
+    theme_reports = _run_theme_operations(engine, case)
     _run_review_operations(engine, case)
     _run_signal_operations(engine, case)
     _run_watermark_operations(engine, case)
@@ -538,6 +546,19 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             len(fixture_gateway.tool_loop_calls),
             expect["tool_loop_calls"],
             "tool_loop_calls",
+        )
+    if "theme_reports" in expect:
+        _equal(
+            [
+                _project_partial(_plain(report.to_dict()), wanted)
+                for report, wanted in zip(
+                    theme_reports,
+                    expect["theme_reports"],
+                    strict=True,
+                )
+            ],
+            expect["theme_reports"],
+            "theme_reports",
         )
     if "dream_report" in expect:
         actual_report = _plain(first_dream)
@@ -964,6 +985,33 @@ def _run_structure_operations(engine: Engine, case: dict[str, Any]) -> None:
             )
 
 
+def _run_theme_operations(engine: Engine, case: dict[str, Any]) -> list[Any]:
+    reports = []
+    for operation in case.get("theme_operations", []):
+        kind = operation.get("operation", "run")
+        if kind == "observe_record":
+            with engine.store.transaction():
+                engine.store.mark_record_observation(
+                    case["scope_id"],
+                    operation["record_id"],
+                    operation["observation_hash"],
+                    operation["container_id"],
+                    _instant(operation["observed_at"]),
+                )
+            continue
+        if kind != "run":
+            raise ConformanceFailure(
+                f"unknown theme operation {kind!r}"
+            )
+        reports.append(
+            engine.themes(
+                case["scope_id"],
+                dry_run=operation.get("dry_run", False),
+            )
+        )
+    return reports
+
+
 def _run_signal_operations(engine: Engine, case: dict[str, Any]) -> None:
     for operation in case.get("signal_operations", []):
         if operation.get("operation") != "ack":
@@ -1260,6 +1308,9 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
             ],
             "read_watermarks": _plain(
                 engine.store.read_watermarks(scope_id)
+            ),
+            "theme_schedule_state": _plain(
+                engine.store.theme_schedule_state(scope_id)
             ),
         }
     )

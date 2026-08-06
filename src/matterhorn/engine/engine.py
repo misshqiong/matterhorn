@@ -103,6 +103,19 @@ from matterhorn.engine.signals import (
     configured_signal_config,
     first_pattern_match,
 )
+from matterhorn.engine.theme_converge import (
+    DEFAULT_THEME_CONVERGE,
+    DEFAULT_THEME_CONVERSATION_FANOUT,
+    DEFAULT_THEME_INTERVAL_HOURS,
+    DEFAULT_THEME_MIN_BACKLOG,
+    DEFAULT_THEME_MIN_CLUSTER,
+    THEME_TASK_KIND,
+    ThemePassReport,
+    ThemeSettings,
+    configured_theme_settings,
+    enqueue_theme_pass_if_due,
+    run_theme_pass,
+)
 from matterhorn.errors import (
     ImportRefusedError,
     ResourceNotFoundError,
@@ -263,6 +276,11 @@ class Engine:
     DEFAULT_ALERT_KEYWORDS = DEFAULT_ALERT_KEYWORDS
     DEFAULT_HOT_MIN_AUTHORS = DEFAULT_HOT_MIN_AUTHORS
     DEFAULT_HOT_MIN_MESSAGES = DEFAULT_HOT_MIN_MESSAGES
+    DEFAULT_THEME_CONVERGE = DEFAULT_THEME_CONVERGE
+    DEFAULT_THEME_MIN_CLUSTER = DEFAULT_THEME_MIN_CLUSTER
+    DEFAULT_THEME_MIN_BACKLOG = DEFAULT_THEME_MIN_BACKLOG
+    DEFAULT_THEME_INTERVAL_HOURS = DEFAULT_THEME_INTERVAL_HOURS
+    DEFAULT_THEME_CONVERSATION_FANOUT = DEFAULT_THEME_CONVERSATION_FANOUT
 
     def __init__(
         self,
@@ -283,6 +301,11 @@ class Engine:
         hot_min_messages: int = DEFAULT_HOT_MIN_MESSAGES,
         unified_loop: bool = False,
         alignment_samples_dir: str | Path | None = None,
+        theme_converge: str = DEFAULT_THEME_CONVERGE,
+        theme_min_cluster: int = DEFAULT_THEME_MIN_CLUSTER,
+        theme_min_backlog: int = DEFAULT_THEME_MIN_BACKLOG,
+        theme_interval_hours: float = DEFAULT_THEME_INTERVAL_HOURS,
+        theme_conversation_fanout: int = DEFAULT_THEME_CONVERSATION_FANOUT,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -304,6 +327,13 @@ class Engine:
             raise TypeError("unified_loop MUST be a boolean")
         self.unified_loop = unified_loop
         self.alignment_samples_dir = alignment_samples_dir
+        self.theme_settings: ThemeSettings = configured_theme_settings(
+            mode=theme_converge,
+            min_cluster=theme_min_cluster,
+            min_backlog=theme_min_backlog,
+            interval_hours=theme_interval_hours,
+            conversation_fanout=theme_conversation_fanout,
+        )
         self.signal_config: SignalConfig = configured_signal_config(
             identity_handles=identity_handles,
             machine_senders=machine_senders,
@@ -2951,12 +2981,15 @@ class Engine:
                     )
                     unchanged_dropped += admission_counts.unchanged_dropped
                     gate_accepted += cards_produced
+                elif row.kind == THEME_TASK_KIND:
+                    theme_report = self.themes(scope_id)
+                    gate_accepted += theme_report.edges_applied
                 else:
                     raise ValueError(f"unknown task kind: {row.kind}")
 
                 dream = (
                     self.dream(scope_id)
-                    if not self.unified_loop
+                    if not self.unified_loop and row.kind != THEME_TASK_KIND
                     else DreamReport(
                         scope_id=scope_id,
                         queued=0,
@@ -3016,6 +3049,7 @@ class Engine:
             and self.store.distill_queue_count(scope_id)
         ):
             self.dream(scope_id)
+        enqueue_theme_pass_if_due(self, scope_id)
         return FlushReport(
             scope_id=scope_id,
             tasks_processed=len(processed),
@@ -3103,6 +3137,13 @@ class Engine:
 
     def now(self) -> datetime:
         return self._clock()
+
+    def themes(self, scope_id: str, *, dry_run: bool = False) -> ThemePassReport:
+        """Run one governed theme convergence pass for a scope."""
+
+        if not scope_id:
+            raise ValueError("scope_id is required")
+        return run_theme_pass(self, scope_id, dry_run=dry_run)
 
     def purge_staging(
         self,

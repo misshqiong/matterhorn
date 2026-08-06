@@ -124,16 +124,13 @@ class UnifiedLoopSession:
                 "unified distillation requires a tool-loop capable gateway"
             )
         prompt = self._prompt()
-        result = gateway.tool_loop(
+        result = run_bounded_tool_loop(
+            gateway,
             system=prompt["system"],
             user=prompt["user"],
             tools=tool_definitions(),
             handler=self.handle_tool,
-            max_tool_calls=MAX_TOOL_CALLS,
-            max_emissions=MAX_EMISSIONS,
         )
-        if not isinstance(result, ToolLoopResult):
-            raise TypeError("tool_loop MUST return ToolLoopResult")
         return UnifiedLoopReport(
             assertion_ids=list(self.state.assertion_ids),
             new_subjects=self.state.new_subjects,
@@ -672,6 +669,31 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
     ]
+
+
+def run_bounded_tool_loop(
+    gateway: ToolLoopGateway,
+    *,
+    system: str,
+    user: str,
+    tools: list[dict[str, Any]],
+    handler: Any,
+    max_tool_calls: int = MAX_TOOL_CALLS,
+    max_emissions: int = MAX_EMISSIONS,
+) -> ToolLoopResult:
+    """Shared section 26 bounds for ordinary and specialized loop sessions."""
+
+    result = gateway.tool_loop(
+        system=system,
+        user=user,
+        tools=tools,
+        handler=handler,
+        max_tool_calls=max_tool_calls,
+        max_emissions=max_emissions,
+    )
+    if not isinstance(result, ToolLoopResult):
+        raise TypeError("tool_loop MUST return ToolLoopResult")
+    return result
 
 
 def alignment_samples(

@@ -10,7 +10,7 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-20`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-21`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
@@ -26,6 +26,8 @@ store view for the case's `scope_id`.
 | `adjudication_model_responses` | no | Ordered closed identity-adjudication fixtures, consumed only by calls using the section 23 routing response schema. |
 | `unified_loop` | no | Boolean section 26 feature flag; default false. |
 | `tool_loop_sessions` | no | Ordered scripted section 26 sessions. Each session contains `turns` of generic tool calls and one optional final message. |
+| `theme_config` | no | Section 28 convergence settings (`mode`, cluster/backlog/interval thresholds, and conversation fanout). |
+| `theme_operations` | no | Ordered section 28 operations. `observe_record` commits evidence-conversation provenance; `run` invokes one theme pass and may declare `dry_run`. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
 | `review_operations` | no | Ordered review resolutions with `review_id`, `action`, nullable `subject_key`, mandatory `source_refs`, and optional `expect_error`. |
 | `signal_config` | no | Engine signal settings: optional identity handles, pattern extensions, and hotness thresholds. |
@@ -105,6 +107,13 @@ list of those mappings, or `final_message`. The runner executes calls through
 the real tool handlers, applies the 16-call / 4-emission bounds, and fails when
 the scripted session queue is exhausted.
 
+Theme naming consumes the same scripted sessions independently of the section
+26 feature flag. Its closed world is the proposed cluster (plus its existing
+target root, when present), and each accepted session may emit at most one
+theme proposal. `observe_record` theme operations must name an existing source
+ID and supply a committed `RecordObservation` container before evidence
+conversation affinity can be formed.
+
 ## `expect:` fields
 
 | Field | Meaning |
@@ -133,6 +142,7 @@ the scripted session queue is exhausted.
 | `review_items` | Partial-field exact multiset of pending or resolved ReviewItems. |
 | `adjudication_calls` | Ordered calls with exact offered candidate keys and optional partial rich-candidate payload checks. |
 | `tool_loop_calls` | Exact number of bounded tool-loop sessions executed before duplicate-ingest and replay checks. |
+| `theme_reports` | Ordered partial section 28 pass reports produced by `theme_operations` whose operation is `run`. |
 | `matters` | Partial-field exact multiset of canonical ergonomic Matters, including aliases. |
 | `export_replay_identity` | Boolean requiring byte-identical ownership exports immediately before and after replay. |
 | `replay_events_emitted` | Exact number of new events returned by replay. |
@@ -178,7 +188,9 @@ only cases whose title mentions replay. Merge operations run once because
 repeating an already-active source merge is normatively an error; their stored
 state participates in both snapshots. Human handle and review-resolution
 operations also run once because they are historical correction operations.
-Raw staging is deliberately outside these replay-identity snapshots: cases
+Theme operations run once as well; cases that require a repeated pass declare
+it explicitly, and the persisted per-scope schedule state participates in both
+snapshots. Raw staging is deliberately outside these replay-identity snapshots: cases
 assert its contextual effects and purge counts directly, while replay remains
 independent of expiring staging state.
 
