@@ -1,0 +1,43 @@
+sample_id: im-topic-viewpoints
+source_kind: im
+scope_id: sample-insight
+window:
+  - evidence_alias: m1
+    record_id: sample-insight:octo-room:msg-21
+    container_id: sample-insight:octo-room
+    sent_at: "2026-08-04T09:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "The octo-org team should keep the review rubric small because it makes decisions easier to explain."
+    kind: im
+  - evidence_alias: m2
+    record_id: sample-insight:octo-room:msg-22
+    container_id: sample-insight:octo-room
+    sent_at: "2026-08-04T09:02:00Z"
+    author: {id: ellis-stone, display_name: Ellis Stone, kind: human}
+    content: "I support the small rubric too; the broader version hides the useful distinctions."
+    kind: im
+expected_assertions:
+  - subject_ref: "$new:review-rubric"
+    subject_type: TOPIC
+    predicate: viewpoint
+    operation: ASSERT
+    object_value: {who: dana-reyes, stance: supports, content: "Keep the review rubric small for explainable decisions.", where: sample-insight:octo-room}
+    evidence_aliases: [m1]
+  - subject_ref: "$new:review-rubric"
+    subject_type: TOPIC
+    predicate: viewpoint
+    operation: ASSERT
+    object_value: {who: ellis-stone, stance: supports, content: "A small rubric preserves useful distinctions.", where: sample-insight:octo-room}
+    evidence_aliases: [m2]
+  - subject_ref: "$new:review-rubric"
+    subject_type: TOPIC
+    predicate: stated_by
+    operation: ASSERT
+    object_value: dana-reyes
+    evidence_aliases: [m1]
+  - subject_ref: "$new:review-rubric"
+    subject_type: TOPIC
+    predicate: stated_by
+    operation: ASSERT
+    object_value: ellis-stone
+    evidence_aliases: [m2]

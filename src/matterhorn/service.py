@@ -193,10 +193,21 @@ class MatterhornService:
         self._require_scope(scope_id)
         bundle = self.engine._scope_read_bundle(scope_id)
         unseen_map = self.engine.matters_unseen(scope_id, bundle=bundle)
+        graph = getattr(bundle, "graph", None)
         result = []
         for item in self.engine.matters(scope_id, bundle=bundle):
             payload = item.to_dict()
             payload["unseen"] = unseen_map.get(item.subject_key, False)
+            if graph is not None and payload.get("descendants_total"):
+                payload["children_preview"] = [
+                    {
+                        "subject_key": child["subject_key"],
+                        "title": child["title"],
+                        "status": child["status"],
+                        "birth_instant": child["birth_instant"],
+                    }
+                    for child in graph.tree(item.subject_key)["children"]
+                ]
             result.append(payload)
         return result
 
@@ -286,7 +297,7 @@ class MatterhornService:
         subject_key = self.engine.canonical_subject_key(scope_id, subject_key)
         subject = next(
             item
-            for item in self.engine.query.list_matters(scope_id)
+            for item in self.engine.store.subjects(scope_id)
             if item.subject_key == subject_key
         )
         predicates = [
@@ -323,7 +334,12 @@ class MatterhornService:
             ],
             "related": [
                 item.to_dict()
-                for item in self.engine.related_matters(scope_id, subject_key)
+                for item in (
+                    self.engine.related_matters(scope_id, subject_key)
+                    if subject.subject_type
+                    == self.engine.profile.primary_subject.type
+                    else []
+                )
             ],
             "graph": self.engine.matter_graph(
                 scope_id, subject_key

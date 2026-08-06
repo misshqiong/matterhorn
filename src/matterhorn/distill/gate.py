@@ -9,7 +9,6 @@ from pydantic import Field, ValidationError, computed_field, field_validator
 
 from matterhorn.canonical import (
     as_utc,
-    canonical_json,
     derive_child_subject_key,
     normalize_title,
 )
@@ -199,9 +198,7 @@ def validate_response(
             continue
         if (
             candidate.operation == Operation.ASSERT
-            and definition.value_domain is not None
-            and canonical_json(candidate.object_value)
-            not in {canonical_json(value) for value in definition.value_domain}
+            and not definition.value_is_in_domain(candidate.object_value)
         ):
             rejected.append(_reject(GateReason.VALUE_OUT_OF_DOMAIN, dumped))
             continue

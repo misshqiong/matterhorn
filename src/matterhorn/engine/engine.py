@@ -2442,6 +2442,8 @@ class Engine:
         root_matters_by_key: dict[tuple[str, str], Matter] = {}
         graph_by_scope = {}
         titles: dict[tuple[str, str], str] = {}
+        topic_titles: dict[tuple[str, str], str] = {}
+        live_viewpoint_assertion_ids: set[str] = set()
         all_assertions: dict[str, list[Assertion]] = {}
         for scope_id in scopes:
             bundle = self._scope_read_bundle(scope_id)
@@ -2459,6 +2461,25 @@ class Engine:
             for matter in scope_roots:
                 root_matters_by_key[(scope_id, matter.subject_key)] = matter
             all_assertions[scope_id] = bundle.canonical_assertions
+            subject_by_key = {
+                subject.subject_key: subject for subject in bundle.subjects
+            }
+            for subject in bundle.subjects:
+                if subject.subject_type != "TOPIC":
+                    continue
+                canonical = self.canonical_subject_key(
+                    scope_id, subject.subject_key
+                )
+                canonical_subject = subject_by_key.get(canonical, subject)
+                topic_titles[(scope_id, canonical)] = canonical_subject.title
+            intervals, _ = project_assertions(
+                bundle.canonical_assertions, self.profile
+            )
+            live_viewpoint_assertion_ids.update(
+                interval.assertion_id
+                for interval in intervals
+                if interval.predicate == "viewpoint"
+            )
 
         activity = []
         for scope_id in scopes:
@@ -2477,6 +2498,45 @@ class Engine:
             key = (assertion.scope_id, assertion.subject_key)
             if key in matters_by_key:
                 activity_by_matter.setdefault(key, []).append(assertion)
+        viewpoint_activity: dict[tuple[str, str], list[Assertion]] = {}
+        for assertion in activity:
+            key = (assertion.scope_id, assertion.subject_key)
+            if (
+                key in topic_titles
+                and assertion.predicate == "viewpoint"
+                and assertion.operation == Operation.ASSERT
+                and assertion.assertion_id in live_viewpoint_assertion_ids
+            ):
+                viewpoint_activity.setdefault(key, []).append(assertion)
+        worth_knowing = []
+        for key, assertions in viewpoint_activity.items():
+            speakers = sorted(
+                {
+                    str(assertion.object_value["who"])
+                    for assertion in assertions
+                    if isinstance(assertion.object_value, dict)
+                    and assertion.object_value.get("who") is not None
+                },
+                key=lambda item: item.encode("utf-8"),
+            )
+            worth_knowing.append(
+                {
+                    "scope_id": key[0],
+                    "subject_key": key[1],
+                    "title": topic_titles[key],
+                    "viewpoint_count": len(assertions),
+                    "distinct_speakers": speakers,
+                    "newest_viewpoint_at": max(
+                        assertion.valid_from for assertion in assertions
+                    ),
+                }
+            )
+        worth_knowing.sort(
+            key=lambda item: (
+                -item["newest_viewpoint_at"].timestamp(),
+                item["subject_key"].encode("utf-8"),
+            )
+        )
         activity_by_root: dict[tuple[str, str], list[Assertion]] = {}
         for (scope_id, subject_key), assertions in activity_by_matter.items():
             root = graph_by_scope[scope_id].root_for(subject_key)
@@ -2701,7 +2761,12 @@ class Engine:
                 item["container_id"].encode(),
             )
         )
-        return {"needs_me": needs_me, "groups": groups, "quiet": quiet}
+        return {
+            "needs_me": needs_me,
+            "worth_knowing": worth_knowing,
+            "groups": groups,
+            "quiet": quiet,
+        }
 
     def related_matters(
         self,
@@ -3213,8 +3278,18 @@ class Engine:
         definition = self.profile.predicate(item.predicate)
         if definition.subject != item.subject_type:
             raise ValueError("predicate is not registered for correction subject type")
-        if definition.cardinality.value == "APPEND" and item.operation == Operation.RETRACT:
+        if (
+            definition.cardinality.value == "APPEND"
+            and item.operation == Operation.RETRACT
+            and not definition.retractable
+        ):
             raise ValueError("APPEND predicates cannot be retracted")
+        if (
+            item.operation == Operation.ASSERT
+            and definition.field_domains is not None
+            and not definition.value_is_in_domain(item.object_value)
+        ):
+            raise ValueError("correction value is outside the predicate domain")
         subjects = {
             subject.subject_key: subject
             for subject in self.store.subjects(item.scope_id)

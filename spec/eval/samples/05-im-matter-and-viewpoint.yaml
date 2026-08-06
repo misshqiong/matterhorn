@@ -1,0 +1,30 @@
+sample_id: im-matter-and-viewpoint
+source_kind: im
+scope_id: sample-mixed
+window:
+  - evidence_alias: m1
+    record_id: sample-mixed:octo-rollout:msg-31
+    container_id: sample-mixed:octo-rollout
+    sent_at: "2026-08-05T14:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "The fictional octo rollout passed its rehearsal. I also think gradual rollout is safer because rollback evidence stays legible."
+    kind: im
+expected_assertions:
+  - subject_ref: octo-rollout
+    subject_type: MATTER
+    predicate: progress
+    operation: ASSERT
+    object_value: "Rollout rehearsal passed."
+    evidence_aliases: [m1]
+  - subject_ref: "$new:gradual-rollout"
+    subject_type: TOPIC
+    predicate: viewpoint
+    operation: ASSERT
+    object_value: {who: dana-reyes, stance: supports, content: "Gradual rollout is safer because rollback evidence stays legible.", where: sample-mixed:octo-rollout}
+    evidence_aliases: [m1]
+  - subject_ref: "$new:gradual-rollout"
+    subject_type: TOPIC
+    predicate: stated_by
+    operation: ASSERT
+    object_value: dana-reyes
+    evidence_aliases: [m1]

@@ -1,0 +1,75 @@
+case_id: insight-mixed-brief
+title: A mixed brief carries matters and worth-knowing topics side by side
+invariants: [INV-18, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-insight-mixed
+unified_loop: true
+clock:
+  - "2026-08-06T09:10:00Z"
+  - "2026-08-06T09:20:00Z"
+  - "2026-08-06T09:21:00Z"
+cards:
+  - card_id: insight-mixed-matter
+    scope_id: octo-insight-mixed
+    subject_key: octo-rollout
+    date: 2026-08-06
+    title: Fictional octo rollout
+    status: open
+    progress: Rehearsal passed
+    source_refs: [{source_id: octo-insight-mixed:matter:r1, sent_at: "2026-08-06T09:00:00Z", sender: Dana Reyes}]
+record_batches:
+  - records:
+      - record_id: octo-insight-mixed:room:r2
+        container_id: octo-insight-mixed:room
+        sent_at: "2026-08-06T09:15:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "Dana supports a gradual fictional rollout."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: gradual, subject_type: TOPIC, title: Gradual rollout viewpoint}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: dana-reyes, stance: supports, content: "Use a gradual rollout.", where: octo-insight-mixed:room}
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: gradual, subject_type: TOPIC, title: Gradual rollout viewpoint}}
+                predicate: stated_by
+                operation: ASSERT
+                object_value: dana-reyes
+                evidence_aliases: [m1]
+      - final_message: done
+expect:
+  record_reports:
+    - {assertions_emitted: 2, cards_dropped: 0}
+  subject_count: 2
+  brief_queries:
+    - window_start: "2026-08-06T09:00:00Z"
+      window_end: "2026-08-06T10:00:00Z"
+      console_groups: {team: [octo-*]}
+      result:
+        needs_me: []
+        worth_knowing:
+          - title: Gradual rollout viewpoint
+            viewpoint_count: 1
+            distinct_speakers: [dana-reyes]
+            newest_viewpoint_at: "2026-08-06T09:15:00.000000Z"
+        groups:
+          - name: team
+            counts: {touched: 1, completed: 0, blocked: 0}
+            matters:
+              - {subject_key: octo-rollout, title: Fictional octo rollout, progress: Rehearsal passed, unseen: 2}
+  assertions:
+    - {subject_key: octo-rollout, predicate: status, object_value: open}
+    - {subject_key: octo-rollout, predicate: progress, object_value: Rehearsal passed}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: supports, content: "Use a gradual rollout.", where: octo-insight-mixed:room}}
+    - {subject_type: TOPIC, predicate: stated_by, object_value: dana-reyes}
+  intervals:
+    - {subject_key: octo-rollout, predicate: status, object_value: open}
+    - {subject_key: octo-rollout, predicate: progress, object_value: Rehearsal passed}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: supports, content: "Use a gradual rollout.", where: octo-insight-mixed:room}}
+    - {subject_type: TOPIC, predicate: stated_by, object_value: dana-reyes}
+  queries: []

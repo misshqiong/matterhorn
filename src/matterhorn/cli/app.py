@@ -1971,22 +1971,52 @@ def eval_run(
         "--assertion-results",
         help="YAML assertion sets to diff against spec/eval/samples.",
     ),
+    live_samples: bool = typer.Option(
+        False,
+        "--live-samples",
+        help=(
+            "Run alignment samples through legacy and unified paths with the "
+            "configured real gateway. Off by default for CI safety."
+        ),
+    ),
 ) -> None:
     """Run quality measurement; metric values never determine exit status."""
-    from matterhorn.evalrunner import format_report_table, run_eval_dataset
+    from matterhorn.evalrunner import (
+        format_live_sample_table,
+        format_report_table,
+        run_eval_dataset,
+        run_live_sample_comparison,
+    )
 
     try:
-        report = run_eval_dataset(
-            dataset,
-            case_id=case_id,
-            provider=provider,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
-            responses=responses,
-            seed_note=seed_note,
-            assertion_results=assertion_results,
-        )
+        if live_samples:
+            if any(
+                value is not None
+                for value in (case_id, responses, assertion_results)
+            ):
+                raise ValueError(
+                    "--live-samples cannot be combined with --case, "
+                    "--responses, or --assertion-results"
+                )
+            report = run_live_sample_comparison(
+                samples=(dataset / "samples" if dataset is not None else None),
+                provider=provider,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+            )
+        else:
+            report = run_eval_dataset(
+                dataset,
+                case_id=case_id,
+                provider=provider,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                responses=responses,
+                seed_note=seed_note,
+                assertion_results=assertion_results,
+            )
         if json_path is not None:
             json_path.write_text(
                 json.dumps(
@@ -2001,7 +2031,11 @@ def eval_run(
     except Exception as error:
         typer.echo(f"ERROR {error}", err=True)
         raise typer.Exit(code=2) from error
-    typer.echo(format_report_table(report))
+    typer.echo(
+        format_live_sample_table(report)
+        if live_samples
+        else format_report_table(report)
+    )
 
 
 if __name__ == "__main__":

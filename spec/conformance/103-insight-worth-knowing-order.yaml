@@ -1,0 +1,103 @@
+case_id: insight-worth-knowing-order
+title: Worth-knowing windows viewpoint activity and orders newest first
+invariants: [INV-18, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-insight-order
+unified_loop: true
+clock:
+  - "2026-08-06T08:30:00Z"
+  - "2026-08-06T09:20:00Z"
+  - "2026-08-06T09:21:00Z"
+  - "2026-08-06T09:30:00Z"
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-insight-order:old:r1
+        container_id: octo-insight-order:old
+        sent_at: "2026-08-06T08:20:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "An older fictional viewpoint."
+        kind: im
+  - records:
+      - record_id: octo-insight-order:beta:r2
+        container_id: octo-insight-order:beta
+        sent_at: "2026-08-06T09:15:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "Two fictional speakers discuss the beta rubric."
+        kind: im
+  - records:
+      - record_id: octo-insight-order:alpha:r3
+        container_id: octo-insight-order:alpha
+        sent_at: "2026-08-06T09:25:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "A newer fictional viewpoint about the alpha rubric."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: old, subject_type: TOPIC, title: Older fictional topic}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: dana-reyes, stance: neutral, content: "Older context.", where: octo-insight-order:old}
+                evidence_aliases: [m1]
+      - final_message: done
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: beta, subject_type: TOPIC, title: Beta fictional rubric}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: dana-reyes, stance: supports, content: "Use the beta rubric.", where: octo-insight-order:beta}
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: beta, subject_type: TOPIC, title: Beta fictional rubric}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: ellis-stone, stance: informs, content: "The beta rubric has four fields.", where: octo-insight-order:beta}
+                evidence_aliases: [m1]
+      - final_message: done
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: alpha, subject_type: TOPIC, title: Alpha fictional rubric}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: dana-reyes, stance: opposes, content: "Do not expand the alpha rubric.", where: octo-insight-order:alpha}
+                evidence_aliases: [m1]
+      - final_message: done
+expect:
+  record_reports:
+    - {assertions_emitted: 1, cards_dropped: 0}
+    - {assertions_emitted: 2, cards_dropped: 0}
+    - {assertions_emitted: 1, cards_dropped: 0}
+  subject_count: 3
+  brief_queries:
+    - window_start: "2026-08-06T09:00:00Z"
+      window_end: "2026-08-06T10:00:00Z"
+      result:
+        worth_knowing:
+          - title: Alpha fictional rubric
+            viewpoint_count: 1
+            distinct_speakers: [dana-reyes]
+            newest_viewpoint_at: "2026-08-06T09:25:00.000000Z"
+          - title: Beta fictional rubric
+            viewpoint_count: 2
+            distinct_speakers: [dana-reyes, ellis-stone]
+            newest_viewpoint_at: "2026-08-06T09:15:00.000000Z"
+  assertions:
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: neutral, content: "Older context.", where: octo-insight-order:old}}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: supports, content: "Use the beta rubric.", where: octo-insight-order:beta}}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: ellis-stone, stance: informs, content: "The beta rubric has four fields.", where: octo-insight-order:beta}}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: opposes, content: "Do not expand the alpha rubric.", where: octo-insight-order:alpha}}
+  intervals:
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: neutral, content: "Older context.", where: octo-insight-order:old}}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: supports, content: "Use the beta rubric.", where: octo-insight-order:beta}}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: ellis-stone, stance: informs, content: "The beta rubric has four fields.", where: octo-insight-order:beta}}
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: opposes, content: "Do not expand the alpha rubric.", where: octo-insight-order:alpha}}
+  queries: []

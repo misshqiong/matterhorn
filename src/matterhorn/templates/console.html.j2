@@ -269,6 +269,7 @@
     .needs-me-item { cursor: pointer; flex: 0 0 auto; max-width: 22rem; border: 1px solid var(--amber); background: var(--amber-soft); color: inherit; padding: .38rem .52rem; text-align: left; }
     .needs-me-item.critical { border: 2px solid var(--red); color: var(--red); font-weight: 700; }
     .brief-groups { display: grid; margin-top: .35rem; }
+    .worth-knowing-lines { display: grid; gap: .3rem; padding: .55rem 0; border-bottom: 1px solid var(--rule); }
     .brief-group-line { display: grid; grid-template-columns: minmax(7rem, .45fr) auto minmax(10rem, 1.5fr); gap: .55rem; padding: .38rem 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
     .brief-group-counts, .quiet-line { color: var(--faint); font: 10px var(--mono); }
     .brief-title { cursor: pointer; border: 0; border-bottom: 1px dotted var(--rule-strong); background: none; color: inherit; padding: 0; font: 12px var(--serif); }
@@ -318,6 +319,18 @@
     .review-actions { display: flex; flex-wrap: wrap; gap: .3rem; }
     .review-actions .button { padding: .28rem .45rem; font-size: 9px; }
     .time-tree { border-top: 1px solid var(--rule-strong); margin-top: .8rem; padding-top: .7rem; }
+    .treewrap { overflow-x: auto; }
+    .time-tree-svg { width: 100%; min-width: 640px; display: block; margin: .3rem 0 .5rem; }
+    .time-tree-svg text { font: 11px ui-monospace, Menlo, monospace; fill: var(--ink); }
+    .time-tree-svg .tree-axis { fill: var(--faint); font-size: 10px; }
+    .time-tree-svg .tree-root { font: 600 13px inherit; }
+    .time-tree-svg .tree-title { font-weight: 600; font-size: 12.5px; }
+    .time-tree-svg .tree-meta { fill: var(--muted); font-size: 10px; }
+    .time-tree-svg .tree-bleed { fill: var(--red); font-weight: 700; font-size: 11px; }
+    .time-tree-svg .tree-node { cursor: pointer; }
+    .time-tree-svg .tree-node:hover rect { stroke-width: 2.2; }
+    .mini-tree { display: block; width: min(240px, 100%); height: 14px; margin-top: .28rem; }
+    .mini-tree line { stroke: var(--rule-strong); stroke-width: 1.4; }
     .time-tree-list { list-style: none; margin: .45rem 0; padding: 0; display: grid; gap: .3rem; }
     .time-tree-node { display: flex; align-items: center; gap: .35rem; }
     .tree-link { border: 0; border-bottom: 1px dotted var(--rule-strong); background: none; color: inherit; padding: 0; cursor: pointer; font: 12px var(--serif); }
@@ -562,6 +575,7 @@
         <section class="sheet brief-screen" id="brief-screen" aria-labelledby="brief-title">
           <div class="sheet-head"><div><p class="eyebrow">Today · deterministic briefing</p><h2 id="brief-title">需要我</h2></div></div>
           <div class="needs-me-strip" id="needs-me-strip"><p class="empty">Nothing needs attention.</p></div>
+          <div class="worth-knowing-lines"><strong>值得知道</strong><div id="brief-worth-knowing"><p class="empty">No viewpoint activity.</p></div></div>
           <div class="brief-groups" id="brief-groups"></div>
           <details class="quiet-fold" id="brief-quiet"><summary>Quiet conversations</summary><div id="brief-quiet-lines"></div></details>
         </section>
@@ -686,7 +700,7 @@
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
       queryResult: null, activity: [], connections: null,
       reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null,
-      brief: { needs_me: [], groups: [], quiet: [] }, briefFingerprint: null,
+      brief: { needs_me: [], worth_knowing: [], groups: [], quiet: [] }, briefFingerprint: null,
       focusMode: true, groups: {}, scopeToGroup: {}, collapsedGroups: new Set(), openArchives: new Set()
     };
     const WALL_MODE_KEY = "matterhorn.console.wall.mode";
@@ -865,6 +879,10 @@
             return `<button type="button" class="needs-me-item ${linked}" data-brief-scope="${escapeHtml(item.scope_id)}" data-brief-subject="${escapeHtml(item.subject_key || "")}"><span class="scope-chip">${escapeHtml(item.scope_id)}</span> ${escapeHtml(label)}<small>${escapeHtml(item.reason)}</small></button>`;
           }).join("")
         : '<p class="empty">Nothing needs attention.</p>';
+      const worthKnowing = state.brief.worth_knowing || [];
+      byId("brief-worth-knowing").innerHTML = worthKnowing.length
+        ? worthKnowing.map((item) => `<button type="button" class="brief-title" data-brief-scope="${escapeHtml(item.scope_id)}" data-brief-subject="${escapeHtml(item.subject_key)}">${escapeHtml(item.title)} · ${item.viewpoint_count} viewpoints · ${escapeHtml((item.distinct_speakers || []).join(", "))} · ${escapeHtml(compactTime(item.newest_viewpoint_at))}</button>`).join(" · ")
+        : '<p class="empty">No viewpoint activity.</p>';
       byId("brief-groups").innerHTML = (state.brief.groups || []).map((group) => {
         const counts = group.counts;
         const matters = group.matters.map((matter) =>
@@ -998,6 +1016,75 @@
       return result;
     }
 
+    function statusTone(status) {
+      const value = String(compactValue(status) || "").toLowerCase();
+      if (!value || value === "open") return "var(--faint)";
+      if (value === "blocked") return "var(--red)";
+      if (["completed", "done", "resolved", "closed", "merged", "shipped"].includes(value)) return "var(--green)";
+      return "var(--amber)";
+    }
+
+    function textWidth(label) {
+      let width = 0;
+      for (const ch of String(label)) width += ch.charCodeAt(0) > 255 ? 13.6 : 7.4;
+      return width;
+    }
+
+    function timeTreeSvg(detail) {
+      const graph = detail.graph || {};
+      const node = graph.node || {};
+      const children = (graph.children || []).slice().sort((left, right) =>
+        new Date(left.birth_instant || 0) - new Date(right.birth_instant || 0));
+      const decisions = node.decision_points || [];
+      const stamps = [...children.map((child) => child.birth_instant), ...decisions.map((item) => item.at)]
+        .filter(Boolean).map((value) => new Date(value).valueOf()).filter(Number.isFinite);
+      if (!stamps.length) return "";
+      let min = Math.min(...stamps), max = Math.max(...stamps);
+      const pad = Math.max((max - min) * 0.08, 30 * 60 * 1000);
+      min -= pad; max += pad;
+      const W = 960, L = 24, R = 30, spineY = 44;
+      const x = (value) => L + (new Date(value).valueOf() - min) / (max - min) * (W - L - R);
+      const H = 84 + children.length * 58 + 36;
+      const ticks = [];
+      for (let index = 0; index <= 4; index += 1) {
+        const instant = new Date(min + (max - min) * index / 4).toISOString();
+        const tx = x(instant).toFixed(1);
+        const anchor = index === 0 ? "start" : index === 4 ? "end" : "middle";
+        ticks.push(`<line x1="${tx}" y1="${spineY + 12}" x2="${tx}" y2="${H - 30}" stroke="var(--rule)"/>` +
+          `<text x="${tx}" y="${H - 14}" text-anchor="${anchor}" class="tree-axis">${escapeHtml(compactTime(instant))}</text>`);
+      }
+      const blockedKids = children.filter((child) =>
+        String(compactValue(child.status) || "").toLowerCase() === "blocked" || (child.blocker || []).length);
+      const bleed = blockedKids.length
+        ? `<text x="${W - R}" y="${spineY - 18}" text-anchor="end" class="tree-bleed">⛔ 卡点上浮 · ${blockedKids.length} 个子目标受阻</text>` : "";
+      const diamonds = decisions.filter((item) => item.at).map((item) => {
+        const dx = x(item.at);
+        return `<g><rect x="${(dx - 6).toFixed(1)}" y="${spineY - 6}" width="12" height="12" transform="rotate(45 ${dx.toFixed(1)} ${spineY})" fill="var(--ink)" stroke="var(--sheet)" stroke-width="1.5"/><title>◆ ${escapeHtml(compactValue(item.value))}</title></g>`;
+      }).join("");
+      const kids = children.map((kid, index) => {
+        const bx = x(kid.birth_instant || min);
+        const y = 82 + index * 58;
+        const tone = statusTone(kid.status);
+        const label = kid.title || kid.subject_key;
+        const meta = `${compactValue(kid.status) || "open"}${(kid.blocker || []).length ? " · " + compactValue(kid.blocker) : ""} · ${compactTime(kid.birth_instant)}`;
+        const bw = Math.min(420, 22 + textWidth(label));
+        return `<g class="tree-node" data-tree-scope="${escapeHtml(detail.scope_id)}" data-tree-subject="${escapeHtml(kid.subject_key)}">
+          <path d="M ${bx.toFixed(1)} ${spineY} L ${bx.toFixed(1)} ${y} L ${(bx + 14).toFixed(1)} ${y}" stroke="${tone}" stroke-width="1.6" fill="none"/>
+          <circle cx="${bx.toFixed(1)}" cy="${spineY}" r="3.4" fill="${tone}"/>
+          <rect x="${(bx + 14).toFixed(1)}" y="${y - 14}" width="${bw.toFixed(0)}" height="27" fill="var(--sheet)" stroke="${tone}" stroke-width="1.4"/>
+          <text x="${(bx + 24).toFixed(1)}" y="${y + 4}" class="tree-title">${escapeHtml(label)}</text>
+          <text x="${(bx + 24).toFixed(1)}" y="${y + 27}" class="tree-meta">${escapeHtml(meta)}</text>
+        </g>`;
+      }).join("");
+      const rootLabel = `${node.title || detail.subject_key}`;
+      return `<div class="treewrap"><svg viewBox="0 0 ${W} ${H}" class="time-tree-svg" role="img" aria-label="time tree">
+        ${ticks.join("")}
+        <line x1="${L}" y1="${spineY}" x2="${W - R}" y2="${spineY}" stroke="var(--ink)" stroke-width="2"/>
+        <text x="${L}" y="${spineY - 14}" class="tree-root">${escapeHtml(rootLabel)} <tspan class="tree-meta">${escapeHtml(compactValue(node.status) || "open")}</tspan></text>
+        ${bleed}${diamonds}${kids}
+      </svg></div>`;
+    }
+
     function timeTreeHtml(detail) {
       const graph = detail.graph || {};
       const node = graph.node || {};
@@ -1005,9 +1092,12 @@
       const parentHtml = parent
         ? `<button type="button" class="tree-link" data-tree-scope="${escapeHtml(detail.scope_id)}" data-tree-subject="${escapeHtml(parent.subject_key)}">${escapeHtml(parent.title)}</button>`
         : '<span class="empty">Root matter</span>';
-      const children = (graph.children || []).map((child) =>
+      const treeSvg = timeTreeSvg(detail);
+      const childItems = (graph.children || []).map((child) =>
         `<li class="time-tree-node"><span class="stamp">${escapeHtml(compactValue(child.status))}</span><button type="button" class="tree-link" data-tree-scope="${escapeHtml(detail.scope_id)}" data-tree-subject="${escapeHtml(child.subject_key)}">${escapeHtml(child.title)}</button><time>${escapeHtml(compactTime(child.birth_instant))}</time></li>`
-      ).join("") || '<li class="empty">No child matters.</li>';
+      ).join("");
+      const children = treeSvg
+        || (childItems ? `<ul class="time-tree-list">${childItems}</ul>` : '<p class="empty">独立事项,暂无子目标。</p>');
       const decisions = (node.decisions || []).map((decision) =>
         `<li>${escapeHtml(displayValue(decision))}</li>`
       ).join("") || '<li class="empty">No decisions recorded.</li>';
@@ -1073,7 +1163,7 @@
           ).join("")}</div>`
         : "";
       const timeline = timelineHtml(detail, personNames);
-      const timeTree = timeTreeHtml(detail);
+      const timeTree = detail.subject_type === "TOPIC" ? "" : timeTreeHtml(detail);
       const related = detail.related?.length
         ? `<section class="related-panel"><h3>Related</h3><ul class="related-list">${detail.related.map((matter) =>
             `<li><button type="button" class="related-item" data-related-scope="${escapeHtml(matter.scope_id)}" data-related-subject="${escapeHtml(matter.subject_key)}"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong><span class="related-via">${escapeHtml(matter.via)}</span></button></li>`
@@ -1100,7 +1190,9 @@
     }
 
     function timelineHtml(detail, personNames = {}) {
-      const tracked = new Set(["status", "progress", "outcome"]);
+      const tracked = detail.subject_type === "TOPIC"
+        ? new Set(["viewpoint"])
+        : new Set(["status", "progress", "outcome"]);
       const entries = Object.entries(detail.timeline || {})
         .filter(([predicate]) => tracked.has(predicate))
         .flatMap(([predicate, values]) => values.map((value) => ({ ...value, predicate })))
@@ -1138,7 +1230,7 @@
             const label = Number.isNaN(date.valueOf()) ? entry.valid_from : `${date.getMonth() + 1}/${date.getDate()} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
             return `<li class="timeline-entry"><time class="timeline-date" datetime="${escapeHtml(entry.valid_from)}">${escapeHtml(label)}</time><div><span class="predicate">${escapeHtml(entry.predicate)}</span>${convChip}<div class="timeline-value clamp clamp-value">${escapeHtml(displayValue(personNames[entry.value] || entry.value))}</div>${sources}</div></li>`;
           }).join("")
-        : '<li class="empty">No status or progress history yet.</li>';
+        : '<li class="empty">No timeline history yet.</li>';
       return `<section class="timeline-panel"><h3>Timeline</h3><ol class="matter-timeline">${rows}</ol></section>`;
     }
 
@@ -1167,6 +1259,23 @@
       return `${instant.getMonth() + 1}/${instant.getDate()} ${two(instant.getHours())}:${two(instant.getMinutes())}`;
     }
 
+    function miniTreeSvg(matter) {
+      const kids = (matter.children_preview || []).slice().sort((left, right) =>
+        new Date(left.birth_instant || 0) - new Date(right.birth_instant || 0));
+      if (!kids.length) return "";
+      const times = kids.map((kid) => new Date(kid.birth_instant || matter.updated_at || 0).valueOf());
+      const min = Math.min(...times), span = Math.max(Math.max(...times) - min, 1);
+      const W = 240, x0 = 8, x1 = W - 8;
+      let last = -Infinity;
+      const dots = kids.map((kid, index) => {
+        let cx = kids.length === 1 ? (x0 + x1) / 2 : x0 + (times[index] - min) / span * (x1 - x0);
+        cx = Math.min(Math.max(cx, last + 9), x1);
+        last = cx;
+        return `<circle cx="${cx.toFixed(1)}" cy="8" r="4" fill="${statusTone(kid.status)}"><title>${escapeHtml(kid.title)} · ${escapeHtml(compactValue(kid.status) || "open")}</title></circle>`;
+      }).join("");
+      return `<svg class="mini-tree" viewBox="0 0 ${W} 16" aria-hidden="true"><line x1="2" y1="8" x2="${W - 2}" y2="8"/>${dots}</svg>`;
+    }
+
     function matterRowHtml(matter, archived = false) {
       const key = `${matter.scope_id}:${matter.subject_key}`;
       const dueDate = matter.due ? new Date(matter.due) : null;
@@ -1179,7 +1288,9 @@
       const bubbledBlockers = (matter.bubbled_blockers || []).map((item) =>
         `${item.subject_key}: ${compactValue(item.blocker)}`
       ).join(" · ");
-      const rollup = `<span class="scope-chip">${matter.descendants_completed}/${matter.descendants_total} 子目标</span>`;
+      const rollup = matter.descendants_total
+        ? `<span class="scope-chip">${matter.descendants_completed}/${matter.descendants_total} 子目标</span>` : "";
+      const miniTree = miniTreeSvg(matter);
       const sources = matter.sources_display || [];
       const sourceChips = sources.slice(0, 2).map((source) =>
         `<span class="conv-chip" title="${escapeHtml(source)}">${escapeHtml(source)}</span>`
@@ -1191,7 +1302,7 @@
       return `<button type="button" class="matter-row ${archived ? "archived" : ""} ${state.selected === key ? "active" : ""}"
           data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
         <span class="stamp-group">${updated}<span class="stamp ${status === "blocked" ? "blocked" : ""}">${escapeHtml(status)}</span>${rollup}</span>
-        <span class="matter-row-title"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong></span>
+        <span class="matter-row-title"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong>${miniTree}</span>
         <span class="matter-row-summary"><span class="row-label">Summary</span>${escapeHtml(matter.progress || "—")}</span>
         <span class="matter-row-blocker">${blockers || bubbledBlockers ? `<span class="row-label">Problem</span>${blockers ? `blocked: ${escapeHtml(blockers)}` : ""}${blockers && bubbledBlockers ? " · " : ""}${bubbledBlockers ? `子目标: ${escapeHtml(bubbledBlockers)}` : ""}` : ""}</span>
         <span class="matter-row-meta">${sourceChips}${extraSources}${owners ? `<span title="Owners">${escapeHtml(owners)}</span>` : ""}<span class="${overdue ? "overdue" : ""}" title="Due">due ${escapeHtml(validDue ? compactTime(matter.due) : "—")}</span>${matter.next_step != null ? `<span class="next-chip" title="${escapeHtml(compactValue(matter.next_step))}">next ${escapeHtml(compactValue(matter.next_step))}</span>` : ""}<time datetime="${escapeHtml(matter.updated_at || "")}" title="Updated">${escapeHtml(compactTime(matter.updated_at))}</time></span>

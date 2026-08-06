@@ -100,7 +100,10 @@ def project_assertions(
         elif definition.cardinality == Cardinality.SET:
             projected = _project_set(items)
         else:
-            projected = _project_append(items)
+            projected = _project_append(
+                items,
+                retractable=definition.retractable,
+            )
         intervals.extend(projected)
 
     stats = [
@@ -187,12 +190,29 @@ def _project_set(items: list[Assertion]) -> list[Interval]:
     return sorted(result, key=_interval_sort)
 
 
-def _project_append(items: list[Assertion]) -> list[Interval]:
-    return [
-        _interval(item, item.valid_from)
-        for item in sorted(items, key=_rank)
-        if item.operation == Operation.ASSERT
-    ]
+def _project_append(
+    items: list[Assertion], *, retractable: bool
+) -> list[Interval]:
+    if not retractable:
+        return [
+            _interval(item, item.valid_from)
+            for item in sorted(items, key=_rank)
+            if item.operation == Operation.ASSERT
+        ]
+    active: list[Interval] = []
+    for item in sorted(items, key=_rank):
+        if item.operation == Operation.ASSERT:
+            active.append(_interval(item, item.valid_from))
+            continue
+        if item.object_key == FIELD_WIDE_RETRACT:
+            active = []
+        else:
+            active = [
+                interval
+                for interval in active
+                if interval.object_key != item.object_key
+            ]
+    return active
 
 
 def _interval_sort(item: Interval) -> tuple:

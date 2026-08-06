@@ -25,3 +25,8 @@ expected_assertions:
     operation: ASSERT
     object_value: octo-migration-root
     evidence_aliases: [m1]
+  - subject_ref: octo-migration-root
+    predicate: decision
+    operation: ASSERT
+    object_value: "Fork the fictional compatibility audit."
+    evidence_aliases: [m1]

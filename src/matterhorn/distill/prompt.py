@@ -78,6 +78,7 @@ def build_prompt(
             "subject_type": predicate.subject,
             "object_type": predicate.object,
             "value_domain": predicate.value_domain,
+            "field_domains": predicate.field_domains,
         }
         for predicate in profile.predicates
         if predicate.extraction == ExtractionMode.semantic

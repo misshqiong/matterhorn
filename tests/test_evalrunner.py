@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from matterhorn.distill import ToolLoopResult
 from matterhorn.evalrunner import (
     ExpectedMatter,
     ProducedMatter,
@@ -13,6 +14,7 @@ from matterhorn.evalrunner import (
     discover_alignment_samples,
     load_alignment_sample,
     run_eval_dataset,
+    run_live_sample_comparison,
     score_alignment_samples,
     score_assertion_set,
     score_metrics,
@@ -224,16 +226,26 @@ def test_every_shipped_case_has_a_sibling_response_fixture() -> None:
 def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
     samples = [load_alignment_sample(path) for path in discover_alignment_samples()]
 
-    assert len(samples) == 3
+    assert len(samples) == 5
     assert {sample.source_kind for sample in samples} == {"mail", "im", "agent"}
     produced = {
         sample.sample_id: sample.expected_assertions
         for sample in samples
     }
-    assert score_alignment_samples(produced)["counts"] == {
+    scores = score_alignment_samples(produced)
+    assert scores["counts"] == {
         "missing": 0,
         "spurious": 0,
         "mis_attached": 0,
+    }
+    assert scores["typing_accuracy"] == {
+        "correct": 5,
+        "total": 5,
+        "rate": 1.0,
+    }
+    assert scores["by_type"] == {
+        "matter": {"missing": 0, "spurious": 0, "mis_attached": 0},
+        "topic": {"missing": 0, "spurious": 0, "mis_attached": 0},
     }
 
 
@@ -270,3 +282,103 @@ def test_assertion_set_diff_separates_missing_spurious_and_misattached() -> None
     assert diff["counts"] == {"missing": 1, "spurious": 1, "mis_attached": 1}
     assert diff["mis_attached"][0]["expected_subject"] == "root-a"
     assert diff["mis_attached"][0]["actual_subject"] == "wrong-root"
+
+
+class _LiveSampleGateway:
+    def complete(self, *, system, user, response_schema):
+        del system
+        properties = response_schema.get("properties", {})
+        if "cards" in properties:
+            alias = json.loads(user)["records"][0]["source_alias"]
+            return json.dumps(
+                {
+                    "cards": [
+                        {
+                            "date": "2026-08-06",
+                            "title": "Fictional live sample",
+                            "status": "open",
+                            "source_ids": [alias],
+                        }
+                    ]
+                }
+            )
+        if "candidates" in properties:
+            return '{"candidates":[]}'
+        raise AssertionError(response_schema)
+
+    def tool_loop(
+        self,
+        *,
+        system,
+        user,
+        tools,
+        handler,
+        max_tool_calls=16,
+        max_emissions=4,
+    ):
+        del system, user, tools, max_tool_calls, max_emissions
+        handler(
+            "emit",
+            {
+                "assertions": [
+                    {
+                        "subject": {
+                            "new_subject": {
+                                "ref": "live",
+                                "subject_type": "MATTER",
+                                "title": "Fictional live sample",
+                            }
+                        },
+                        "predicate": "status",
+                        "operation": "ASSERT",
+                        "object_value": "open",
+                        "evidence_aliases": ["m1"],
+                    }
+                ]
+            },
+        )
+        return ToolLoopResult(
+            final_message="done", tool_calls=1, emissions=1
+        )
+
+
+def test_live_samples_runs_legacy_and_unified_with_mocked_gateway(
+    tmp_path,
+) -> None:
+    samples = tmp_path / "samples"
+    samples.mkdir()
+    (samples / "01-live.yaml").write_text(
+        """sample_id: live-sample
+source_kind: im
+scope_id: live-scope
+window:
+  - evidence_alias: m1
+    record_id: live-scope:room:r1
+    container_id: live-scope:room
+    sent_at: '2026-08-06T09:00:00Z'
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: Open the fictional live sample.
+    kind: im
+expected_assertions:
+  - subject_ref: '$new:live'
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    evidence_aliases: [m1]
+""",
+        encoding="utf-8",
+    )
+
+    report = run_live_sample_comparison(
+        samples=samples,
+        gateway_factory=_LiveSampleGateway,
+    )
+
+    for mode in ("legacy", "unified"):
+        assert report["aggregate"][mode]["counts"] == {
+            "missing": 0,
+            "spurious": 0,
+            "mis_attached": 0,
+        }
+        assert report["aggregate"][mode]["typing_accuracy"]["rate"] == 1.0

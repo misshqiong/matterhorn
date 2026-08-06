@@ -1,0 +1,70 @@
+case_id: insight-viewpoint-retract
+title: Retractable APPEND removes only the corrected viewpoint
+invariants: [P5, P7, P8, INV-18, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-insight-retract
+unified_loop: true
+clock:
+  - "2026-08-06T09:10:00Z"
+  - "2026-08-06T09:11:00Z"
+  - "2026-08-06T09:12:00Z"
+  - "2026-08-06T09:20:00Z"
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-insight-retract:room:r1
+        container_id: octo-insight-retract:room
+        sent_at: "2026-08-06T09:00:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "Dana and Ellis discuss the fictional review rubric."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: rubric, subject_type: TOPIC, title: Fictional review rubric}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-retract:room}
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: rubric, subject_type: TOPIC, title: Fictional review rubric}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: ellis-stone, stance: informs, content: "The broad rubric has twelve fields.", where: octo-insight-retract:room}
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: rubric, subject_type: TOPIC, title: Fictional review rubric}}
+                predicate: stated_by
+                operation: ASSERT
+                object_value: dana-reyes
+                evidence_aliases: [m1]
+      - final_message: done
+corrections:
+  - scope_id: octo-insight-retract
+    subject_key: sub_25cf3fbdf24ca418af98
+    subject_type: TOPIC
+    predicate: viewpoint
+    operation: RETRACT
+    object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-retract:room}
+    object_key: '{"content":"Keep the rubric small.","stance":"supports","where":"octo-insight-retract:room","who":"dana-reyes"}'
+    valid_from: "2026-08-06T09:15:00Z"
+    source_refs:
+      - {source_id: octo-insight-retract:correction:r2, sent_at: "2026-08-06T09:15:00Z", sender: Dana Reyes}
+expect:
+  record_reports:
+    - {assertions_emitted: 3, cards_dropped: 0}
+  subject_count: 1
+  assertions:
+    - {subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-retract:room}}
+    - {subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: ellis-stone, stance: informs, content: "The broad rubric has twelve fields.", where: octo-insight-retract:room}}
+    - {subject_type: TOPIC, predicate: stated_by, operation: ASSERT, object_value: dana-reyes}
+    - {subject_type: TOPIC, predicate: viewpoint, operation: RETRACT, object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-retract:room}, origin: human}
+  intervals:
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: ellis-stone, stance: informs, content: "The broad rubric has twelve fields.", where: octo-insight-retract:room}}
+    - {subject_type: TOPIC, predicate: stated_by, object_value: dana-reyes}
+  queries:
+    - name: timeline
+      args: {subject_key: sub_25cf3fbdf24ca418af98, predicate: viewpoint}
+      result:
+        - {value: {who: ellis-stone, stance: informs, content: "The broad rubric has twelve fields.", where: octo-insight-retract:room}}

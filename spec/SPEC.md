@@ -2077,6 +2077,64 @@ empty emission for a noise window; bound exhaustion abstaining to review;
 flag-off byte-equivalence with the legacy path on the same fixtures; and
 replay without loop re-execution.
 
+## 27. INSIGHT ontology as configuration
+
+INSIGHT is the second 5W1H family: who expressed what stance, where, when.
+It ships as schema configuration plus alignment samples — the section 26
+loop and every engine mechanism apply unchanged; this section adds NO new
+engine behavior beyond one read-surface projection.
+
+### 27.1 Schema additions
+
+The profile gains subject type `TOPIC` with predicates:
+
+- `viewpoint` — APPEND; object is
+  `{who, stance, content, where}` with `stance` drawn from the closed set
+  `{supports, opposes, neutral, informs}`. The discourse stream only grows;
+  viewpoints are never superseded, only RETRACTed by correction.
+- `stated_by` — SET of person identifiers, maintained alongside
+  `viewpoint` for by-person queries.
+
+Expressing this requires two GENERIC profile capabilities (type-system
+extensions, not behavior code; they apply to any predicate):
+
+- `retractable: true` on an APPEND predicate permits RETRACT through the
+  correction door under the standard section 8 guards. The default stays
+  false, so existing APPEND predicates (`outcome`, `decision`) keep their
+  current never-retract behavior byte-identically. `viewpoint` sets it.
+- `field_domains` on an object-valued predicate constrains named fields to
+  closed sets at admission; unlisted fields stay free-form. `viewpoint`
+  constrains `stance`.
+
+Additionally, section 26.2 new-subject declarations MUST accept any subject
+type registered in the profile — a declaration is invalid only when its
+type is absent from the profile. Implementations MUST NOT hard-code the
+MATTER type in the loop.
+
+TOPIC subjects carry no lifecycle predicates (`status`, `blocker`,
+`next_step`, `due_at` are not registered for TOPIC); a card trying to give
+a topic a lifecycle MUST be rejected by the existing schema gate. Identity,
+handles, merges, corrections, and goal-graph edges apply to TOPIC subjects
+exactly as to MATTER subjects.
+
+### 27.2 Worth-knowing projection
+
+The section 24.5 briefing gains a `worth_knowing` section: TOPIC subjects
+with viewpoint activity inside the window, each carrying title, viewpoint
+count in window, distinct speakers, and the newest viewpoint instant.
+Ordering is deterministic: newest viewpoint instant desc, then subject key.
+Freshness is read-side only — nothing about decay is persisted (INV-18
+applies unchanged).
+
+### 27.3 Conformance and samples
+
+Golden cases MUST cover: viewpoint append and RETRACT-only correction; the
+lifecycle-predicate rejection for TOPIC; worth-knowing windowing and
+ordering; and a mixed brief carrying matters and topics side by side.
+Alignment samples MUST include at least one window whose expected output is
+a TOPIC with viewpoints instead of a matter (insight-in-matter-clothing),
+and one window expecting both a matter update and a viewpoint.
+
 ## 中文摘要
 
 Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Record 经受控

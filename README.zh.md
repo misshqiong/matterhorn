@@ -256,7 +256,7 @@ receipt/flush 幂等重放：
 
 ```console
 $ mh conformance run
-SUMMARY passed=100 failed=0 total=100
+SUMMARY passed=104 failed=0 total=104
 ```
 
 ### 提取质量评测

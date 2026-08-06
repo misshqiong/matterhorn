@@ -170,6 +170,7 @@ class UnifiedLoopSession:
                 "subject_type": item.subject,
                 "object_type": item.object,
                 "value_domain": item.value_domain,
+                "field_domains": item.field_domains,
             }
             for item in self.engine.profile.predicates
         ]
@@ -457,8 +458,10 @@ class UnifiedLoopSession:
         created: SubjectRecord | None = None
         if intent.subject.new_subject is not None:
             declaration = intent.subject.new_subject
-            if declaration.subject_type != self.engine.profile.primary_subject.type:
-                return "INVALID_SUBJECT_PARENT"
+            if declaration.subject_type not in {
+                subject.type for subject in self.engine.profile.subjects
+            }:
+                return "SUBJECT_TYPE_MISMATCH"
             normalized = normalize_title(declaration.title)
             if not normalized:
                 return "MISSING_SUBJECT_TITLE"
@@ -511,9 +514,7 @@ class UnifiedLoopSession:
                     return "CLOSED_WORLD_VIOLATION"
         if (
             intent.operation == Operation.ASSERT
-            and definition.value_domain is not None
-            and canonical_json(value)
-            not in {canonical_json(item) for item in definition.value_domain}
+            and not definition.value_is_in_domain(value)
         ):
             return "VALUE_OUT_OF_DOMAIN"
         if definition.object == "person" and value not in {

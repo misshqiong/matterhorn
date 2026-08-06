@@ -207,6 +207,7 @@ class MatterResponse(StrictModel):
     descendants_blocked: int = Field(default=0, ge=0)
     bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
     latest_activity: datetime | None = None
+    children_preview: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
@@ -299,6 +300,15 @@ class BriefMatterResponse(StrictModel):
     bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class BriefWorthKnowingResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    title: str
+    viewpoint_count: int = Field(ge=1)
+    distinct_speakers: list[str] = Field(default_factory=list)
+    newest_viewpoint_at: datetime
+
+
 class BriefCountsResponse(StrictModel):
     touched: int = Field(ge=0)
     completed: int = Field(ge=0)
@@ -323,6 +333,7 @@ class BriefQuietResponse(StrictModel):
 
 class BriefResponse(StrictModel):
     needs_me: list[BriefNeedsMeResponse]
+    worth_knowing: list[BriefWorthKnowingResponse]
     groups: list[BriefGroupResponse]
     quiet: list[BriefQuietResponse]
 
@@ -342,6 +353,7 @@ class GraphNodeResponse(StrictModel):
     birth_instant: datetime | None = None
     parent_subject_key: str | None = None
     decisions: list[Any] = Field(default_factory=list)
+    decision_points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class GraphTreeNodeResponse(GraphNodeResponse):

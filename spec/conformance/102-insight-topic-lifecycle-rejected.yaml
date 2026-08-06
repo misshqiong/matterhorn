@@ -1,0 +1,45 @@
+case_id: insight-topic-lifecycle-rejected
+title: The schema gate rejects lifecycle predicates on TOPIC
+invariants: [P3, P7, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-insight-lifecycle
+unified_loop: true
+clock: ["2026-08-06T10:00:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-insight-lifecycle:room:r1
+        container_id: octo-insight-lifecycle:room
+        sent_at: "2026-08-06T09:30:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "Dana supports keeping the fictional rubric small."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: rubric, subject_type: TOPIC, title: Fictional small rubric}}
+                predicate: viewpoint
+                operation: ASSERT
+                object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-lifecycle:room}
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: rubric, subject_type: TOPIC, title: Fictional small rubric}}
+                predicate: status
+                operation: ASSERT
+                object_value: open
+                evidence_aliases: [m1]
+      - final_message: done
+expect:
+  record_reports:
+    - assertions_emitted: 1
+      cards_dropped: 1
+      drop_reasons: {SUBJECT_TYPE_MISMATCH: 1}
+  subject_count: 1
+  assertions:
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-lifecycle:room}}
+  intervals:
+    - {subject_type: TOPIC, predicate: viewpoint, object_value: {who: dana-reyes, stance: supports, content: "Keep the rubric small.", where: octo-insight-lifecycle:room}}
+  gate_statistics: {accepted: 1, rejections: {SUBJECT_TYPE_MISMATCH: 1}}
+  queries: []

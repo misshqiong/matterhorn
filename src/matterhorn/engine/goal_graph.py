@@ -40,6 +40,7 @@ class GraphNode:
     birth_instant: datetime | None
     parent_subject_key: str | None
     decisions: list[Any]
+    decision_points: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -280,6 +281,13 @@ def project_goal_graph(
             decisions=[
                 value
                 for _, _, value in sorted(
+                    decisions.get(key, []),
+                    key=lambda item: (item[0], item[1].encode("utf-8")),
+                )
+            ],
+            decision_points=[
+                {"value": value, "at": instant}
+                for instant, _, value in sorted(
                     decisions.get(key, []),
                     key=lambda item: (item[0], item[1].encode("utf-8")),
                 )

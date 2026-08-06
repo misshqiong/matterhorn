@@ -20,13 +20,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from matterhorn.adapters.messages import MessageCardExtractor
-from matterhorn.contracts import Message
+from matterhorn.contracts import Message, Record, SubjectRecord
 from matterhorn.defaults import Engine
 from matterhorn.gateway_config import configured_gateway
 
 REPORT_SCHEMA = "matterhorn-eval/v1"
 FIELD_NAMES = ("status", "owner", "next_step")
 NEW_SUBJECT_PREFIX = "$new:"
+SCORED_SUBJECT_TYPES = ("MATTER", "TOPIC")
 
 
 class EvalHarnessError(RuntimeError):
@@ -365,6 +366,25 @@ def score_alignment_samples(
             {
                 "sample_id": sample.sample_id,
                 "source_kind": sample.source_kind,
+                "by_type": {
+                    subject_type.casefold(): score_assertion_set(
+                        [
+                            item
+                            for item in sample.expected_assertions
+                            if _assertion_type(item) == subject_type
+                        ],
+                        [
+                            item
+                            for item in produced_by_sample.get(sample.sample_id, [])
+                            if _assertion_type(item) == subject_type
+                        ],
+                    )
+                    for subject_type in SCORED_SUBJECT_TYPES
+                },
+                "typing": _typing_result(
+                    sample.expected_assertions,
+                    produced_by_sample.get(sample.sample_id, []),
+                ),
                 **diff,
             }
         )
@@ -374,7 +394,118 @@ def score_alignment_samples(
             name: sum(item["counts"][name] for item in reports)
             for name in ("missing", "spurious", "mis_attached")
         },
+        "by_type": {
+            subject_type.casefold(): {
+                name: sum(
+                    item["by_type"][subject_type.casefold()]["counts"][name]
+                    for item in reports
+                )
+                for name in ("missing", "spurious", "mis_attached")
+            }
+            for subject_type in SCORED_SUBJECT_TYPES
+        },
+        "typing_accuracy": _success_metric(
+            sum(item["typing"]["correct"] for item in reports),
+            len(reports),
+        ),
     }
+
+
+def run_live_sample_comparison(
+    *,
+    samples: str | Path | None = None,
+    provider: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+    gateway_factory: Any | None = None,
+) -> dict[str, Any]:
+    """Run every alignment window once through each rollout path."""
+
+    selected_provider = provider or os.environ.get("MATTERHORN_PROVIDER")
+    if gateway_factory is None:
+        if selected_provider in (None, "null", "fixture", "fixture-file"):
+            raise EvalHarnessError(
+                "--live-samples requires a configured real gateway provider"
+            )
+
+        def gateway_factory() -> Any:
+            return configured_gateway(
+                provider=selected_provider,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+            )
+
+    produced: dict[str, dict[str, list[dict[str, Any]]]] = {
+        "legacy": {},
+        "unified": {},
+    }
+    for path in discover_alignment_samples(samples):
+        sample = load_alignment_sample(path)
+        for mode, unified in (("legacy", False), ("unified", True)):
+            gateway = gateway_factory()
+            if unified and not callable(getattr(gateway, "tool_loop", None)):
+                raise EvalHarnessError(
+                    "--live-samples requires a tool-loop capable gateway"
+                )
+            produced[mode][sample.sample_id] = _run_live_sample(
+                sample,
+                gateway,
+                unified=unified,
+            )
+
+    scores = {
+        mode: score_alignment_samples(assertions, samples=samples)
+        for mode, assertions in produced.items()
+    }
+    sample_rows = []
+    by_mode_sample = {
+        mode: {item["sample_id"]: item for item in score["samples"]}
+        for mode, score in scores.items()
+    }
+    for path in discover_alignment_samples(samples):
+        sample_id = load_alignment_sample(path).sample_id
+        sample_rows.append(
+            {
+                "sample_id": sample_id,
+                "legacy": by_mode_sample["legacy"][sample_id],
+                "unified": by_mode_sample["unified"][sample_id],
+            }
+        )
+    return {
+        "schema": REPORT_SCHEMA,
+        "mode": "live-samples",
+        "provider": selected_provider or "injected",
+        "samples": sample_rows,
+        "aggregate": {
+            mode: {
+                "counts": score["counts"],
+                "by_type": score["by_type"],
+                "typing_accuracy": score["typing_accuracy"],
+            }
+            for mode, score in scores.items()
+        },
+    }
+
+
+def format_live_sample_table(report: dict[str, Any]) -> str:
+    lines = [
+        (
+            "sample_id | legacy missing/spurious/mis_attached | "
+            "unified missing/spurious/mis_attached | legacy typing | unified typing"
+        )
+    ]
+    for item in report["samples"]:
+        legacy = item["legacy"]
+        unified = item["unified"]
+        lines.append(
+            f"{item['sample_id']} | {_diff_count_text(legacy['counts'])} | "
+            f"{_diff_count_text(unified['counts'])} | "
+            f"{legacy['typing']['expected']}->{legacy['typing']['actual']} | "
+            f"{unified['typing']['expected']}->{unified['typing']['actual']}"
+        )
+    return "\n".join(lines)
 
 
 def load_assertion_results(path: str | Path) -> dict[str, list[dict[str, Any]]]:
@@ -865,11 +996,26 @@ def format_report_table(report: dict[str, Any]) -> str:
     if report.get("seed_note"):
         lines.append(f"seed_note | {report['seed_note']}")
     if "assertion_samples" in report:
-        counts = report["assertion_samples"]["counts"]
+        sample_scores = report["assertion_samples"]
+        counts = sample_scores["counts"]
         lines.append(
             "assertion_set_diff | "
             f"missing={counts['missing']} | spurious={counts['spurious']} | "
             f"mis_attached={counts['mis_attached']}"
+        )
+        for subject_type in ("matter", "topic"):
+            type_counts = sample_scores["by_type"][subject_type]
+            lines.append(
+                f"assertion_set_diff_{subject_type} | "
+                f"missing={type_counts['missing']} | "
+                f"spurious={type_counts['spurious']} | "
+                f"mis_attached={type_counts['mis_attached']}"
+            )
+        typing = sample_scores["typing_accuracy"]
+        lines.append(
+            "typing_accuracy | "
+            f"{typing['correct']}/{typing['total']} "
+            f"({_rate_text(typing['rate'])})"
         )
     return "\n".join(lines)
 
@@ -897,6 +1043,190 @@ def _assertion_fact(assertion: dict[str, Any]) -> dict[str, Any]:
         "object_value": assertion.get("object_value"),
         "evidence": sorted(evidence) if isinstance(evidence, list) else evidence,
     }
+
+
+def _assertion_type(assertion: dict[str, Any]) -> str:
+    explicit = assertion.get("subject_type")
+    if isinstance(explicit, str):
+        return explicit.upper()
+    subject = assertion.get("subject")
+    if isinstance(subject, dict):
+        declaration = subject.get("new_subject")
+        if isinstance(declaration, dict) and isinstance(
+            declaration.get("subject_type"), str
+        ):
+            return declaration["subject_type"].upper()
+    if assertion.get("predicate") in {"viewpoint", "stated_by"}:
+        return "TOPIC"
+    return "MATTER"
+
+
+def _typing_label(assertions: list[dict[str, Any]]) -> str:
+    types = {
+        _assertion_type(assertion).casefold()
+        for assertion in assertions
+        if _assertion_type(assertion) in SCORED_SUBJECT_TYPES
+    }
+    if not types:
+        return "noise"
+    return "+".join(sorted(types))
+
+
+def _typing_result(
+    expected: list[dict[str, Any]], actual: list[dict[str, Any]]
+) -> dict[str, Any]:
+    expected_label = _typing_label(expected)
+    actual_label = _typing_label(actual)
+    return {
+        "expected": expected_label,
+        "actual": actual_label,
+        "correct": int(expected_label == actual_label),
+    }
+
+
+def _run_live_sample(
+    sample: AlignmentSample,
+    gateway: Any,
+    *,
+    unified: bool,
+) -> list[dict[str, Any]]:
+    records = [
+        Record.model_validate(
+            {key: value for key, value in item.items() if key != "evidence_alias"}
+        )
+        for item in sample.window
+    ]
+    aliases = {
+        item["record_id"]: item.get("evidence_alias", f"m{index + 1}")
+        for index, item in enumerate(sample.window)
+    }
+    with tempfile.TemporaryDirectory(prefix="matterhorn-live-sample-") as temp_dir:
+        engine = Engine(
+            Path(temp_dir) / "sample.db",
+            "org-matters/v1",
+            clock=EvalClock(),
+            gateway=gateway,
+            unified_loop=unified,
+        )
+        try:
+            _seed_live_sample_subjects(engine, sample)
+            engine.add_records(records, scope_id=sample.scope_id)
+            actual = [
+                {
+                    "subject_ref": assertion.subject_key,
+                    "subject_type": assertion.subject_type,
+                    "predicate": assertion.predicate,
+                    "operation": assertion.operation.value,
+                    "object_value": assertion.object_value,
+                    "evidence_aliases": sorted(
+                        {
+                            aliases[ref.source_id]
+                            for ref in assertion.source_refs
+                            if ref.source_id in aliases
+                        }
+                    ),
+                }
+                for assertion in engine.store.assertions(sample.scope_id)
+            ]
+            return _normalize_live_subject_refs(
+                sample.expected_assertions,
+                actual,
+            )
+        finally:
+            engine.store.close()
+
+
+def _seed_live_sample_subjects(engine: Engine, sample: AlignmentSample) -> None:
+    expected_by_subject: dict[str, list[dict[str, Any]]] = {}
+    for assertion in sample.expected_assertions:
+        subject_ref = _assertion_subject(assertion)
+        if (
+            not isinstance(subject_ref, str)
+            or subject_ref.startswith(NEW_SUBJECT_PREFIX)
+        ):
+            continue
+        expected_by_subject.setdefault(subject_ref, []).append(assertion)
+    with engine.store.transaction():
+        for subject_key, assertions in expected_by_subject.items():
+            subject_type = _assertion_type(assertions[0])
+            engine.store.upsert_subject(
+                SubjectRecord(
+                    scope_id=sample.scope_id,
+                    subject_key=subject_key,
+                    subject_type=subject_type,
+                    title=subject_key.replace("-", " ").title(),
+                    normalized_title=subject_key.casefold(),
+                    source_ids=frozenset(),
+                )
+            )
+        if expected_by_subject:
+            engine._rebuild(sample.scope_id, emit_events=False)
+
+
+def _normalize_live_subject_refs(
+    expected: list[dict[str, Any]],
+    actual: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    expected_new = sorted(
+        {
+            subject
+            for assertion in expected
+            if isinstance((subject := _assertion_subject(assertion)), str)
+            and subject.startswith(NEW_SUBJECT_PREFIX)
+        }
+    )
+    actual_subjects = sorted(
+        {
+            str(_assertion_subject(assertion))
+            for assertion in actual
+            if _assertion_subject(assertion) is not None
+        }
+    )
+    candidates = []
+    for actual_subject in actual_subjects:
+        actual_facts = {
+            _assertion_signature(item, include_subject=False)
+            for item in actual
+            if _assertion_subject(item) == actual_subject
+        }
+        for expected_subject in expected_new:
+            expected_facts = {
+                _assertion_signature(item, include_subject=False)
+                for item in expected
+                if _assertion_subject(item) == expected_subject
+            }
+            overlap = len(actual_facts & expected_facts)
+            if overlap:
+                candidates.append(
+                    (-overlap, actual_subject.encode(), expected_subject.encode(), actual_subject, expected_subject)
+                )
+    mapped_actual: set[str] = set()
+    mapped_expected: set[str] = set()
+    mapping: dict[str, str] = {}
+    for _, _, _, actual_subject, expected_subject in sorted(candidates):
+        if actual_subject in mapped_actual or expected_subject in mapped_expected:
+            continue
+        mapping[actual_subject] = expected_subject
+        mapped_actual.add(actual_subject)
+        mapped_expected.add(expected_subject)
+    return [
+        {
+            **assertion,
+            "subject_ref": mapping.get(
+                str(assertion.get("subject_ref")), assertion.get("subject_ref")
+            ),
+            "object_value": mapping.get(
+                assertion.get("object_value"), assertion.get("object_value")
+            )
+            if isinstance(assertion.get("object_value"), str)
+            else assertion.get("object_value"),
+        }
+        for assertion in actual
+    ]
+
+
+def _diff_count_text(counts: dict[str, int]) -> str:
+    return f"{counts['missing']}/{counts['spurious']}/{counts['mis_attached']}"
 
 
 def _assertion_signature(

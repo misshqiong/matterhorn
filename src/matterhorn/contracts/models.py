@@ -13,6 +13,18 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+def _domain_key(value: Any) -> str:
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    if isinstance(value, datetime):
+        value = value.isoformat()
+    if isinstance(value, dict):
+        value = {key: _domain_key(value[key]) for key in sorted(value)}
+    elif isinstance(value, (list, tuple)):
+        value = [_domain_key(item) for item in value]
+    return repr(value)
+
+
 class Participant(StrictModel):
     id: str
     display_name: str | None = None
@@ -306,6 +318,8 @@ class PredicateDefinition(StrictModel):
     role_filter: list[str] = Field(default_factory=list)
     semantic_filter: str | None = None
     value_domain: list[Any] | None = None
+    field_domains: dict[str, list[Any]] | None = None
+    retractable: bool = False
 
     @model_validator(mode="after")
     def deterministic_has_source(self) -> PredicateDefinition:
@@ -313,7 +327,37 @@ class PredicateDefinition(StrictModel):
             raise ValueError("deterministic predicates require source_field")
         if self.semantic_filter not in (None, "conservative"):
             raise ValueError("semantic_filter MUST be null or conservative")
+        if self.field_domains is not None:
+            if self.object != "object":
+                raise ValueError("field_domains require an object-valued predicate")
+            if not self.field_domains or any(
+                not field or not domain
+                for field, domain in self.field_domains.items()
+            ):
+                raise ValueError("field_domains MUST name non-empty closed sets")
+            if any(
+                len({_domain_key(item) for item in domain}) != len(domain)
+                for domain in self.field_domains.values()
+            ):
+                raise ValueError("field_domains values MUST be unique")
+        if self.retractable and self.cardinality != Cardinality.APPEND:
+            raise ValueError("retractable is only valid for APPEND predicates")
         return self
+
+    def value_is_in_domain(self, value: Any) -> bool:
+        if self.value_domain is not None and _domain_key(value) not in {
+            _domain_key(item) for item in self.value_domain
+        }:
+            return False
+        if self.field_domains is None:
+            return True
+        if not isinstance(value, dict):
+            return False
+        return all(
+            field in value
+            and _domain_key(value[field]) in {_domain_key(item) for item in domain}
+            for field, domain in self.field_domains.items()
+        )
 
 
 class HandleNormalization(StrictModel):

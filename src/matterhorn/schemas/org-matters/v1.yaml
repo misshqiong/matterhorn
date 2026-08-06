@@ -2,6 +2,7 @@ schema: org-matters/v1
 subjects:
   - type: MATTER
     primary: true
+  - type: TOPIC
   - type: DECISION_SLOT
     parent: MATTER
 handle_patterns:
@@ -103,6 +104,20 @@ predicates:
     extraction: semantic
     retract_guard: never
     object: string
+  - name: viewpoint
+    subject: TOPIC
+    cardinality: APPEND
+    extraction: semantic
+    retract_guard: never
+    object: object
+    retractable: true
+    field_domains:
+      stance: [supports, opposes, neutral, informs]
+  - name: stated_by
+    subject: TOPIC
+    cardinality: SET
+    extraction: semantic
+    object: person
   - name: decision_adopted
     subject: DECISION_SLOT
     cardinality: SINGLE
