@@ -1,0 +1,12 @@
+sample_id: agent-noise
+source_kind: agent
+scope_id: sample-agent
+window:
+  - evidence_alias: m1
+    record_id: sample-agent:session-4:event-2
+    container_id: sample-agent:session-4
+    sent_at: "2026-08-03T11:30:00Z"
+    author: {id: octo-agent, display_name: Octo Agent, kind: bot}
+    content: "Heartbeat acknowledged; no task state changed."
+    kind: agent
+expected_assertions: []

@@ -18,6 +18,7 @@ from matterhorn.canonical import canonical_json, instant_text
 from matterhorn.contracts import SchemaProfile
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.defaults import Engine
+from matterhorn.distill import ToolLoopResult
 from matterhorn.engine.handles import normalize_handle
 from matterhorn.store import SQLiteStore, Store
 
@@ -70,6 +71,7 @@ class FixtureGateway:
         extraction: list[Any],
         adjudication: list[Any],
         semantic: list[Any],
+        tool_loop: list[Any] | None = None,
     ):
         self.responses = {
             "extraction": list(extraction),
@@ -78,6 +80,9 @@ class FixtureGateway:
         }
         self.indexes = {kind: 0 for kind in self.responses}
         self.calls: list[dict[str, Any]] = []
+        self.tool_loop_sessions = list(tool_loop or [])
+        self.tool_loop_index = 0
+        self.tool_loop_calls: list[dict[str, Any]] = []
 
     def complete(self, **kwargs: Any) -> str:
         self.calls.append(kwargs)
@@ -95,6 +100,73 @@ class FixtureGateway:
         value = self.responses[kind][index]
         self.indexes[kind] += 1
         return value if isinstance(value, str) else json.dumps(value, default=str)
+
+    def tool_loop(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict[str, Any]],
+        handler: Callable[[str, dict[str, Any]], Any],
+        max_tool_calls: int = 16,
+        max_emissions: int = 4,
+    ) -> ToolLoopResult:
+        if self.tool_loop_index >= len(self.tool_loop_sessions):
+            raise ConformanceFailure("tool-loop session fixture was exhausted")
+        raw_session = self.tool_loop_sessions[self.tool_loop_index]
+        self.tool_loop_index += 1
+        turns = raw_session.get("turns") if isinstance(raw_session, dict) else raw_session
+        if not isinstance(turns, list):
+            raise ConformanceFailure("tool-loop session MUST be a turn sequence")
+        call_log: dict[str, Any] = {
+            "system": system,
+            "user": user,
+            "tools": tools,
+            "calls": [],
+        }
+        self.tool_loop_calls.append(call_log)
+        tool_calls = emissions = 0
+        final_message: str | None = None
+        for turn in turns:
+            if not isinstance(turn, dict):
+                raise ConformanceFailure("tool-loop turn MUST be a mapping")
+            if "final_message" in turn:
+                value = turn["final_message"]
+                final_message = value if value is None or isinstance(value, str) else str(value)
+                break
+            requested = turn.get("tool_calls")
+            if requested is None and "tool_call" in turn:
+                requested = [turn["tool_call"]]
+            if not isinstance(requested, list):
+                raise ConformanceFailure(
+                    "tool-loop turn requires tool_calls or final_message"
+                )
+            for call in requested:
+                if not isinstance(call, dict) or not isinstance(call.get("name"), str):
+                    raise ConformanceFailure("invalid scripted tool call")
+                name = call["name"]
+                next_emissions = emissions + int(name == "emit")
+                if tool_calls + 1 > max_tool_calls or next_emissions > max_emissions:
+                    return ToolLoopResult(
+                        final_message=final_message,
+                        tool_calls=tool_calls,
+                        emissions=emissions,
+                        exhausted=True,
+                    )
+                arguments = call.get("arguments", {})
+                if not isinstance(arguments, dict):
+                    raise ConformanceFailure("scripted tool arguments MUST be a mapping")
+                output = handler(name, arguments)
+                tool_calls += 1
+                emissions = next_emissions
+                call_log["calls"].append(
+                    {"name": name, "arguments": arguments, "output": output}
+                )
+        return ToolLoopResult(
+            final_message=final_message,
+            tool_calls=tool_calls,
+            emissions=emissions,
+        )
 
 
 def discover_cases(suite: str | Path) -> list[Path]:
@@ -253,6 +325,14 @@ def _load_case(path: Path) -> dict[str, Any]:
             f"malformed conformance case {path}: "
             "invalid adjudication_model_responses"
         )
+    if "tool_loop_sessions" in case and not isinstance(
+        case["tool_loop_sessions"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid tool_loop_sessions"
+        )
+    if "unified_loop" in case and not isinstance(case["unified_loop"], bool):
+        raise ValueError(f"malformed conformance case {path}: invalid unified_loop")
     if "review_operations" in case and not isinstance(
         case["review_operations"], list
     ):
@@ -295,11 +375,13 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     adjudication_model_responses = case.get(
         "adjudication_model_responses", []
     )
+    tool_loop_sessions = case.get("tool_loop_sessions", [])
     has_gateway_fixtures = (
         "record_model_responses" in case
         or "message_model_responses" in case
         or "adjudication_model_responses" in case
         or "model_responses" in case
+        or "tool_loop_sessions" in case
     )
     fixture_gateway = (
         FixtureGateway(
@@ -309,6 +391,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             ],
             adjudication=adjudication_model_responses,
             semantic=dream_model_responses,
+            tool_loop=tool_loop_sessions,
         )
         if has_gateway_fixtures
         else None
@@ -318,6 +401,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         profile,
         clock=FixedClock(case.get("clock", [])),
         gateway=fixture_gateway,
+        unified_loop=case.get("unified_loop", False),
         **case.get("signal_config", {}),
     )
     for normalization_case in case.get("handle_normalization_cases", []):
@@ -444,6 +528,16 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         _assert_adjudication_calls(
             fixture_gateway.calls,
             expect["adjudication_calls"],
+        )
+    if "tool_loop_calls" in expect:
+        if fixture_gateway is None:
+            raise ConformanceFailure(
+                "tool_loop_calls requires gateway fixture responses"
+            )
+        _equal(
+            len(fixture_gateway.tool_loop_calls),
+            expect["tool_loop_calls"],
+            "tool_loop_calls",
         )
     if "dream_report" in expect:
         actual_report = _plain(first_dream)

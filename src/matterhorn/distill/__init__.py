@@ -15,6 +15,8 @@ from matterhorn.distill.gateway import (
     LlmGateway,
     NullGateway,
     OpenAICompatibleGateway,
+    ToolLoopGateway,
+    ToolLoopResult,
 )
 from matterhorn.distill.prompt import PromptContract, build_prompt
 
@@ -28,6 +30,8 @@ __all__ = [
     "OpenAICompatibleGateway",
     "PromptContract",
     "SemanticCandidate",
+    "ToolLoopGateway",
+    "ToolLoopResult",
     "build_prompt",
     "validate_response",
 ]

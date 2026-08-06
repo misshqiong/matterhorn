@@ -1,0 +1,27 @@
+case_id: unified-noise-empty
+title: Unified loop emits nothing for an agent noise window
+invariants: [P3, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-loop-noise
+unified_loop: true
+clock: ["2026-08-06T11:00:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-loop-noise:agent:r1
+        container_id: octo-loop-noise:agent
+        sent_at: "2026-08-06T10:30:00Z"
+        author: {id: octo-agent, display_name: Octo Agent, kind: bot}
+        content: "Heartbeat acknowledged; no state changed."
+        kind: agent
+tool_loop_sessions:
+  - turns:
+      - final_message: no assertions
+expect:
+  record_reports:
+    - {assertions_emitted: 0, cards_dropped: 0}
+  tool_loop_calls: 1
+  assertions: []
+  intervals: []
+  review_items: []
+  queries: []

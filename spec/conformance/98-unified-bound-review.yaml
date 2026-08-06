@@ -1,0 +1,33 @@
+case_id: unified-bound-review
+title: Unified emission bound exhaustion abstains the window to review
+invariants: [P3, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-loop-bound
+unified_loop: true
+clock: ["2026-08-06T12:00:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-loop-bound:room:r1
+        container_id: octo-loop-bound:room
+        sent_at: "2026-08-06T11:30:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "This fictional window remains unresolved."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call: {name: emit, arguments: {assertions: []}}
+      - tool_call: {name: emit, arguments: {assertions: []}}
+      - tool_call: {name: emit, arguments: {assertions: []}}
+      - tool_call: {name: emit, arguments: {assertions: []}}
+      - tool_call: {name: emit, arguments: {assertions: []}}
+expect:
+  record_reports:
+    - {assertions_emitted: 0, cards_dropped: 1, drop_reasons: {LOOP_BOUND_EXHAUSTED: 1}, route_review: 1}
+  tool_loop_calls: 1
+  assertions: []
+  intervals: []
+  review_items:
+    - {reasons: [LOOP_BOUND_EXHAUSTED]}
+  gate_statistics: {rejections: {LOOP_BOUND_EXHAUSTED: 1}, route_review: 1}
+  queries: []

@@ -158,6 +158,28 @@ def _engine(
             else min_batch_messages
         ),
         **_signal_settings(config),
+        unified_loop=_unified_loop_setting(config),
+    )
+
+
+def _unified_loop_setting(config: dict[str, Any]) -> bool:
+    distill = config.get("distill", {})
+    if not isinstance(distill, dict):
+        raise typer.BadParameter("[distill] MUST be a TOML table")
+    raw: Any = os.environ.get(
+        "MATTERHORN_UNIFIED_LOOP",
+        distill.get("unified_loop", False),
+    )
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        normalized = raw.strip().casefold()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise typer.BadParameter(
+        "[distill] unified_loop / MATTERHORN_UNIFIED_LOOP MUST be a boolean"
     )
 
 
@@ -528,6 +550,9 @@ def init_project(
                     'fixture_path = "matterhorn-demo-gateway.json"',
                     "quiet_period_minutes = 10",
                     "max_batch_delay_minutes = 5",
+                    "",
+                    "[distill]",
+                    "unified_loop = false",
                     "",
                 ]
             ),
@@ -1941,6 +1966,11 @@ def eval_run(
         "--seed-note",
         help="Record that provider-side seed control is outside this harness.",
     ),
+    assertion_results: Path | None = typer.Option(
+        None,
+        "--assertion-results",
+        help="YAML assertion sets to diff against spec/eval/samples.",
+    ),
 ) -> None:
     """Run quality measurement; metric values never determine exit status."""
     from matterhorn.evalrunner import format_report_table, run_eval_dataset
@@ -1955,6 +1985,7 @@ def eval_run(
             model=model,
             responses=responses,
             seed_note=seed_note,
+            assertion_results=assertion_results,
         )
         if json_path is not None:
             json_path.write_text(

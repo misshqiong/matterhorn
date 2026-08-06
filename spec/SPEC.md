@@ -174,6 +174,15 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   time. Graph neighborhoods, structural rollups, and root/descendant
   classification MUST be pure zero-model reads, and replay MUST reproduce
   the complete active and superseded edge state.
+- **INV-20 — Unified loop closed world and gate supremacy.** Inside a
+  section 26 loop session the model may reference only subjects it was
+  shown in that session by `read_neighborhood` or `search_candidates`, plus
+  subjects it declares new in the same emission; any other reference MUST
+  reject the emission. Every emitted assertion MUST pass exactly the same
+  admission gates as the legacy extraction path — the loop grants no new
+  write authority. With the loop disabled the engine MUST behave
+  byte-identically to the legacy three-call path, and replay MUST apply
+  persisted assertions without re-running any loop session.
 
 ## 3. Message, Record, and EpisodeCard contracts
 
@@ -1987,6 +1996,86 @@ merge chain); re-parenting with history; birth-instant derivation both with
 and without `spawned_from`; rollup counts, blocker bubble-up, and root
 classification on a three-level tree; wall/brief root filtering; review
 `attach_subgoal` resolution; and byte-identical replay of the graph.
+
+## 26. Unified distillation loop
+
+The engine core (assertion graph, gates, projection) is the fixed runtime;
+behavior is shaped by alignment samples, not accreted code. Section 26
+replaces the three isolated model calls (extraction, dream, adjudication)
+with one bounded tool loop whose only write primitive is an assertion set.
+
+### 26.1 Loop session
+
+One loop session serves one pending window (the section 16 chunk with its
+deterministic context). Deterministic pre-routing (handle, thread,
+shared-evidence rungs) still runs first; records fully resolved there never
+reach the loop. A session is bounded: at most 16 tool calls and at most 4
+emissions; exhausting either bound abstains the remainder to the review
+queue. The session transcript is not persisted state — replay applies the
+admitted assertions directly (INV-20).
+
+### 26.2 Tools
+
+Exactly three generic tools; no specialized verbs:
+
+- `read_neighborhood(subject_keys)` — for each key: projected current
+  values, active handles, and the goal-tree neighborhood (parent chain,
+  children, siblings) with per-node status and birth instant. Reading a
+  subject admits it to the session's closed world.
+- `search_candidates(text)` — the existing lexical + handle recall over the
+  scope (section 23 candidate machinery); returned subjects join the closed
+  world. Zero-result searches are valid and MUST be returned as empty.
+- `emit(assertions)` — a batch of assertion intents. Each intent carries a
+  subject reference (an existing closed-world subject, or a new-subject
+  declaration with subject type and title), predicate, operation, object
+  value, and evidence aliases from the window/context alias namespace.
+  The whole batch is validated then committed atomically per the section 11
+  transaction rules; a rejected intent rejects only itself, and rejection
+  reasons flow into the existing gate statistics.
+
+Composite behaviors are emergent, not special-cased: forking a sub-goal is
+a new-subject declaration plus `spawned_from` and `part_of` intents citing
+the fork-moment Record; semantic upward propagation is a parent `progress`
+intent whose evidence cites the child's admitted assertion; skipping noise
+is emitting nothing.
+
+### 26.3 Gates
+
+Every intent passes exactly the gates the legacy path runs: evidence
+reality (P5, alias resolution), schema value domains, change-only
+admission (INV-16), structure-edge admission (INV-19), machine-identity
+rules, and the INV-20 closed world. Attaching to an existing subject
+additionally requires that subject to satisfy the section 23 deterministic
+attach gate (candidate closure now means: surfaced in-session). The loop
+holds no store lock while the model computes; emission commits use the
+standard short transactions.
+
+### 26.4 Alignment samples
+
+Behavioral iteration lands as data, not prompt prose. A sample is a YAML
+document pairing a real (fictionalized) input window with the expected
+assertion set. Samples live in `spec/eval/samples/`, are selected for
+few-shot injection by source kind (mail / im / agent), and are scored by
+the evaluation runner as assertion-set diffs (missing, spurious,
+mis-attached). Accepted acceptance-audit cases MUST be fictionalized and
+added as samples; a behavior change without a sample change is suspect.
+
+### 26.5 Rollout
+
+The loop ships behind a configuration flag (default off). With the flag
+off the legacy path runs byte-identically (INV-20). Promotion to default
+requires the evaluation comparison of the phase checkpoint to meet or beat
+the legacy baseline on the alignment-sample suite and the section 21
+metrics.
+
+### 26.6 Conformance
+
+Golden cases MUST cover: a closed-world violation rejecting the emission;
+one session emitting a matter update, a fork (new subject + both edges),
+and a parent propagation whose evidence cites the child assertion; an
+empty emission for a noise window; bound exhaustion abstaining to review;
+flag-off byte-equivalence with the legacy path on the same fixtures; and
+replay without loop re-execution.
 
 ## 中文摘要
 

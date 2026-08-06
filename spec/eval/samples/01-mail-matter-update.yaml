@@ -1,0 +1,18 @@
+sample_id: mail-matter-update
+source_kind: mail
+scope_id: sample-mail
+window:
+  - evidence_alias: m1
+    record_id: sample-mail:thread-17:msg-1
+    container_id: sample-mail:thread-17
+    thread_id: sample-mail:thread-17:root
+    sent_at: "2026-08-01T09:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "The octo-org launch checklist is verified and rollout can continue."
+    kind: mail
+expected_assertions:
+  - subject_ref: octo-launch
+    predicate: progress
+    operation: ASSERT
+    object_value: "Launch checklist verified."
+    evidence_aliases: [m1]

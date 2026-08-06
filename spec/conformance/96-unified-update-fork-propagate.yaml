@@ -1,0 +1,98 @@
+case_id: unified-update-fork-propagate
+title: One unified session updates a root, forks a sub-goal, and propagates child evidence
+invariants: [P5, P7, INV-16, INV-19, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-loop-composite
+unified_loop: true
+clock:
+  - "2026-08-06T10:00:00Z"
+  - "2026-08-06T10:01:00Z"
+  - "2026-08-06T10:02:00Z"
+  - "2026-08-06T10:03:00Z"
+  - "2026-08-06T10:04:00Z"
+  - "2026-08-06T10:05:00Z"
+cards:
+  - card_id: composite-root-seed
+    scope_id: octo-loop-composite
+    subject_key: octo-root
+    date: 2026-08-06
+    title: Fictional octo migration
+    status: open
+    source_refs:
+      - {source_id: octo-composite:seed, sent_at: "2026-08-06T09:00:00Z", sender: Dana Reyes}
+record_batches:
+  - records:
+      - record_id: octo-loop-composite:room:r1
+        container_id: octo-loop-composite:room
+        sent_at: "2026-08-06T09:30:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "Update the octo migration and fork a compatibility audit beneath it."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call: {name: read_neighborhood, arguments: {subject_keys: [octo-root]}}
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {subject_key: octo-root}
+                predicate: progress
+                operation: ASSERT
+                object_value: "Migration update received."
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: audit, subject_type: MATTER, title: Fictional compatibility audit}}
+                predicate: status
+                operation: ASSERT
+                object_value: open
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: audit, subject_type: MATTER, title: Fictional compatibility audit}}
+                predicate: spawned_from
+                operation: ASSERT
+                object_value: octo-root
+                evidence_aliases: [m1]
+              - subject: {new_subject: {ref: audit, subject_type: MATTER, title: Fictional compatibility audit}}
+                predicate: part_of
+                operation: ASSERT
+                object_value: octo-root
+                evidence_aliases: [m1]
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {subject_key: octo-root}
+                predicate: progress
+                operation: ASSERT
+                object_value: "Compatibility audit child opened."
+                evidence_aliases: [a2]
+      - final_message: done
+expect:
+  record_reports:
+    - {assertions_emitted: 5, cards_dropped: 0}
+  tool_loop_calls: 1
+  subject_count: 2
+  assertions:
+    - {subject_key: octo-root, predicate: status, object_value: open}
+    - {subject_key: octo-root, predicate: progress, object_value: "Migration update received."}
+    - {predicate: status, object_value: open}
+    - {predicate: spawned_from, object_value: octo-root}
+    - {predicate: part_of, object_value: octo-root}
+    - subject_key: octo-root
+      predicate: progress
+      object_value: "Compatibility audit child opened."
+      source_refs:
+        - source_id: octo-loop-composite:room:r1
+          sent_at: "2026-08-06T09:30:00.000000Z"
+          sender: Dana Reyes
+          excerpt: "Update the octo migration and fork a compatibility audit beneath it."
+          uri: null
+  intervals:
+    - {subject_key: octo-root, predicate: status, object_value: open}
+    - {subject_key: octo-root, predicate: progress, object_value: "Migration update received."}
+    - {predicate: status, object_value: open}
+    - {predicate: spawned_from, object_value: octo-root}
+    - {predicate: part_of, object_value: octo-root}
+    - {subject_key: octo-root, predicate: progress, object_value: "Compatibility audit child opened."}
+  gate_statistics: {accepted: 5, rejections: {}}
+  export_replay_identity: true
+  replay_events_emitted: 0
+  queries: []

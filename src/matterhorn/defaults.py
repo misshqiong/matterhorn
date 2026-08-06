@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ class Engine(CoreEngine):
         alert_keywords: list[str] | tuple[str, ...] | None = None,
         hot_min_authors: int = CoreEngine.DEFAULT_HOT_MIN_AUTHORS,
         hot_min_messages: int = CoreEngine.DEFAULT_HOT_MIN_MESSAGES,
+        unified_loop: bool | None = None,
     ):
         super().__init__(
             store,
@@ -50,6 +52,7 @@ class Engine(CoreEngine):
             alert_keywords=alert_keywords,
             hot_min_authors=hot_min_authors,
             hot_min_messages=hot_min_messages,
+            unified_loop=_unified_loop_enabled(unified_loop),
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(
@@ -122,3 +125,21 @@ class Engine(CoreEngine):
             timeout=timeout,
         )
         return gateway, runner
+
+
+def _unified_loop_enabled(value: bool | None) -> bool:
+    if value is not None:
+        if not isinstance(value, bool):
+            raise ValueError("unified_loop MUST be a boolean")
+        return value
+    raw = os.environ.get("MATTERHORN_UNIFIED_LOOP")
+    if raw is None:
+        return False
+    normalized = raw.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        "MATTERHORN_UNIFIED_LOOP MUST be true/false, yes/no, on/off, or 1/0"
+    )

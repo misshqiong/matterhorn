@@ -119,6 +119,11 @@ non-interactive fallback:
 | `MATTERHORN_MODEL` | Provider model name |
 | `MATTERHORN_API_KEY` | Preferred provider credential; provider-native keys remain supported |
 | `MATTERHORN_TIMEOUT` | Positive floating-point request timeout in seconds; defaults to `60` |
+| `MATTERHORN_UNIFIED_LOOP` | Override `[distill] unified_loop`; the section 26 loop defaults to `false` |
+
+Enable the opt-in loop with `[distill] unified_loop = true` in
+`matterhorn.toml`. The environment override accepts true/false, yes/no,
+on/off, or 1/0.
 
 ## Claude Code
 
@@ -288,13 +293,13 @@ Use `--max-batch-delay-minutes` or `MATTERHORN_MAX_BATCH_DELAY` to override it.
 Service mode can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 94
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 100
 language-neutral golden cases include the Message door, conversation-scoped
 rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=94 failed=0 total=94
+SUMMARY passed=100 failed=0 total=100
 ```
 
 ### Extraction quality evaluation

@@ -281,6 +281,7 @@ class Engine:
         alert_keywords: list[str] | tuple[str, ...] | None = None,
         hot_min_authors: int = DEFAULT_HOT_MIN_AUTHORS,
         hot_min_messages: int = DEFAULT_HOT_MIN_MESSAGES,
+        unified_loop: bool = False,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -298,6 +299,9 @@ class Engine:
         self.max_batch_delay_minutes = validate_max_batch_delay_minutes(
             max_batch_delay_minutes
         )
+        if not isinstance(unified_loop, bool):
+            raise TypeError("unified_loop MUST be a boolean")
+        self.unified_loop = unified_loop
         self.signal_config: SignalConfig = configured_signal_config(
             identity_handles=identity_handles,
             machine_senders=machine_senders,
@@ -595,13 +599,25 @@ class Engine:
 
         active = [record for record, _ in pending if record.revoked_at is None]
         revoked = [item for item in pending if item[0].revoked_at is not None]
-        if active and self._extractor is None:
+        if active and self._extractor is None and not self.unified_loop:
             raise RuntimeError("record extraction requires a RecordExtractor")
         chunks = _conversation_extraction_chunks(active, batch_size) if active else []
         pending_by_record_id = {
             record.record_id: (record, observation_hash)
             for record, observation_hash in pending
         }
+        if self.unified_loop:
+            return self._add_records_unified(
+                validated=validated,
+                pending=pending,
+                skipped=skipped,
+                revoked=revoked,
+                chunks=chunks,
+                pending_by_record_id=pending_by_record_id,
+                scope_id=scope_id,
+                cursors=cursors,
+                backfill=backfill,
+            )
         cards: list[EpisodeCard] = []
         rejection_counts: dict[str, int] = {}
         emitted: list[Assertion] = []
@@ -689,6 +705,205 @@ class Engine:
             **route_counts.to_dict(),
             sync_positions=self.store.sync_positions(scope_id),
         )
+
+    def _add_records_unified(
+        self,
+        *,
+        validated: list[Record],
+        pending: list[tuple[Record, str]],
+        skipped: int,
+        revoked: list[tuple[Record, str]],
+        chunks: list[list[Record]],
+        pending_by_record_id: dict[str, tuple[Record, str]],
+        scope_id: str,
+        cursors: dict[str, str] | None,
+        backfill: bool,
+    ) -> AddRecordsReport:
+        from matterhorn.engine.unified_loop import UnifiedLoopSession
+
+        assertion_ids: list[str] = []
+        rejection_counts: dict[str, int] = {}
+        unchanged_dropped = 0
+        route_counts = _RouteCounts()
+        if revoked:
+            self._commit_record_chunk(
+                scope_id=scope_id,
+                observations=revoked,
+                cards=[],
+                context=[],
+                cursors=cursors,
+                backfill=backfill,
+            )
+        for chunk in chunks:
+            with self.store.transaction():
+                context = self._staging_context(scope_id, chunk)
+            session = UnifiedLoopSession(
+                engine=self,
+                scope_id=scope_id,
+                records=chunk,
+                context=context,
+            )
+            report = session.run(self._write_gateway)
+            assertion_ids.extend(report.assertion_ids)
+            rejection_counts = _merge_counts(
+                rejection_counts,
+                report.rejection_counts,
+            )
+            unchanged_dropped += report.unchanged_dropped
+            observations = [
+                pending_by_record_id[record.record_id] for record in chunk
+            ]
+            self._finalize_unified_chunk(
+                scope_id=scope_id,
+                observations=observations,
+                cursors=cursors,
+                backfill=backfill,
+                exhausted=report.exhausted,
+            )
+            if report.exhausted:
+                rejection_counts["LOOP_BOUND_EXHAUSTED"] = (
+                    rejection_counts.get("LOOP_BOUND_EXHAUSTED", 0) + 1
+                )
+                route_counts.route_review += 1
+        return AddRecordsReport(
+            scope_id=scope_id,
+            records_received=len(validated),
+            records_processed=len(pending),
+            records_skipped=skipped,
+            records_revoked=sum(record.revoked_at is not None for record, _ in pending),
+            cards_accepted=0,
+            cards_dropped=sum(rejection_counts.values()),
+            drop_reasons=rejection_counts,
+            card_ids=[],
+            assertions_emitted=len(assertion_ids),
+            assertion_ids=assertion_ids,
+            unchanged_dropped=unchanged_dropped,
+            **route_counts.to_dict(),
+            sync_positions=self.store.sync_positions(scope_id),
+        )
+
+    def _finalize_unified_chunk(
+        self,
+        *,
+        scope_id: str,
+        observations: list[tuple[Record, str]],
+        cursors: dict[str, str] | None,
+        backfill: bool,
+        exhausted: bool,
+    ) -> None:
+        records = [record for record, _ in observations]
+        with self.store.transaction():
+            for record, observation_hash in observations:
+                self.store.observe_source(
+                    scope_id,
+                    record.to_source_ref(),
+                    revoked_at=record.revoked_at,
+                )
+                self.store.mark_record_observation(
+                    scope_id,
+                    record.record_id,
+                    observation_hash,
+                    record.container_id,
+                    _record_observed_at(record),
+                )
+            if exhausted and records:
+                refs = [record.to_source_ref() for record in records]
+                card_id = "loop_review_" + stable_hash(
+                    [scope_id, [record.record_id for record in records]]
+                )
+                card = EpisodeCard(
+                    card_id=card_id,
+                    scope_id=scope_id,
+                    date=min(as_utc(record.sent_at) for record in records).date(),
+                    title=(records[0].content.strip()[:120] or "Unresolved window"),
+                    source_refs=refs,
+                    thread_id=(
+                        records[0].thread_id
+                        if len({record.thread_id for record in records}) == 1
+                        else None
+                    ),
+                )
+                self.store.add_review_item(
+                    ReviewItem(
+                        scope_id=scope_id,
+                        review_id="review_" + stable_hash([scope_id, card_id]),
+                        card_json=card.model_dump(mode="json"),
+                        reasons=["LOOP_BOUND_EXHAUSTED"],
+                        created_at=self._clock(),
+                    )
+                )
+                self.store.record_gate_report(
+                    scope_id,
+                    accepted=0,
+                    rejections={"LOOP_BOUND_EXHAUSTED": 1},
+                    route_counts={"route_review": 1},
+                )
+            if observations and not backfill:
+                by_container: dict[str, list[Record]] = {}
+                for record in records:
+                    by_container.setdefault(record.container_id, []).append(record)
+                for container_id, items in by_container.items():
+                    self.store.update_sync_position(
+                        scope_id,
+                        container_id,
+                        watermark=max(_record_observed_at(item) for item in items),
+                        cursor=(cursors or {}).get(container_id),
+                    )
+
+    def _unified_pre_route_keys(
+        self,
+        scope_id: str,
+        records: list[Record],
+        context: list[Record],
+    ) -> list[str]:
+        if not records:
+            return []
+        refs = [record.to_source_ref() for record in [*context, *records]]
+        thread_ids = {record.thread_id for record in records}
+        card = EpisodeCard(
+            card_id="loop_route_" + stable_hash(
+                [scope_id, [record.record_id for record in records]]
+            ),
+            scope_id=scope_id,
+            date=min(as_utc(record.sent_at) for record in records).date(),
+            title=" ".join(record.content for record in records),
+            source_refs=refs,
+            thread_id=(
+                next(iter(thread_ids))
+                if len(thread_ids) == 1 and None not in thread_ids
+                else None
+            ),
+        )
+        with self.store.transaction():
+            subjects = self.store.subjects(scope_id)
+            merges = self.store.subject_merges(scope_id)
+            canonical = _canonicalized_subjects(subjects, merges)
+            edges = _merge_edges(merges)
+            handles = self._handle_route_targets(
+                card,
+                {record.record_id: record for record in [*context, *records]},
+                edges,
+            )
+            if len(handles) == 1:
+                return list(handles)
+            threaded = thread_match(card, self.profile, canonical)
+            if threaded is not None:
+                return [threaded.subject_key]
+            evidenced = evidence_match(card, self.profile, canonical)
+            if evidenced is not None:
+                return [evidenced.subject_key]
+        return []
+
+    @staticmethod
+    def _canonical_subjects_for_loop(
+        subjects: list[SubjectRecord],
+        merges: list[SubjectMerge],
+    ) -> list[SubjectRecord]:
+        return _canonicalized_subjects(subjects, merges)
+
+    @staticmethod
+    def _merge_edges_for_loop(merges: list[SubjectMerge]) -> dict[str, str]:
+        return _merge_edges(merges)
 
     def _commit_record_chunk(
         self,
@@ -2671,8 +2886,26 @@ class Engine:
                 else:
                     raise ValueError(f"unknown task kind: {row.kind}")
 
-                dream = self.dream(scope_id)
-                gate_accepted += dream.accepted_candidates
+                dream = (
+                    self.dream(scope_id)
+                    if not self.unified_loop
+                    else DreamReport(
+                        scope_id=scope_id,
+                        queued=0,
+                        processed=0,
+                        failed=0,
+                        accepted_candidates=0,
+                        rejected_candidates=0,
+                        new_assertions=0,
+                        new_subjects=0,
+                        remaining=0,
+                    )
+                )
+                gate_accepted += (
+                    record_report.assertions_emitted
+                    if row.kind == "messages" and self.unified_loop
+                    else dream.accepted_candidates
+                )
                 gate_after = self.gate_statistics(scope_id)
                 gate_rejected = _merge_counts(
                     gate_rejected,
@@ -2709,7 +2942,11 @@ class Engine:
                     last_error=last_error,
                 )
             processed.append(row.task_id)
-        if not pending and self.store.distill_queue_count(scope_id):
+        if (
+            not self.unified_loop
+            and not pending
+            and self.store.distill_queue_count(scope_id)
+        ):
             self.dream(scope_id)
         return FlushReport(
             scope_id=scope_id,

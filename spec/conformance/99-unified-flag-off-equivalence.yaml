@@ -1,0 +1,35 @@
+case_id: unified-flag-off-equivalence
+title: Explicit flag-off execution stays on the legacy fixture path
+invariants: [P9, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-loop-flag-off
+unified_loop: false
+clock: ["2026-08-06T13:00:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-loop-flag-off:room:r1
+        container_id: octo-loop-flag-off:room
+        sent_at: "2026-08-06T12:30:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "The fictional rollout is in progress."
+        kind: im
+record_model_responses:
+  - cards:
+      - date: "2026-08-06"
+        title: Fictional rollout
+        status: in_progress
+        source_ids: [octo-loop-flag-off:room:r1]
+tool_loop_sessions:
+  - turns: [{final_message: must-not-run}]
+expect:
+  record_reports:
+    - {cards_accepted: 1, assertions_emitted: 1, route_new: 1}
+  tool_loop_calls: 0
+  assertions:
+    - {predicate: status, object_value: in_progress}
+  intervals:
+    - {predicate: status, object_value: in_progress}
+  export_replay_identity: true
+  replay_events_emitted: 0
+  queries: []

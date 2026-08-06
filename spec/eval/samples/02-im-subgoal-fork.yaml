@@ -1,0 +1,27 @@
+sample_id: im-subgoal-fork
+source_kind: im
+scope_id: sample-im
+window:
+  - evidence_alias: m1
+    record_id: sample-im:octo-room:msg-8
+    container_id: sample-im:octo-room
+    sent_at: "2026-08-02T10:15:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "Fork a compatibility audit under the octo-org migration goal."
+    kind: im
+expected_assertions:
+  - subject_ref: "$new:compat-audit"
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    evidence_aliases: [m1]
+  - subject_ref: "$new:compat-audit"
+    predicate: spawned_from
+    operation: ASSERT
+    object_value: octo-migration-root
+    evidence_aliases: [m1]
+  - subject_ref: "$new:compat-audit"
+    predicate: part_of
+    operation: ASSERT
+    object_value: octo-migration-root
+    evidence_aliases: [m1]

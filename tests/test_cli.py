@@ -660,7 +660,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=94 failed=0 total=94" in completed.stdout
+    assert "SUMMARY passed=100 failed=0 total=100" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

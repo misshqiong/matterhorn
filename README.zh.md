@@ -99,6 +99,10 @@ Console 的 AI 面板可在运行时配置 provider。面板输入的 key 只驻
 | `MATTERHORN_MODEL` | provider 模型名 |
 | `MATTERHORN_API_KEY` | 首选 provider 凭证；仍支持 provider 原生 key |
 | `MATTERHORN_TIMEOUT` | 正浮点请求超时秒数，默认 `60` |
+| `MATTERHORN_UNIFIED_LOOP` | 覆盖 `[distill] unified_loop`；section 26 loop 默认 `false` |
+
+可在 `matterhorn.toml` 中用 `[distill] unified_loop = true` 显式启用；环境覆盖
+接受 true/false、yes/no、on/off 或 1/0。
 
 ## Claude Code
 
@@ -246,13 +250,13 @@ anchor。因此较早 conversation 创建的事项能在同一次 flush 接收�
 服务模式也可按 UTC `daily_flush_at = "HH:MM"` 每日 flush，并推送事件 webhook。
 嵌入模式仍由宿主调用 `flush()` 或 `wait=True`。
 
-唯一规范是 [spec/SPEC.md](spec/SPEC.md)。94 个语言无关 golden 用例已经覆盖
+唯一规范是 [spec/SPEC.md](spec/SPEC.md)。100 个语言无关 golden 用例已经覆盖
 消息入口、conversation-scoped rolling extraction、boundary chunk 确定性，以及
 receipt/flush 幂等重放：
 
 ```console
 $ mh conformance run
-SUMMARY passed=94 failed=0 total=94
+SUMMARY passed=100 failed=0 total=100
 ```
 
 ### 提取质量评测

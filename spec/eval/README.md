@@ -5,6 +5,13 @@ Record extraction and identity routing. The key words **MUST**, **MUST NOT**,
 **SHOULD**, and **MAY** are normative. Evaluation is measurement, not a gate:
 metric values MUST NOT change a completed run's successful exit status.
 
+Section 26 alignment samples live under `samples/`. Each is a closed mapping
+with `sample_id`, `source_kind` (`mail`, `im`, or `agent`), `scope_id`, a
+fictionalized `window`, and `expected_assertions`. Assertion-set scoring first
+removes exact matches, then reports facts emitted on another subject as
+`mis_attached`; the remaining expected and produced rows are `missing` and
+`spurious` respectively.
+
 ## Case files
 
 Every case MUST be one YAML mapping. Case files MUST end in `.yaml`; a sibling
@@ -143,6 +150,7 @@ The plain-text case table MUST include `review_queued` as its own column.
 mh eval run
 mh eval run --case lifecycle-five-rounds --provider fixture-file
 mh eval run --provider openai-compatible --json baseline.json --seed-note
+mh eval run --assertion-results produced-assertions.yaml
 ```
 
 The human output MUST be plain text without ANSI or terminal-width-dependent

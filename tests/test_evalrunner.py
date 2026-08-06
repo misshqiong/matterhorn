@@ -10,7 +10,11 @@ from matterhorn.evalrunner import (
     ProducedMatter,
     align_matters,
     default_dataset,
+    discover_alignment_samples,
+    load_alignment_sample,
     run_eval_dataset,
+    score_alignment_samples,
+    score_assertion_set,
     score_metrics,
     title_overlap,
 )
@@ -215,3 +219,54 @@ def test_every_shipped_case_has_a_sibling_response_fixture() -> None:
     ]
     assert len(cases) >= 8
     assert all(path.with_suffix(".responses.yaml").is_file() for path in cases)
+
+
+def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
+    samples = [load_alignment_sample(path) for path in discover_alignment_samples()]
+
+    assert len(samples) == 3
+    assert {sample.source_kind for sample in samples} == {"mail", "im", "agent"}
+    produced = {
+        sample.sample_id: sample.expected_assertions
+        for sample in samples
+    }
+    assert score_alignment_samples(produced)["counts"] == {
+        "missing": 0,
+        "spurious": 0,
+        "mis_attached": 0,
+    }
+
+
+def test_assertion_set_diff_separates_missing_spurious_and_misattached() -> None:
+    expected = [
+        {
+            "subject_ref": "root-a",
+            "predicate": "progress",
+            "operation": "ASSERT",
+            "object_value": "Verified.",
+            "evidence_aliases": ["m1"],
+        },
+        {
+            "subject_ref": "root-b",
+            "predicate": "status",
+            "operation": "ASSERT",
+            "object_value": "open",
+            "evidence_aliases": ["m2"],
+        },
+    ]
+    actual = [
+        {**expected[0], "subject_ref": "wrong-root"},
+        {
+            "subject_ref": "extra-root",
+            "predicate": "decision",
+            "operation": "ASSERT",
+            "object_value": "Proceed.",
+            "evidence_aliases": ["m3"],
+        },
+    ]
+
+    diff = score_assertion_set(expected, actual)
+
+    assert diff["counts"] == {"missing": 1, "spurious": 1, "mis_attached": 1}
+    assert diff["mis_attached"][0]["expected_subject"] == "root-a"
+    assert diff["mis_attached"][0]["actual_subject"] == "wrong-root"

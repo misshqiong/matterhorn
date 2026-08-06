@@ -1,0 +1,48 @@
+case_id: unified-closed-world-rejects
+title: Unified loop rejects an existing subject outside the session closed world
+invariants: [P3, P5, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-loop-closed-world
+unified_loop: true
+clock:
+  - "2026-08-06T09:00:00Z"
+  - "2026-08-06T09:01:00Z"
+cards:
+  - card_id: root-seed
+    scope_id: octo-loop-closed-world
+    subject_key: hidden-root
+    date: 2026-08-06
+    title: Fictional octo root
+    status: open
+    source_refs:
+      - {source_id: octo-seed:root, sent_at: "2026-08-06T08:00:00Z", sender: Dana Reyes}
+record_batches:
+  - records:
+      - record_id: octo-loop-closed-world:room:r1
+        container_id: octo-loop-closed-world:room
+        sent_at: "2026-08-06T08:30:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "A private update not linked to the fictional root."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {subject_key: hidden-root}
+                predicate: progress
+                operation: ASSERT
+                object_value: "Unlawful closed-world update."
+                evidence_aliases: [m1]
+      - final_message: done
+expect:
+  record_reports:
+    - {assertions_emitted: 0, cards_dropped: 1, drop_reasons: {CLOSED_WORLD_VIOLATION: 1}}
+  tool_loop_calls: 1
+  assertions:
+    - {subject_key: hidden-root, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: hidden-root, predicate: status, object_value: open}
+  gate_statistics: {rejections: {CLOSED_WORLD_VIOLATION: 1}}
+  queries: []

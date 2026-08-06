@@ -1,13 +1,40 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+
+ToolHandler = Callable[[str, dict[str, Any]], Any]
+
+
+@dataclass(frozen=True)
+class ToolLoopResult:
+    final_message: str | None
+    tool_calls: int
+    emissions: int
+    exhausted: bool = False
 
 
 @runtime_checkable
 class LlmGateway(Protocol):
     def complete(self, *, system: str, user: str, response_schema: dict) -> str:
         """Return one JSON document conforming to response_schema."""
+
+
+@runtime_checkable
+class ToolLoopGateway(Protocol):
+    def tool_loop(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict[str, Any]],
+        handler: ToolHandler,
+        max_tool_calls: int = 16,
+        max_emissions: int = 4,
+    ) -> ToolLoopResult:
+        """Run one bounded function-calling session."""
 
 
 class NullGateway:
@@ -87,6 +114,82 @@ class OpenAICompatibleGateway:
             "no response_format variant accepted"
         )
 
+    def tool_loop(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict[str, Any]],
+        handler: ToolHandler,
+        max_tool_calls: int = 16,
+        max_emissions: int = 4,
+    ) -> ToolLoopResult:
+        if max_tool_calls < 1 or max_emissions < 1:
+            raise ValueError("tool-loop bounds MUST be positive")
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        call_count = 0
+        emission_count = 0
+        while True:
+            response = self._http().post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                },
+            )
+            response.raise_for_status()
+            message = response.json()["choices"][0]["message"]
+            requested = message.get("tool_calls") or []
+            if not requested:
+                return ToolLoopResult(
+                    final_message=message.get("content"),
+                    tool_calls=call_count,
+                    emissions=emission_count,
+                )
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.get("content"),
+                    "tool_calls": requested,
+                }
+            )
+            for call in requested:
+                function = call.get("function") or {}
+                name = function.get("name")
+                if not isinstance(name, str):
+                    raise TypeError("tool call is missing function.name")
+                next_emissions = emission_count + int(name == "emit")
+                if call_count + 1 > max_tool_calls or next_emissions > max_emissions:
+                    return ToolLoopResult(
+                        final_message=message.get("content"),
+                        tool_calls=call_count,
+                        emissions=emission_count,
+                        exhausted=True,
+                    )
+                arguments = _tool_arguments(function.get("arguments"))
+                result = handler(name, arguments)
+                call_count += 1
+                emission_count = next_emissions
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id", f"call-{call_count}"),
+                        "name": name,
+                        "content": json.dumps(
+                            result,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            default=str,
+                        ),
+                    }
+                )
+
 
 class AnthropicGateway:
     def __init__(
@@ -135,3 +238,13 @@ class AnthropicGateway:
         response.raise_for_status()
         blocks = response.json()["content"]
         return "".join(block["text"] for block in blocks if block["type"] == "text")
+
+
+def _tool_arguments(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        decoded = json.loads(value)
+    else:
+        decoded = value
+    if not isinstance(decoded, dict):
+        raise TypeError("tool arguments MUST be a JSON object")
+    return decoded

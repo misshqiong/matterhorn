@@ -26,10 +26,21 @@ from matterhorn.gateway_config import configured_gateway
 
 REPORT_SCHEMA = "matterhorn-eval/v1"
 FIELD_NAMES = ("status", "owner", "next_step")
+NEW_SUBJECT_PREFIX = "$new:"
 
 
 class EvalHarnessError(RuntimeError):
     """The dataset, fixture, or configured gateway could not be executed."""
+
+
+class AlignmentSample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sample_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    source_kind: str = Field(pattern=r"^(mail|im|agent)$")
+    scope_id: str = Field(min_length=1)
+    window: list[dict[str, Any]] = Field(min_length=1)
+    expected_assertions: list[dict[str, Any]]
 
 
 class ExpectedMatter(BaseModel):
@@ -248,6 +259,143 @@ def load_fixture_responses(path: str | Path) -> list[Any]:
     return payload
 
 
+def discover_alignment_samples(samples: str | Path | None = None) -> list[Path]:
+    directory = (
+        Path(samples)
+        if samples is not None
+        else default_dataset() / "samples"
+    )
+    if not directory.is_dir():
+        raise FileNotFoundError(f"alignment sample directory not found: {directory}")
+    paths = sorted(directory.glob("*.yaml"))
+    if not paths:
+        raise ValueError(f"alignment sample directory contains no YAML: {directory}")
+    return paths
+
+
+def load_alignment_sample(path: str | Path) -> AlignmentSample:
+    sample_path = Path(path)
+    try:
+        payload = yaml.safe_load(sample_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise TypeError("sample root MUST be a mapping")
+        return AlignmentSample.model_validate(payload)
+    except Exception as error:
+        raise EvalHarnessError(
+            f"malformed alignment sample {sample_path.name}: {error}"
+        ) from error
+
+
+def score_assertion_set(
+    expected: list[dict[str, Any]],
+    actual: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Diff assertion sets, classifying equivalent facts on the wrong subject."""
+
+    expected_remaining = list(expected)
+    actual_remaining = list(actual)
+    exact_pairs: list[tuple[int, int]] = []
+    for expected_index, wanted in enumerate(expected):
+        wanted_key = _assertion_signature(wanted, include_subject=True)
+        actual_index = next(
+            (
+                index
+                for index, item in enumerate(actual_remaining)
+                if _assertion_signature(item, include_subject=True) == wanted_key
+            ),
+            None,
+        )
+        if actual_index is not None:
+            exact_pairs.append((expected_index, actual_index))
+            actual_remaining.pop(actual_index)
+    expected_remaining = [
+        item
+        for index, item in enumerate(expected_remaining)
+        if index not in {pair[0] for pair in exact_pairs}
+    ]
+
+    mis_attached: list[dict[str, Any]] = []
+    still_missing: list[dict[str, Any]] = []
+    for wanted in expected_remaining:
+        fact = _assertion_signature(wanted, include_subject=False)
+        actual_index = next(
+            (
+                index
+                for index, item in enumerate(actual_remaining)
+                if _assertion_signature(item, include_subject=False) == fact
+            ),
+            None,
+        )
+        if actual_index is None:
+            still_missing.append(wanted)
+            continue
+        produced = actual_remaining.pop(actual_index)
+        mis_attached.append(
+            {
+                "expected_subject": _assertion_subject(wanted),
+                "actual_subject": _assertion_subject(produced),
+                "assertion": _assertion_fact(wanted),
+            }
+        )
+    return {
+        "missing": still_missing,
+        "spurious": actual_remaining,
+        "mis_attached": mis_attached,
+        "counts": {
+            "missing": len(still_missing),
+            "spurious": len(actual_remaining),
+            "mis_attached": len(mis_attached),
+        },
+    }
+
+
+def score_alignment_samples(
+    produced_by_sample: dict[str, list[dict[str, Any]]],
+    *,
+    samples: str | Path | None = None,
+) -> dict[str, Any]:
+    reports = []
+    for path in discover_alignment_samples(samples):
+        sample = load_alignment_sample(path)
+        diff = score_assertion_set(
+            sample.expected_assertions,
+            produced_by_sample.get(sample.sample_id, []),
+        )
+        reports.append(
+            {
+                "sample_id": sample.sample_id,
+                "source_kind": sample.source_kind,
+                **diff,
+            }
+        )
+    return {
+        "samples": reports,
+        "counts": {
+            name: sum(item["counts"][name] for item in reports)
+            for name in ("missing", "spurious", "mis_attached")
+        },
+    }
+
+
+def load_assertion_results(path: str | Path) -> dict[str, list[dict[str, Any]]]:
+    result_path = Path(path)
+    try:
+        payload = yaml.safe_load(result_path.read_text(encoding="utf-8"))
+    except Exception as error:
+        raise EvalHarnessError(
+            f"could not load assertion results {result_path.name}: {error}"
+        ) from error
+    if not isinstance(payload, dict) or set(payload) != {"samples"}:
+        raise EvalHarnessError("assertion results MUST contain only a samples mapping")
+    samples = payload["samples"]
+    if not isinstance(samples, dict) or not all(
+        isinstance(key, str) and isinstance(value, list)
+        for key, value in samples.items()
+    ):
+        raise EvalHarnessError("assertion result samples MUST map ids to assertion arrays")
+    return samples
+
+
 def normalized_title_tokens(value: str) -> frozenset[str]:
     normalized = "".join(
         " " if unicodedata.category(character)[0] in {"P", "S"} else character
@@ -437,6 +585,7 @@ def run_eval_dataset(
     model: str | None = None,
     responses: str | Path | None = None,
     seed_note: bool = False,
+    assertion_results: str | Path | None = None,
 ) -> dict[str, Any]:
     selected_dataset = Path(dataset) if dataset is not None else default_dataset()
     loaded = [(path, load_eval_case(path)) for path in discover_eval_cases(selected_dataset)]
@@ -491,6 +640,10 @@ def run_eval_dataset(
         "cases": case_reports,
         "aggregate": aggregate_case_reports(case_reports),
     }
+    if assertion_results is not None:
+        report["assertion_samples"] = score_alignment_samples(
+            load_assertion_results(assertion_results)
+        )
     return report
 
 
@@ -711,7 +864,48 @@ def format_report_table(report: dict[str, Any]) -> str:
     )
     if report.get("seed_note"):
         lines.append(f"seed_note | {report['seed_note']}")
+    if "assertion_samples" in report:
+        counts = report["assertion_samples"]["counts"]
+        lines.append(
+            "assertion_set_diff | "
+            f"missing={counts['missing']} | spurious={counts['spurious']} | "
+            f"mis_attached={counts['mis_attached']}"
+        )
     return "\n".join(lines)
+
+
+def _assertion_subject(assertion: dict[str, Any]) -> Any:
+    if "subject_ref" in assertion:
+        return assertion["subject_ref"]
+    if "subject_key" in assertion:
+        return assertion["subject_key"]
+    subject = assertion.get("subject")
+    if isinstance(subject, dict):
+        if subject.get("subject_key") is not None:
+            return subject["subject_key"]
+        declaration = subject.get("new_subject")
+        if isinstance(declaration, dict):
+            return NEW_SUBJECT_PREFIX + str(declaration.get("ref"))
+    return None
+
+
+def _assertion_fact(assertion: dict[str, Any]) -> dict[str, Any]:
+    evidence = assertion.get("evidence_aliases", assertion.get("evidence", []))
+    return {
+        "predicate": assertion.get("predicate"),
+        "operation": assertion.get("operation", "ASSERT"),
+        "object_value": assertion.get("object_value"),
+        "evidence": sorted(evidence) if isinstance(evidence, list) else evidence,
+    }
+
+
+def _assertion_signature(
+    assertion: dict[str, Any], *, include_subject: bool
+) -> str:
+    payload = _assertion_fact(assertion)
+    if include_subject:
+        payload["subject"] = _assertion_subject(assertion)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _table_row(case_id: str, stats: dict[str, Any], metrics: dict[str, Any]) -> str:

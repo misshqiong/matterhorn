@@ -77,3 +77,104 @@ def test_unrelated_400_is_raised_not_swallowed() -> None:
     gateway = _gateway_with(httpx.MockTransport(handler))
     with pytest.raises(httpx.HTTPStatusError):
         gateway.complete(system="s", user="u", response_schema=SCHEMA)
+
+
+def test_tool_loop_executes_calls_and_returns_tool_results_to_model() -> None:
+    requests: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if len(requests) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call-1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "search_candidates",
+                                            "arguments": '{"text":"octo audit"}',
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "done"}}]},
+        )
+
+    gateway = _gateway_with(httpx.MockTransport(handler))
+    handled: list[tuple[str, dict]] = []
+    result = gateway.tool_loop(
+        system="system",
+        user="user",
+        tools=[{"type": "function", "function": {"name": "search_candidates"}}],
+        handler=lambda name, arguments: (
+            handled.append((name, arguments)) or {"subjects": []}
+        ),
+    )
+
+    assert result.final_message == "done"
+    assert result.tool_calls == 1
+    assert not result.exhausted
+    assert handled == [("search_candidates", {"text": "octo audit"})]
+    assert requests[1]["messages"][-1] == {
+        "role": "tool",
+        "tool_call_id": "call-1",
+        "name": "search_candidates",
+        "content": '{"subjects":[]}',
+    }
+
+
+def test_tool_loop_stops_before_fifth_emission() -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": f"emit-{calls}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "emit",
+                                        "arguments": '{"assertions":[]}',
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            },
+        )
+
+    gateway = _gateway_with(httpx.MockTransport(handler))
+    handled: list[str] = []
+    result = gateway.tool_loop(
+        system="system",
+        user="user",
+        tools=[{"type": "function", "function": {"name": "emit"}}],
+        handler=lambda name, _arguments: handled.append(name) or {},
+    )
+
+    assert result.exhausted
+    assert result.tool_calls == 4
+    assert result.emissions == 4
+    assert handled == ["emit"] * 4

@@ -1,0 +1,40 @@
+case_id: unified-replay-no-loop
+title: Replay applies unified assertions without re-executing the loop
+invariants: [P7, P9, INV-3, INV-20]
+schema_profile: org-matters/v1
+scope_id: octo-loop-replay
+unified_loop: true
+clock: ["2026-08-06T14:00:00Z"]
+cards: []
+record_batches:
+  - records:
+      - record_id: octo-loop-replay:room:r1
+        container_id: octo-loop-replay:room
+        sent_at: "2026-08-06T13:30:00Z"
+        author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+        content: "Open the fictional replay audit."
+        kind: im
+tool_loop_sessions:
+  - turns:
+      - tool_call:
+          name: emit
+          arguments:
+            assertions:
+              - subject: {new_subject: {ref: replay-audit, subject_type: MATTER, title: Fictional replay audit}}
+                predicate: status
+                operation: ASSERT
+                object_value: open
+                evidence_aliases: [m1]
+      - final_message: done
+expect:
+  record_reports:
+    - {assertions_emitted: 1, cards_dropped: 0}
+  tool_loop_calls: 1
+  subject_count: 1
+  assertions:
+    - {predicate: status, object_value: open}
+  intervals:
+    - {predicate: status, object_value: open}
+  export_replay_identity: true
+  replay_events_emitted: 0
+  queries: []
