@@ -345,7 +345,10 @@ class _SemanticGateway:
         return json.dumps(response)
 
 
-def test_model_structure_assertion_runs_the_same_admission_gate(tmp_path) -> None:
+def test_dream_offered_structure_edges_are_rejected(tmp_path) -> None:
+    # Governance (spec 25.1): the single-card dream pass never sees the
+    # tree, so structure edges it offers are rejected — they belong to
+    # theme convergence and the unified loop.
     engine = Engine(
         tmp_path / "model-edge.db",
         gateway=_SemanticGateway(),
@@ -355,8 +358,8 @@ def test_model_structure_assertion_runs_the_same_admission_gate(tmp_path) -> Non
         [_card("root", minute=0), _card("child", minute=1)]
     )
     report = engine.dream(SCOPE)
-    assert report.accepted_candidates == 1
-    assert engine.matter_graph(SCOPE, "child").parent_chain[0].subject_key == "root"
+    assert report.accepted_candidates == 0
+    assert list(engine.matter_graph(SCOPE, "child").parent_chain) == []
 
 
 def test_cli_graph_prints_the_tree_and_rollup(tmp_path) -> None:

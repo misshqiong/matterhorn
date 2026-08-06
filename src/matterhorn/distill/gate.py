@@ -144,6 +144,11 @@ def validate_response(
         if definition.extraction != ExtractionMode.semantic:
             rejected.append(_reject(GateReason.NOT_SEMANTIC, dumped))
             continue
+        if candidate.predicate in ("part_of", "spawned_from"):
+            # Dream sees one card, never the tree: structure edges are owned
+            # by theme convergence (§28) and the unified loop (§26).
+            rejected.append(_reject(GateReason.NOT_SEMANTIC, dumped))
+            continue
         if definition.subject != candidate.subject_type:
             rejected.append(_reject(GateReason.SUBJECT_TYPE_MISMATCH, dumped))
             continue

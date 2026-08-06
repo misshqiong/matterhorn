@@ -1941,6 +1941,10 @@ Three predicates join the schema profile for matter subjects:
 - `decision` — APPEND; object is decision text. A decision that spawns a
   sub-matter is cited as evidence by the child's `spawned_from` assertion.
 
+Model-origin structure edges arrive only through the section 26 loop and
+section 28 theme convergence, which read the tree; the single-card dream
+pass MUST NOT offer or admit `part_of`/`spawned_from` (governance added
+2026-08-06 after the pathway produced context-blind noise edges live).
 Admission gates (INV-19), enforced in the validation gate for model origin
 and in the correction door for human origin alike: the object subject MUST
 exist in the scope; self-reference is rejected; the edge MUST NOT create a

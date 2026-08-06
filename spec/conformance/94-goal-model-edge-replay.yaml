@@ -1,5 +1,5 @@
 case_id: goal-model-edge-replay
-title: Model goal admission and replay reproduce byte-identical graph state
+title: Dream-offered structure edges are rejected and replay stays stable
 invariants: [INV-3, INV-7, INV-19]
 schema_profile: org-matters/v1
 scope_id: octo-goal-model
@@ -32,15 +32,13 @@ expect:
   assertions:
     - {subject_key: child, predicate: status, object_value: open, origin: model}
     - {subject_key: root, predicate: status, object_value: open, origin: model}
-    - {subject_key: child, predicate: part_of, object_value: root, origin: model}
   intervals:
     - {subject_key: child, predicate: status, object_value: open}
     - {subject_key: root, predicate: status, object_value: open}
-    - {subject_key: child, predicate: part_of, object_value: root}
-  gate_statistics: {accepted: 1, rejections: {}}
+  gate_statistics: {accepted: 0, rejections: {NOT_SEMANTIC: 1}}
   graph_queries:
     - subject_key: child
-      result: {root_subject_key: root, parent_chain: [{subject_key: root}]}
+      result: {root_subject_key: child, parent_chain: []}
   export_replay_identity: true
   replay_events_emitted: 0
   queries: []

@@ -82,6 +82,9 @@ def build_prompt(
         }
         for predicate in profile.predicates
         if predicate.extraction == ExtractionMode.semantic
+        # Structure edges need tree context the dream pass cannot see;
+        # they belong to theme convergence (§28) and the unified loop (§26).
+        and predicate.name not in ("part_of", "spawned_from")
     ]
     subjects = [
         {
