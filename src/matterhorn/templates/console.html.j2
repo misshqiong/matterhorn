@@ -1602,7 +1602,15 @@
     }
 
     async function pollHub() {
-      await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollBrief(), pollRawStream(), pollAssetVersion()]);
+      // Overlapping cycles pile requests behind slow reads and starve the
+      // browser's per-origin connection pool; skip while one is in flight.
+      if (pollHub.inFlight) return;
+      pollHub.inFlight = true;
+      try {
+        await Promise.all([loadActivity(), loadConnections(), loadMailAccounts(), pollWall(), pollBrief(), pollRawStream(), pollAssetVersion()]);
+      } finally {
+        pollHub.inFlight = false;
+      }
     }
 
     async function pollAssetVersion() {

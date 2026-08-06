@@ -191,12 +191,12 @@ class MatterhornService:
 
     def list_matters(self, *, scope_id: str) -> list[dict[str, Any]]:
         self._require_scope(scope_id)
+        bundle = self.engine._scope_read_bundle(scope_id)
+        unseen_map = self.engine.matters_unseen(scope_id, bundle=bundle)
         result = []
-        for item in self.engine.matters(scope_id):
+        for item in self.engine.matters(scope_id, bundle=bundle):
             payload = item.to_dict()
-            payload["unseen"] = self.engine.matter_unseen(
-                scope_id, item.subject_key
-            )
+            payload["unseen"] = unseen_map.get(item.subject_key, False)
             result.append(payload)
         return result
 

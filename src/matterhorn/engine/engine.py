@@ -194,6 +194,15 @@ class RelatedMatter:
         }
 
 
+@dataclass(frozen=True)
+class _ScopeReadBundle:
+    """One scope's read-side state, loaded once per wall/brief request."""
+
+    subjects: list[Any]
+    canonical_assertions: list[Assertion]
+    graph: Any | None
+
+
 @dataclass
 class _HandleCounts:
     bound: int = 0
@@ -1924,15 +1933,46 @@ class Engine:
             self.store.conversation_names(scope_id)
         )
 
-    def _all_matters(self, scope_id: str) -> list[Matter]:
+    def _scope_read_bundle(self, scope_id: str) -> _ScopeReadBundle:
+        """Load a scope's read-side state exactly once for one wall request.
+
+        The full assertion scan dominates wall latency; every consumer of a
+        single request (matters, rollups, unseen flags) MUST share this
+        bundle instead of re-reading the store.
+        """
+
+        subjects = self.store.subjects(scope_id)
+        raw_assertions = self.store.assertions(scope_id)
+        merges = self.store.subject_merges(scope_id)
+        return _ScopeReadBundle(
+            subjects=subjects,
+            canonical_assertions=_canonicalized_assertions(
+                raw_assertions, merges
+            ),
+            graph=(
+                project_goal_graph(
+                    self.profile, subjects, raw_assertions, merges
+                )
+                if self._goal_graph_enabled()
+                else None
+            ),
+        )
+
+    def _all_matters(
+        self,
+        scope_id: str,
+        *,
+        bundle: _ScopeReadBundle | None = None,
+    ) -> list[Matter]:
         """Return every canonical projected matter without touching the LLM."""
 
+        bundle = bundle or self._scope_read_bundle(scope_id)
         result = []
         aliases = self._subject_aliases(scope_id)
         names = self.store.person_names(scope_id)
         evidence_by_subject = {
             subject.subject_key: subject.source_ids
-            for subject in self.store.subjects(scope_id)
+            for subject in bundle.subjects
         }
         conversation_names = self.conversation_display_names(scope_id)
         progress_subjects = {
@@ -1941,10 +1981,7 @@ class Engine:
             if predicate.name == "progress"
         }
         updated_at: dict[str, datetime] = {}
-        for assertion in _canonicalized_assertions(
-            self.store.assertions(scope_id),
-            self.store.subject_merges(scope_id),
-        ):
+        for assertion in bundle.canonical_assertions:
             previous = updated_at.get(assertion.subject_key)
             if previous is None or assertion.recorded_at > previous:
                 updated_at[assertion.subject_key] = assertion.recorded_at
@@ -1986,13 +2023,19 @@ class Engine:
             )
         return result
 
-    def matters(self, scope_id: str) -> list[Matter]:
+    def matters(
+        self,
+        scope_id: str,
+        *,
+        bundle: _ScopeReadBundle | None = None,
+    ) -> list[Matter]:
         """Return root wall matters with deterministic descendant rollups."""
 
-        matters = self._all_matters(scope_id)
-        if not self._goal_graph_enabled():
+        bundle = bundle or self._scope_read_bundle(scope_id)
+        matters = self._all_matters(scope_id, bundle=bundle)
+        if not self._goal_graph_enabled() or bundle.graph is None:
             return matters
-        graph = self._goal_projection(scope_id)
+        graph = bundle.graph
         result = []
         for matter in matters:
             if matter.subject_key in graph.parents:
@@ -2039,23 +2082,39 @@ class Engine:
         """Return whether a root or any descendant has activity past its watermark."""
 
         canonical = self.canonical_subject_key(scope_id, subject_key)
-        graph = self._goal_projection(scope_id)
-        subtree = [canonical, *graph.descendants(canonical)]
-        assertions = _canonicalized_assertions(
-            self.store.assertions(scope_id),
-            self.store.subject_merges(scope_id),
-        )
-        by_subject: dict[str, list[Assertion]] = {}
-        for assertion in assertions:
-            by_subject.setdefault(assertion.subject_key, []).append(assertion)
-        for key in subtree:
-            watermark = self.store.read_watermark(scope_id, key)
-            if any(
+        return self.matters_unseen(scope_id).get(canonical, False)
+
+    def matters_unseen(
+        self,
+        scope_id: str,
+        *,
+        bundle: _ScopeReadBundle | None = None,
+    ) -> dict[str, bool]:
+        """Watermark-relative unseen flags for every subject in one scope pass.
+
+        One assertions load, one goal projection, and one watermark read for
+        the whole scope; per-matter callers must not re-run these scans.
+        """
+
+        bundle = bundle or self._scope_read_bundle(scope_id)
+        graph = bundle.graph or self._goal_projection(scope_id)
+        watermarks = self.store.read_watermarks(scope_id)
+        node_unseen: dict[str, bool] = {}
+        for assertion in bundle.canonical_assertions:
+            key = assertion.subject_key
+            if node_unseen.get(key):
+                continue
+            watermark = watermarks.get(key)
+            node_unseen[key] = (
                 watermark is None or assertion.recorded_at > watermark
-                for assertion in by_subject.get(key, [])
-            ):
-                return True
-        return False
+            )
+        result: dict[str, bool] = {}
+        for key in set(node_unseen) | set(graph.nodes):
+            result[key] = node_unseen.get(key, False) or any(
+                node_unseen.get(descendant, False)
+                for descendant in graph.descendants(key)
+            )
+        return result
 
     def _goal_graph_enabled(self) -> bool:
         names = {item.name for item in self.profile.predicates}
@@ -2170,19 +2229,21 @@ class Engine:
         titles: dict[tuple[str, str], str] = {}
         all_assertions: dict[str, list[Assertion]] = {}
         for scope_id in scopes:
-            scope_matters = self._all_matters(scope_id)
-            scope_roots = self.matters(scope_id)
-            graph_by_scope[scope_id] = self._goal_projection(scope_id)
+            bundle = self._scope_read_bundle(scope_id)
+            scope_matters = self._all_matters(scope_id, bundle=bundle)
+            scope_roots = self.matters(scope_id, bundle=bundle)
+            graph_by_scope[scope_id] = (
+                bundle.graph
+                if bundle.graph is not None
+                else self._goal_projection(scope_id)
+            )
             for matter in scope_matters:
                 key = (scope_id, matter.subject_key)
                 matters_by_key[key] = matter
                 titles[key] = matter.title
             for matter in scope_roots:
                 root_matters_by_key[(scope_id, matter.subject_key)] = matter
-            all_assertions[scope_id] = _canonicalized_assertions(
-                self.store.assertions(scope_id),
-                self.store.subject_merges(scope_id),
-            )
+            all_assertions[scope_id] = bundle.canonical_assertions
 
         activity = []
         for scope_id in scopes:
