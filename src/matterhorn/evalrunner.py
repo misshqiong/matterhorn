@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unicodedata
@@ -453,6 +454,7 @@ def run_live_sample_comparison(
                 sample,
                 gateway,
                 unified=unified,
+                samples_root=samples,
             )
 
     scores = {
@@ -1089,6 +1091,7 @@ def _run_live_sample(
     gateway: Any,
     *,
     unified: bool,
+    samples_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     records = [
         Record.model_validate(
@@ -1101,12 +1104,20 @@ def _run_live_sample(
         for index, item in enumerate(sample.window)
     }
     with tempfile.TemporaryDirectory(prefix="matterhorn-live-sample-") as temp_dir:
+        # Leave-one-out: the sample under evaluation MUST NOT appear in the
+        # loop's few-shot exemplars, or the score measures memorization.
+        exemplar_dir = Path(temp_dir) / "samples"
+        exemplar_dir.mkdir()
+        for path in discover_alignment_samples(samples_root):
+            if load_alignment_sample(path).sample_id != sample.sample_id:
+                shutil.copy(path, exemplar_dir / path.name)
         engine = Engine(
             Path(temp_dir) / "sample.db",
             "org-matters/v1",
             clock=EvalClock(),
             gateway=gateway,
             unified_loop=unified,
+            alignment_samples_dir=exemplar_dir,
         )
         try:
             _seed_live_sample_subjects(engine, sample)

@@ -282,6 +282,7 @@ class Engine:
         hot_min_authors: int = DEFAULT_HOT_MIN_AUTHORS,
         hot_min_messages: int = DEFAULT_HOT_MIN_MESSAGES,
         unified_loop: bool = False,
+        alignment_samples_dir: str | Path | None = None,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -302,6 +303,7 @@ class Engine:
         if not isinstance(unified_loop, bool):
             raise TypeError("unified_loop MUST be a boolean")
         self.unified_loop = unified_loop
+        self.alignment_samples_dir = alignment_samples_dir
         self.signal_config: SignalConfig = configured_signal_config(
             identity_handles=identity_handles,
             machine_senders=machine_senders,
@@ -742,6 +744,7 @@ class Engine:
                 scope_id=scope_id,
                 records=chunk,
                 context=context,
+                samples_dir=self.alignment_samples_dir,
             )
             report = session.run(self._write_gateway)
             assertion_ids.extend(report.assertion_ids)

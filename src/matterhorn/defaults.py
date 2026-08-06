@@ -36,6 +36,7 @@ class Engine(CoreEngine):
         hot_min_authors: int = CoreEngine.DEFAULT_HOT_MIN_AUTHORS,
         hot_min_messages: int = CoreEngine.DEFAULT_HOT_MIN_MESSAGES,
         unified_loop: bool | None = None,
+        alignment_samples_dir: str | Path | None = None,
     ):
         super().__init__(
             store,
@@ -53,6 +54,7 @@ class Engine(CoreEngine):
             hot_min_authors=hot_min_authors,
             hot_min_messages=hot_min_messages,
             unified_loop=_unified_loop_enabled(unified_loop),
+            alignment_samples_dir=alignment_samples_dir,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(
