@@ -242,8 +242,8 @@ def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
         "mis_attached": 0,
     }
     assert scores["typing_accuracy"] == {
-        "correct": 17,
-        "total": 17,
+        "correct": len(samples),
+        "total": len(samples),
         "rate": 1.0,
     }
     assert scores["by_type"] == {
