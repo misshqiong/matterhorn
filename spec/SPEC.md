@@ -169,11 +169,14 @@ reject an input that cannot satisfy that rule rather than weakening P5.
   section 25 (`part_of`, `spawned_from`, `decision`) MUST be ordinary
   provenance-bearing assertions subject to every existing admission rule.
   Admission of a structure edge MUST reject self-reference, a target subject
-  that does not exist in the same scope, and any edge that would create a
-  cycle in the canonical active `part_of`/`spawned_from` graph at admission
-  time. Graph neighborhoods, structural rollups, and root/descendant
-  classification MUST be pure zero-model reads, and replay MUST reproduce
-  the complete active and superseded edge state.
+  that does not exist in the same scope, and any operation that would mint a
+  cycle in the canonical active `part_of`/`spawned_from` graph; the minting
+  test (section 25.1) runs on every vote-shifting door — assert and retract,
+  correction and model origin, and the merge door — and a projected cycle
+  that predates the operation never vetoes edges outside it. Graph
+  neighborhoods, structural rollups, and root/descendant classification MUST
+  be pure zero-model reads, and replay MUST reproduce the complete active
+  and superseded edge state.
 - **INV-20 — Unified loop closed world and gate supremacy.** Inside a
   section 26 loop session the model may reference only subjects it was
   shown in that session by `read_neighborhood` or `search_candidates`, plus
@@ -960,7 +963,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-23`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-23`, except the retired `INV-21` (section 28.3). Retired numbers are never reused. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
@@ -1955,9 +1958,45 @@ Admission gates (INV-19), enforced in the validation gate for model origin
 and in the correction door for human origin alike: the object subject MUST
 exist in the scope; self-reference is rejected; the edge MUST NOT create a
 cycle in the canonical active graph formed by the union of `part_of` and
-`spawned_from` edges, evaluated after merge canonicalization. Cross-scope
-references are invalid. RETRACT restores the prior state and re-runs no
-gate other than the standard correction rules.
+`spawned_from` edges, evaluated after merge canonicalization. The cycle
+test is minting, not global acyclicity: one operation can shift only the
+asserting subject's own elected edges, so the gate rejects exactly when
+the operation changes that subject's active edges AND leaves the subject
+on a cycle of the post-operation projection. A losing vote (elected edges
+unchanged) passes — blocking it would also block votes accumulating
+toward escape from a legacy cycle — and a projected cycle that predates
+the operation MUST NOT veto edges outside it: the active graph is an
+election result (INV-22), and vote arithmetic can shift under stored
+assertions with no admission moment to gate; freezing the whole scope on
+such a survivor is the failure mode observed live on 2026-08-07.
+Cross-scope references are invalid.
+
+The same minting test runs on every vote-shifting door. A RETRACT of a
+structure predicate (correction door or model loop) withdraws same-origin
+contributions and can flip the election onto a cycle, so it is gated
+identically; a field-wide structure retract can only empty the slot and
+therefore always passes. `merge_subjects` pools slates and retargets
+incident edges — every rewritten edge gains the canonical survivor as an
+endpoint, so the merge door rejects when the survivor lands on a cycle it
+was not already on (a cycle it was on is legacy: vetoing it would take
+the repair tool away from the graphs that need repair). `unmerge_subjects`
+alone stays ungated — reversibility of merges is a standing promise — and
+callers MUST surface the cycle audit after an unmerge. When the model
+proposes a `part_of` edge whose reverse edge is active (mutual
+containment), the rejection additionally enqueues one MERGE_SUGGESTION
+review per subject pair: mutual containment is evidence of one topic
+split by routing, and the repair is identity, not structure.
+
+Because the gate guards only admission moments, a scope MAY come to hold a
+projected cycle. `structure_cycles(scope_id)` is the zero-model audit
+read (CLI `mh cycles`, exit 1 when loops exist): it lists each active
+cycle as a canonical subject-key sequence for human repair through the
+correction door or a subject merge. A structure edge whose endpoints
+collapse onto one subject under merge canonicalization is void — it MUST
+NOT project, vote in elections, or count as an unchanged duplicate — so
+merging a mutually-parented pair dissolves the cycle rather than leaving
+a self-loop. Structural reads stay total on a cyclic graph via their
+bounded traversal.
 
 ### 25.2 Graph projection and structural rollup
 
@@ -1972,8 +2011,10 @@ The structural rollup of a root is deterministic: `descendants_total`,
 `descendants_completed` (projected status in the profile's completed
 values), `descendants_blocked` plus the list of `(subject_key, blocker)`
 for blocked descendants (blocker bubble-up), and `latest_activity` (max
-assertion `recorded_at` over the subtree). Cycles are impossible by
-INV-19; implementations MUST still bound traversal.
+assertion `recorded_at` over the subtree). INV-19 keeps admission from
+creating cycles, but a projected cycle can survive election shifts
+(section 25.1); implementations MUST bound traversal so every structural
+read stays total either way.
 
 Read surfaces change as follows: matters with an active `part_of` stop
 appearing as top-level wall rows and briefing matter entries; they appear
@@ -1994,6 +2035,13 @@ under their root, which carries the rollup. Group counts
   NOT auto-attach. The review queue gains resolution
   `attach_subgoal(parent_subject_key)` which admits the edge through the
   standard gates with reviewer provenance.
+- Merge suggestion: a MERGE_SUGGESTION review item carries one candidate
+  `merge(subject_key, parent_subject_key)`; resolving it runs the standard
+  `merge_subjects` door (including its cycle gate) with reviewer
+  provenance, then marks the review resolved. Re-resolving after a crash
+  treats an already-canonicalized pair as done. Enqueueing is
+  deterministic per subject pair, so repeated mutual-containment
+  rejections never duplicate the item.
 - The console matter detail renders the time tree (children by birth
   instant, parent link, per-node status chips); root wall rows show
   `completed/total` descendants and the bubbled blockers.
@@ -2002,10 +2050,12 @@ under their root, which carries the rollup. Group counts
 
 Golden cases MUST cover: edge admission with evidence; self-reference,
 unknown-target, and cycle rejection (including a cycle attempted through a
-merge chain); re-parenting with history; birth-instant derivation both with
-and without `spawned_from`; rollup counts, blocker bubble-up, and root
-classification on a three-level tree; wall/brief root filtering; review
-`attach_subgoal` resolution; and byte-identical replay of the graph.
+merge chain); a retract that would flip the election onto a cycle; a
+subject merge that would activate a cycle through the survivor;
+re-parenting with history; birth-instant derivation both with and without
+`spawned_from`; rollup counts, blocker bubble-up, and root classification
+on a three-level tree; wall/brief root filtering; review `attach_subgoal`
+resolution; and byte-identical replay of the graph.
 
 ## 26. Unified distillation loop
 
@@ -2048,6 +2098,19 @@ a new-subject declaration plus `spawned_from` and `part_of` intents citing
 the fork-moment Record; semantic upward propagation is a parent `progress`
 intent whose evidence cites the child's admitted assertion; skipping noise
 is emitting nothing.
+
+A declared subject's key MUST be derived from its scope, subject type,
+normalized title, and CONTAINER — never from the window's record ids. The
+same ongoing concern is titled again in a later window of the same
+container, so a window-scoped key mints a fresh subject every time: this
+produced 32 redundant copies of 242 live matters, including 14 of one pull
+request, against one merge in all history. Container scope, not bare title,
+because a bare title fuses across containers into one immortal accreting
+subject and the system has no split primitive. A degenerate title (a
+configured stop list such as "总结"/"讨论"/"summary", which names the act of
+summarizing rather than a subject) is not an identity and MUST fall back to
+window scope. Re-declaring an existing subject accrues evidence onto it
+rather than minting a twin.
 
 ### 26.3 Gates
 
@@ -2173,8 +2236,21 @@ glue unrelated matters transitively (observed on real IM data,
 2026-08-06) and are forbidden.
 Clusters below `theme_min_cluster` (default 3) are discarded. When a
 cluster member already parents children, the proposal targets that
-existing root instead of a new theme. Clustering MUST be reproducible from
-committed store state alone.
+existing root instead of a new theme.
+
+Clustering MAY consult the model. The rules above are the deterministic
+floor, not a ceiling: they describe how affinity is computed today, and a
+model-consulted partition MAY replace or extend them. Until 2026-08-07
+clustering was required to be zero-model and reproducible from committed
+store state alone; that requirement is retired because it contradicted
+section 29.1. One operator applied at adjacent layers cannot divide labour
+differently at each: layer 0→1 already lets the model decide membership
+(section 26 emits `part_of` directly), while layer 1→2 reserved membership
+for lexical code and demoted the model to naming. The lexical floor also
+cannot see the semantics it is being asked for — a well-named theme root
+shares zero affinity tokens with its own members, and eleven subjects of
+one concern carried eleven distinct titles with no pair identical
+(measured on real data, 2026-08-07).
 
 ### 28.2 Naming and admission
 
@@ -2189,23 +2265,41 @@ provenance — through every standard gate (INV-19, INV-20).
 Application mode `theme_converge ∈ {off, review, auto}` (default
 `review`): `review` enqueues each edge as a PARENT_SUGGESTION; `auto`
 applies directly (model origin, P8 human corrections override) when the
-deterministic confidence gate holds — the cluster exhibits at least two
-distinct affinity kinds, or at least five members with one kind — and
-falls back to review otherwise.
+confidence gate holds — the cluster exhibits at least two distinct
+affinity kinds, or at least five members with one kind — and falls back to
+review otherwise. A model-consulted partition (section 28.1) carries no
+affinity kinds of its own, so extending `auto` to one means deciding what
+its gate reads. Note what is at stake in that choice: `auto` is the only
+unreviewed write path in the system, and a gate fed by the model's own
+confidence would put it under the judgement of the thing it governs.
+Committed evidence a later reader can recount does not have that problem.
 
 ### 28.3 Scheduling
 
 After a flush, a scope with ≥ `theme_min_backlog` (default 6) unparented
 active roots enqueues one theme pass, at most once per
-`theme_interval_hours` (default 6) per scope. Already-parented members
-never re-cluster, so a repeated pass with unchanged state emits nothing.
+`theme_interval_hours` (default 6) per scope.
 
-- **INV-21 — Governed theme convergence.** Clustering MUST be
-  deterministic and zero-model; the naming session MUST NOT reference or
-  create subjects outside its surfaced cluster; auto-application MUST pass
-  the deterministic confidence gate; a repeated pass over unchanged state
-  MUST be a no-op. (Registered here; the section 2 list gains this entry
-  when renumbered.)
+Already-parented members never re-cluster, so a repeated pass over
+unchanged state emits nothing.
+
+INV-21 (governed theme convergence) is retired in full as of 2026-08-07,
+all four clauses. The zero-model clause is withdrawn for the reasons in
+section 28.1. The other three are withdrawn as an invariant because they
+restated obligations this layer inherits rather than owns: the naming
+session's closed world is INV-20, which section 28.2 already routes every
+emission through; the confidence gate is section 28.2's own admission
+rule; and pass idempotency is a property of candidate drainage above, not
+a separate promise. Nothing that governed layer 1→2 is now weaker than
+what governs layer 0→1 — which is the point, since section 29.1 holds the
+two to be one operator.
+
+One caution survives the retirement and belongs to INV-22, not here.
+Candidate drainage is what stops an automatic door re-proposing parentage
+on every schedule tick, and ten such proposals outweigh one human
+correction. That bound no longer rests on this section: section 29.2's
+`STRUCTURE_HUMAN_PLACEMENT_HELD` refuses a model re-parent of any subject
+whose parentage a human has ruled on, whatever the pass does.
 
 ### 28.4 Conformance and evaluation
 
@@ -2242,14 +2336,33 @@ not new code.
   (`part_of`, and `gathers` of 29.3) the active target is elected by
   accumulated origin weight, not by recency. A human-origin ASSERT
   contributes `human_edge_weight` (default 10); a model-origin ASSERT
-  contributes 1 per distinct gated admission (change-only admission
-  already deduplicates). Highest total weight wins; ties break by most
-  recent contribution. A human RETRACT withdraws that human
-  contribution. Model evidence can therefore out-vote a human placement
-  only by accumulating at least `human_edge_weight` distinct gated
-  admissions — election flips against a live human contribution MUST
+  contributes 1 per distinct gated admission. Change-only admission does
+  NOT deduplicate votes for a target that is not currently elected: the
+  unchanged guard requires a live interval, so admissions against a
+  standing placement all land and the guard first fires only after that
+  target has won. Highest total weight wins; ties break by most recent
+  contribution. A human RETRACT is authoritative and withdraws
+  contributions of EVERY origin; a model RETRACT withdraws model
+  contributions only. Human retraction is the sole label this system
+  receives, and same-origin-only withdrawal silently discarded it
+  (observed live 2026-08-06: a human retract left a model edge elected at
+  human=0, model=14). Model evidence can therefore out-vote a human
+  placement only by accumulating at least `human_edge_weight` distinct
+  gated admissions — election flips against a live human contribution MUST
   additionally enqueue a review notice. Election MUST be a pure function
   of committed assertions and replay byte-identically.
+
+  Votes bound a decision made once; an automatic door re-proposes on every
+  window, so weight alone cannot protect a human placement. An AUTOMATIC
+  door (the section 26 loop, the section 28 theme pass) MUST NOT admit a
+  model-origin `part_of` for a subject whose parentage a human has already
+  ruled on — either a live human contribution to a different target, or a
+  human RETRACT of that exact (child, target) pair at any time. The
+  rejection is `STRUCTURE_HUMAN_PLACEMENT_HELD` and SHOULD enqueue a
+  suggestion for human review. This governs which doors may PRODUCE
+  admissions and leaves the election arithmetic above untouched: through
+  the correction door a human may still deliberately out-vote another
+  human, and the model-outvotes-human notice path is unchanged.
 
 ### 29.3 The gather layer (cross-scope unity)
 

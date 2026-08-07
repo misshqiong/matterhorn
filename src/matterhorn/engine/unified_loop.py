@@ -24,17 +24,31 @@ from matterhorn.contracts import (
     Operation,
     Origin,
     Record,
+    ReviewItem,
     SourceRef,
     SubjectRecord,
 )
 from matterhorn.contracts.models import StrictModel
 from matterhorn.distill import ToolLoopGateway, ToolLoopResult
 from matterhorn.distill.traceability import source_aliases
-from matterhorn.engine.goal_graph import structure_rejection
+from matterhorn.engine.goal_graph import (
+    StructureRejection,
+    active_structure_adjacency,
+    automatic_reparent_rejection,
+    structure_rejection,
+)
 
 MAX_TOOL_CALLS = 16
 MAX_EMISSIONS = 4
 NEW_SUBJECT_PREFIX = "$new:"
+
+# Labels the model reaches for when a window carries no identifiable concern.
+# They name the act of summarizing, not a subject, so they must never become
+# identity anchors. Observed live: four separate "总结" matters across three
+# containers.
+DEGENERATE_TITLES = frozenset(
+    {"总结", "讨论", "无实质内容", "summary", "discussion", "untitled"}
+)
 
 
 class NewSubjectDeclaration(StrictModel):
@@ -465,6 +479,16 @@ class UnifiedLoopSession:
             if not normalized:
                 return "MISSING_SUBJECT_TITLE"
             created = self._declared_subject(declaration)
+            # A declared key is stable per (scope, type, title, container),
+            # so it can now name a subject that was merged away -- and a
+            # merged-away row is still present in subjects_by_key. Redirect
+            # through the merge graph exactly as the referenced-key branch
+            # below does, or every later window re-mints the dead key.
+            canonical_declared = self.engine.canonical_subject_key(
+                self.scope_id,
+                created.subject_key,
+            )
+            created = subjects_by_key.get(canonical_declared, created)
             prior = new_declarations.get(declaration.ref)
             if prior is not None and prior != created:
                 return "NEW_SUBJECT_REF_CONFLICT"
@@ -560,6 +584,13 @@ class UnifiedLoopSession:
             and any(item.subject_key == value for item in self.engine.store.subjects(scope))
             for scope in self.engine.store.list_scopes()
         )
+        held = automatic_reparent_rejection(
+            assertion,
+            assertions=assertions,
+            merges=merges,
+        )
+        if held is not None:
+            return held.value
         rejection = structure_rejection(
             assertion,
             profile=self.engine.profile,
@@ -569,19 +600,95 @@ class UnifiedLoopSession:
             target_exists_outside_scope=outside,
             human_edge_weight=self.engine.human_edge_weight,
         )
+        if rejection is StructureRejection.CYCLE:
+            self._suggest_merge_on_mutual_parent(
+                assertion,
+                subjects_by_key=subjects_by_key,
+                assertions=assertions,
+                merges=merges,
+            )
         if rejection is not None:
             return rejection.value
         return assertion, created
 
+    def _suggest_merge_on_mutual_parent(
+        self,
+        assertion: Assertion,
+        *,
+        subjects_by_key: dict[str, SubjectRecord],
+        assertions: list[Assertion],
+        merges: list[Any],
+    ) -> None:
+        """Turn a mutual-containment rejection into a merge suggestion.
+
+        A model claiming X part_of Y while Y part_of X is active is
+        evidence the two subjects are one topic split by routing — the
+        root disease behind minted cycles. The suggestion is enqueued
+        once per pair (deterministic review_id) and resolved by the
+        review door's merge action.
+        """
+
+        if assertion.predicate != "part_of" or not isinstance(
+            assertion.object_value, str
+        ):
+            return
+        source = self.engine.canonical_subject_key(
+            self.scope_id, assertion.subject_key
+        )
+        target = self.engine.canonical_subject_key(
+            self.scope_id, assertion.object_value
+        )
+        adjacency = active_structure_adjacency(
+            assertions,
+            merges,
+            profile=self.engine.profile,
+            human_edge_weight=self.engine.human_edge_weight,
+        )
+        if source not in adjacency.get(target, set()):
+            return
+        source_title = getattr(subjects_by_key.get(source), "title", source)
+        target_title = getattr(subjects_by_key.get(target), "title", target)
+        source_ref = assertion.source_refs[0]
+        review_id = "review_merge_" + stable_hash(
+            [self.scope_id, *sorted((source, target))]
+        )
+        card = EpisodeCard(
+            card_id="merge_" + stable_hash([self.scope_id, source, target]),
+            scope_id=self.scope_id,
+            date=source_ref.sent_at.date(),
+            title=f"{source_title} ↔ {target_title}",
+            source_refs=[source_ref],
+            subject_key=source,
+        )
+        self.engine._aggregate.enqueue_reviews(
+            (
+                ReviewItem(
+                    scope_id=self.scope_id,
+                    review_id=review_id,
+                    card_json=card.model_dump(mode="json"),
+                    reasons=["MERGE_SUGGESTION"],
+                    candidates_json=[
+                        {
+                            "action": "merge",
+                            "subject_key": source,
+                            "parent_subject_key": target,
+                            "title": target_title,
+                            "source_title": source_title,
+                            "mutual_part_of": True,
+                        }
+                    ],
+                    created_at=self.engine.now(),
+                ),
+            )
+        )
+
     def _declared_subject(self, declaration: NewSubjectDeclaration) -> SubjectRecord:
-        source_ids = frozenset(ref.source_id for ref in self.evidence.values())
         digest = stable_hash(
             [
                 self.scope_id,
                 declaration.subject_type,
                 normalize_title(declaration.title),
-                sorted(source_ids),
-                [record.record_id for record in self.records],
+                *self._identity_anchor(declaration),
             ]
         )[:20]
         return SubjectRecord(
@@ -599,6 +706,21 @@ class UnifiedLoopSession:
                 }
             ),
         )
+
+    def _identity_anchor(self, declaration: NewSubjectDeclaration) -> list[Any]:
+        """Return the digest tail that scopes a declared subject's identity.
+
+        The same ongoing concern is titled again in a later window, so the
+        anchor is the container, not the window: window record ids in the key
+        guaranteed a fresh subject every time and produced 32 redundant copies
+        of 242 matters live, including 14 of one PR. A degenerate title
+        ("总结", "讨论") is not an identity though -- fusing on it would build
+        one immortal accreting subject -- so those fall back to window scope.
+        """
+
+        if _title_is_degenerate(declaration.title):
+            return [[record.record_id for record in self.records]]
+        return [sorted({record.container_id for record in self.records})]
 
     def _resolve_evidence(self, aliases: list[str]) -> list[SourceRef] | None:
         refs: list[SourceRef] = []
@@ -627,6 +749,10 @@ class UnifiedLoopSession:
                 accepted=0,
                 rejections={reason: 1},
             )
+
+
+def _title_is_degenerate(title: str) -> bool:
+    return normalize_title(title) in DEGENERATE_TITLES
 
 
 def tool_definitions() -> list[dict[str, Any]]:

@@ -1,6 +1,6 @@
 case_id: theme-review-always
 title: Review mode always enqueues parent suggestions for a confident cluster
-invariants: [INV-21]
+invariants: [INV-19, INV-20]
 schema_profile: org-matters/v1
 scope_id: octo-theme-review
 clock: ['2026-08-06T10:00:00Z']

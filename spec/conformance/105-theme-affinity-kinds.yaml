@@ -1,6 +1,6 @@
 case_id: theme-affinity-kinds
 title: Theme clustering bonds on handles and titles; venues only confirm
-invariants: [INV-21]
+invariants: [INV-19, INV-20]
 schema_profile:
   schema: fictional-themes/v1
   subjects:

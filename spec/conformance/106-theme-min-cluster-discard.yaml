@@ -1,6 +1,6 @@
 case_id: theme-min-cluster-discard
 title: Theme components below the configured minimum are discarded
-invariants: [INV-21]
+invariants: [INV-19, INV-20]
 schema_profile: org-matters/v1
 scope_id: octo-theme-minimum
 clock: ['2026-08-06T10:00:00Z']

@@ -9,9 +9,16 @@ import pytest
 from typer.testing import CliRunner
 
 from matterhorn.api import create_app
-from matterhorn.canonical import canonical_json
+from matterhorn.canonical import canonical_json, derive_assertion_id, object_key
 from matterhorn.cli.app import app
-from matterhorn.contracts import EpisodeCard, Record, SourceRef
+from matterhorn.contracts import (
+    Assertion,
+    EpisodeCard,
+    Operation,
+    Origin,
+    Record,
+    SourceRef,
+)
 from matterhorn.defaults import Engine
 
 NOW = datetime(2026, 8, 5, 9, tzinfo=UTC)
@@ -144,6 +151,429 @@ def test_cycle_gate_canonicalizes_a_merge_chain(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="STRUCTURE_CYCLE"):
         engine.correct(_correction("child", "part_of", "alias", minute=5))
+
+
+def _seed_legacy_cycle(engine: Engine) -> None:
+    """Store a mutually-parented pair the way pre-INV-22 data holds one.
+
+    Both directions were legally admitted under the retract-override
+    election; weighted election reopens them as a projected two-cycle.
+    The gate blocks this pair through every current door, so the seed
+    writes the store directly.
+    """
+
+    engine._ingest_cards_sync([_card("loop-a", minute=0), _card("loop-b", minute=1)])
+    with engine.store.transaction():
+        for source, target, minute in (("loop-a", "loop-b", 10), ("loop-b", "loop-a", 11)):
+            refs = [SourceRef.model_validate(_source(f"legacy:{source}", minute=minute))]
+            assert engine.store.add_assertion(
+                Assertion(
+                    assertion_id=derive_assertion_id(
+                        SCOPE,
+                        source,
+                        "part_of",
+                        Operation.ASSERT,
+                        object_key(target),
+                        NOW + timedelta(minutes=minute),
+                        refs,
+                    ),
+                    scope_id=SCOPE,
+                    subject_key=source,
+                    subject_type="MATTER",
+                    predicate="part_of",
+                    operation=Operation.ASSERT,
+                    object_value=target,
+                    object_key=object_key(target),
+                    valid_from=NOW + timedelta(minutes=minute),
+                    recorded_at=NOW + timedelta(minutes=minute),
+                    source_refs=refs,
+                    origin=Origin.model,
+                )
+            )
+        engine._rebuild(SCOPE)
+
+
+def test_preexisting_cycle_does_not_veto_unrelated_edges(tmp_path) -> None:
+    engine = Engine(tmp_path / "poisoned.db", clock=lambda: NOW + timedelta(hours=1))
+    _seed_legacy_cycle(engine)
+    engine._ingest_cards_sync([_card("root", minute=2), _card("child", minute=3)])
+
+    # The legacy loop elsewhere in the scope never freezes unrelated edges.
+    engine.correct(_correction("child", "part_of", "root", minute=20))
+    # An edge pointing into the loop region creates no cycle through root.
+    engine.correct(_correction("root", "part_of", "loop-a", minute=21))
+    # An edge that itself closes a cycle is still rejected.
+    with pytest.raises(ValueError, match="STRUCTURE_CYCLE"):
+        engine.correct(_correction("loop-a", "part_of", "child", minute=22))
+
+
+def test_structure_cycles_reports_the_projected_loop(tmp_path) -> None:
+    engine = Engine(tmp_path / "audit.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync([_card("root", minute=0), _card("child", minute=1)])
+    engine.correct(_correction("child", "part_of", "root", minute=5))
+    assert engine.structure_cycles(SCOPE) == []
+
+    _seed_legacy_cycle(engine)
+    assert engine.structure_cycles(SCOPE) == [["loop-a", "loop-b"]]
+
+
+def test_merging_a_mutually_parented_pair_dissolves_the_cycle(tmp_path) -> None:
+    engine = Engine(tmp_path / "merge-repair.db", clock=lambda: NOW + timedelta(hours=1))
+    _seed_legacy_cycle(engine)
+    assert engine.structure_cycles(SCOPE) == [["loop-a", "loop-b"]]
+
+    engine.merge_subjects(
+        SCOPE,
+        "loop-a",
+        "loop-b",
+        source_refs=[SourceRef.model_validate(_source("review:repair", minute=30))],
+        valid_from=NOW + timedelta(minutes=30),
+    )
+
+    # The collapsed self-edge is void: no residual loop, and the survivor
+    # returns to the wall as an ordinary root.
+    assert engine.structure_cycles(SCOPE) == []
+    assert "loop-b" in {item.subject_key for item in engine.matters(SCOPE)}
+
+
+def test_retract_that_flips_election_onto_cycle_is_rejected(tmp_path) -> None:
+    engine = Engine(tmp_path / "retract-mint.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [_card("alpha", minute=0), _card("beta", minute=1), _card("gamma", minute=2)]
+    )
+    engine.correct(_correction("alpha", "part_of", "gamma", minute=10))
+    # Equal human weight; recency elects beta and closes alpha -> gamma.
+    engine.correct(_correction("alpha", "part_of", "beta", minute=11))
+    engine.correct(_correction("gamma", "part_of", "alpha", minute=12))
+
+    # Withdrawing the beta contribution would re-elect gamma and mint
+    # alpha -> gamma -> alpha; the retract runs the same minting gate.
+    with pytest.raises(ValueError, match="STRUCTURE_CYCLE"):
+        engine.correct(
+            {**_correction("alpha", "part_of", "beta", minute=13), "operation": "RETRACT"}
+        )
+
+    # The field-wide retract can only empty the slot: escape stays open.
+    engine.correct(
+        {**_correction("alpha", "part_of", None, minute=14), "operation": "RETRACT"}
+    )
+    assert engine.query.current(SCOPE, "alpha", "part_of") == []
+    assert engine.structure_cycles(SCOPE) == []
+
+
+def test_losing_vote_passes_while_subject_rides_a_legacy_cycle(tmp_path) -> None:
+    from matterhorn.engine.goal_graph import structure_rejection
+
+    engine = Engine(tmp_path / "losing-vote.db", clock=lambda: NOW + timedelta(hours=1))
+    _seed_legacy_cycle(engine)
+    engine._ingest_cards_sync([_card("haven", minute=3)])
+
+    # One fresh model vote loses to nothing it can flip: loop-a's elected
+    # edge stays loop-b, so the losing vote is admissible evidence.
+    refs = [SourceRef.model_validate(_source("model:losing", minute=20))]
+    losing = Assertion(
+        assertion_id=derive_assertion_id(
+            SCOPE,
+            "loop-a",
+            "part_of",
+            Operation.ASSERT,
+            object_key("haven"),
+            NOW + timedelta(minutes=9),
+            refs,
+        ),
+        scope_id=SCOPE,
+        subject_key="loop-a",
+        subject_type="MATTER",
+        predicate="part_of",
+        operation=Operation.ASSERT,
+        object_value="haven",
+        object_key=object_key("haven"),
+        valid_from=NOW + timedelta(minutes=9),
+        recorded_at=NOW + timedelta(minutes=20),
+        source_refs=refs,
+        origin=Origin.model,
+    )
+    assert (
+        structure_rejection(
+            losing,
+            profile=engine.profile,
+            subjects=engine.store.subjects(SCOPE),
+            assertions=engine.store.assertions(SCOPE),
+            merges=engine.store.subject_merges(SCOPE),
+            human_edge_weight=engine.human_edge_weight,
+        )
+        is None
+    )
+
+    # A human vote flips loop-a out of the loop entirely — escape admitted.
+    engine.correct(_correction("loop-a", "part_of", "haven", minute=21))
+    assert engine.structure_cycles(SCOPE) == []
+
+
+def test_merge_that_would_activate_cycle_is_rejected(tmp_path) -> None:
+    engine = Engine(tmp_path / "merge-mint.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [_card("left", minute=0), _card("bridge", minute=1), _card("right", minute=2)]
+    )
+    engine.correct(_correction("left", "part_of", "bridge", minute=5))
+    engine.correct(_correction("bridge", "part_of", "right", minute=6))
+
+    with pytest.raises(ValueError, match="STRUCTURE_CYCLE"):
+        engine.merge_subjects(
+            SCOPE,
+            "right",
+            "left",
+            source_refs=[SourceRef.model_validate(_source("review:bad-merge", minute=7))],
+            valid_from=NOW + timedelta(minutes=7),
+        )
+
+    # Collapsing the edge endpoints instead stays a tree.
+    engine.merge_subjects(
+        SCOPE,
+        "right",
+        "bridge",
+        source_refs=[SourceRef.model_validate(_source("review:good-merge", minute=8))],
+        valid_from=NOW + timedelta(minutes=8),
+    )
+    assert engine.structure_cycles(SCOPE) == []
+
+
+def test_merge_suggestion_review_resolves_through_the_merge_door(tmp_path) -> None:
+    from matterhorn.contracts import ReviewItem
+
+    engine = Engine(tmp_path / "merge-review.db", clock=lambda: NOW + timedelta(hours=1))
+    _seed_legacy_cycle(engine)
+    card = EpisodeCard(
+        card_id="merge-suggestion",
+        scope_id=SCOPE,
+        date="2026-08-05",
+        title="Fictional loop-a ↔ Fictional loop-b",
+        source_refs=[SourceRef.model_validate(_source("review:mutual", minute=30))],
+        subject_key="loop-a",
+    )
+    with engine.store.transaction():
+        engine.store.add_review_item(
+            ReviewItem(
+                scope_id=SCOPE,
+                review_id="review_merge_pair",
+                card_json=card.model_dump(mode="json"),
+                reasons=["MERGE_SUGGESTION"],
+                candidates_json=[
+                    {
+                        "action": "merge",
+                        "subject_key": "loop-a",
+                        "parent_subject_key": "loop-b",
+                        "title": "Fictional loop-b",
+                    }
+                ],
+                created_at=NOW + timedelta(minutes=30),
+            )
+        )
+
+    resolved = engine.resolve_review(
+        SCOPE,
+        "review_merge_pair",
+        action="merge",
+        subject_key="loop-a",
+        parent_subject_key="loop-b",
+        source_refs=[_source("review:merge-resolution", minute=31)],
+    )
+
+    assert resolved.resolved_at is not None
+    assert engine.canonical_subject_key(SCOPE, "loop-a") == "loop-b"
+    assert engine.structure_cycles(SCOPE) == []
+
+
+def _model_part_of(subject_key: str, target: str, *, minute: int) -> Assertion:
+    refs = [SourceRef.model_validate(_source(f"model:{subject_key}:{minute}", minute=minute))]
+    return Assertion(
+        assertion_id=derive_assertion_id(
+            SCOPE,
+            subject_key,
+            "part_of",
+            Operation.ASSERT,
+            object_key(target),
+            NOW + timedelta(minutes=minute),
+            refs,
+        ),
+        scope_id=SCOPE,
+        subject_key=subject_key,
+        subject_type="MATTER",
+        predicate="part_of",
+        operation=Operation.ASSERT,
+        object_value=target,
+        object_key=object_key(target),
+        valid_from=NOW + timedelta(minutes=minute),
+        recorded_at=NOW + timedelta(minutes=minute),
+        source_refs=refs,
+        origin=Origin.model,
+    )
+
+
+def test_one_human_retract_withdraws_every_model_contribution(tmp_path) -> None:
+    engine = Engine(tmp_path / "retract-authority.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync([_card("child", minute=0), _card("wrong", minute=1)])
+    with engine.store.transaction():
+        for minute in (10, 11, 12):
+            assert engine._add_assertion(_model_part_of("child", "wrong", minute=minute))
+        engine._rebuild(SCOPE)
+    assert [item.value for item in engine.query.current(SCOPE, "child", "part_of")] == ["wrong"]
+
+    engine.correct({**_correction("child", "part_of", "wrong", minute=20), "operation": "RETRACT"})
+
+    assert engine.query.current(SCOPE, "child", "part_of") == []
+
+
+def test_automatic_doors_hold_a_human_placement_but_the_correction_door_does_not(
+    tmp_path,
+) -> None:
+    from matterhorn.engine.goal_graph import automatic_reparent_rejection
+
+    engine = Engine(tmp_path / "placement-held.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [_card("child", minute=0), _card("wrong", minute=1), _card("right", minute=2)]
+    )
+    engine.correct(_correction("child", "part_of", "right", minute=10))
+
+    def held(target: str, *, minute: int) -> bool:
+        return (
+            automatic_reparent_rejection(
+                _model_part_of("child", target, minute=minute),
+                assertions=engine.store.assertions(SCOPE),
+                merges=engine.store.subject_merges(SCOPE),
+            )
+            is not None
+        )
+
+    # A standing human placement closes the automatic door to other targets,
+    # while re-affirming the human's own target stays admissible.
+    assert held("wrong", minute=11)
+    assert not held("right", minute=12)
+
+    # The correction door keeps INV-22's arithmetic: a human may be outvoted
+    # there deliberately, which is what case 113 pins.
+    assert engine._structure_rejection(_model_part_of("child", "wrong", minute=13)) is None
+
+    # After the human empties the slot, the retracted pair stays closed to
+    # automatic re-assertion -- otherwise the next window silently undoes it.
+    engine.correct({**_correction("child", "part_of", "right", minute=20), "operation": "RETRACT"})
+    assert engine.query.current(SCOPE, "child", "part_of") == []
+    assert held("right", minute=21)
+
+
+def _held(engine: Engine, target: str, *, minute: int, child: str = "child") -> bool:
+    from matterhorn.engine.goal_graph import automatic_reparent_rejection
+
+    return (
+        automatic_reparent_rejection(
+            _model_part_of(child, target, minute=minute),
+            assertions=engine.store.assertions(SCOPE),
+            merges=engine.store.subject_merges(SCOPE),
+        )
+        is not None
+    )
+
+
+def test_gate_reads_the_same_rows_the_election_reads(tmp_path) -> None:
+    """A merge must not leave the gate holding a withdrawn placement."""
+
+    engine = Engine(tmp_path / "gate-canonical.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [
+            _card("child", minute=0),
+            _card("alpha", minute=1),
+            _card("beta", minute=2),
+            _card("gamma", minute=3),
+        ]
+    )
+    engine.correct(_correction("child", "part_of", "alpha", minute=10))
+    engine.merge_subjects(
+        SCOPE,
+        "alpha",
+        "beta",
+        source_refs=[SourceRef.model_validate(_source("review:merge", minute=11))],
+        valid_from=NOW + timedelta(minutes=11),
+    )
+    # The console only exposes the survivor, so this is the retract a human
+    # can actually issue; the election honours it.
+    engine.correct(
+        {**_correction("child", "part_of", "beta", minute=12), "operation": "RETRACT"}
+    )
+    assert engine.query.current(SCOPE, "child", "part_of") == []
+
+    # The gate must agree with the projection, not with the raw rows.
+    assert not _held(engine, "gamma", minute=13)
+
+
+def test_merge_collapsed_edge_does_not_hold_the_survivor(tmp_path) -> None:
+    """The cycle repair must not make its own survivor unparentable."""
+
+    engine = Engine(tmp_path / "gate-collapse.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [_card("child", minute=0), _card("alpha", minute=1), _card("gamma", minute=2)]
+    )
+    engine.correct(_correction("child", "part_of", "alpha", minute=10))
+    engine.merge_subjects(
+        SCOPE,
+        "alpha",
+        "child",
+        source_refs=[SourceRef.model_validate(_source("review:repair", minute=11))],
+        valid_from=NOW + timedelta(minutes=11),
+    )
+    assert engine.query.current(SCOPE, "child", "part_of") == []
+
+    assert not _held(engine, "gamma", minute=12)
+
+
+def test_human_reparent_holds_the_abandoned_target(tmp_path) -> None:
+    """part_of is SINGLE: a later human ASSERT supersedes the earlier one."""
+
+    engine = Engine(tmp_path / "gate-single.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [_card("child", minute=0), _card("wrong", minute=1), _card("right", minute=2)]
+    )
+    engine.correct(_correction("child", "part_of", "wrong", minute=10))
+    engine.correct(_correction("child", "part_of", "right", minute=11))
+    assert [item.value for item in engine.query.current(SCOPE, "child", "part_of")] == [
+        "right"
+    ]
+
+    # The abandoned parent stays closed; the human's own live target passes.
+    assert _held(engine, "wrong", minute=12)
+    assert not _held(engine, "right", minute=13)
+
+
+def test_naming_the_live_human_target_is_never_a_reparent(tmp_path) -> None:
+    engine = Engine(tmp_path / "gate-agree.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync([_card("child", minute=0), _card("right", minute=1)])
+    # A pair with retract history that the human later re-asserted.
+    engine.correct(_correction("child", "part_of", "right", minute=10))
+    engine.correct(
+        {**_correction("child", "part_of", "right", minute=11), "operation": "RETRACT"}
+    )
+    engine.correct(_correction("child", "part_of", "right", minute=12))
+
+    # Agreeing with the human's live placement is not a re-parent.
+    assert not _held(engine, "right", minute=13)
+
+
+def test_cycles_command_reports_loops_and_exits_nonzero(tmp_path) -> None:
+    db = tmp_path / "cycles-cli.db"
+    engine = Engine(db, clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync([_card("root", minute=0)])
+    runner = CliRunner()
+
+    clean = runner.invoke(app, ["cycles", SCOPE, "--db", str(db)])
+    assert clean.exit_code == 0
+    assert json.loads(clean.stdout) == []
+
+    _seed_legacy_cycle(engine)
+    poisoned = runner.invoke(app, ["cycles", SCOPE, "--db", str(db)])
+    assert poisoned.exit_code == 1
+    assert [item["subject_key"] for item in json.loads(poisoned.stdout)[0]] == [
+        "loop-a",
+        "loop-b",
+    ]
 
 
 def test_spawned_from_remains_single_most_recent_not_weight_elected(tmp_path) -> None:

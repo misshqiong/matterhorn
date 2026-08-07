@@ -47,6 +47,7 @@ from matterhorn.engine.aggregate import (
 )
 from matterhorn.engine.goal_graph import (
     PART_OF,
+    automatic_reparent_rejection,
     canonicalize_graph_assertions,
     project_goal_graph,
     structure_rejection,
@@ -890,7 +891,11 @@ def _apply_proposal_locked(
             source_refs=source_refs,
             origin=Origin.model,
         )
-        rejection = structure_rejection(
+        rejection = automatic_reparent_rejection(
+            assertion,
+            assertions=[*assertions_for_gate, *(item[0] for item in accepted)],
+            merges=current_snapshot.merges,
+        ) or structure_rejection(
             assertion,
             profile=engine.profile,
             subjects=subjects_for_gate,

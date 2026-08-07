@@ -969,9 +969,12 @@
             const summary = card.progress || card.status || card.next_step || "No summary supplied.";
             const candidates = (item.candidates_json || []).map((candidate) => candidate.action === "attach_subgoal"
               ? `<button type="button" class="button secondary" data-review-action="attach_subgoal" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-parent="${escapeHtml(candidate.parent_subject_key)}">Attach under ${escapeHtml(candidate.title)}</button>`
+              : candidate.action === "merge"
+              ? `<button type="button" class="button secondary" data-review-action="merge" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-subject="${escapeHtml(candidate.subject_key)}" data-review-parent="${escapeHtml(candidate.parent_subject_key)}">合并 ${escapeHtml(candidate.source_title || candidate.subject_key)} → ${escapeHtml(candidate.title)}</button>`
               : `<button type="button" class="button secondary" data-review-action="attach" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}" data-review-subject="${escapeHtml(candidate.subject_key)}">Attach to ${escapeHtml(candidate.title)}</button>`
             ).join("");
-            const identityActions = (item.reasons || []).includes("PARENT_SUGGESTION") ? "" : `<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button><button type="button" class="button quiet" data-review-action="drop" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Drop</button>`;
+            const dropOnly = `<button type="button" class="button quiet" data-review-action="drop" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Drop</button>`;
+            const identityActions = (item.reasons || []).includes("PARENT_SUGGESTION") ? "" : (item.reasons || []).includes("MERGE_SUGGESTION") ? dropOnly : `<button type="button" class="button quiet" data-review-action="new" data-review-id="${escapeHtml(item.review_id)}" data-review-scope="${escapeHtml(item.scope_id)}">Create new</button>${dropOnly}`;
             return `<li class="review-item"><span class="scope-chip">${escapeHtml(item.scope_id)}</span><h3>${escapeHtml(card.title || "Untitled card")}</h3><p class="review-summary">${escapeHtml(summary)}</p><p class="help">${escapeHtml((item.reasons || []).join(" · "))}</p><div class="review-actions">${candidates}${identityActions}</div></li>`;
           }).join("")
         : '<li class="empty">No cards awaiting review.</li>';
@@ -996,7 +999,7 @@
               source_id: `console:${crypto.randomUUID()}`,
               sent_at: now,
               sender,
-              excerpt: action === "attach" ? `Console review attached this card to ${subject}.` : action === "attach_subgoal" ? `Console review attached this subgoal under ${parentSubject}.` : "Console review created a new matter."
+              excerpt: action === "attach" ? `Console review attached this card to ${subject}.` : action === "attach_subgoal" ? `Console review attached this subgoal under ${parentSubject}.` : action === "merge" ? `Console review merged ${subject} into ${parentSubject}.` : "Console review created a new matter."
             }]
           })
         });

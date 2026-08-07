@@ -1,6 +1,6 @@
 case_id: theme-existing-root
 title: Theme naming subsumes a cluster into its existing parent root
-invariants: [INV-19, INV-20, INV-21]
+invariants: [INV-19, INV-20]
 schema_profile: org-matters/v1
 scope_id: octo-theme-existing
 clock: ['2026-08-06T10:00:00Z']

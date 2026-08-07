@@ -86,10 +86,13 @@ from matterhorn.engine.gather import (
 from matterhorn.engine.goal_graph import (
     DECISION,
     PART_OF,
+    STRUCTURE_EDGE_PREDICATES,
     MatterGraph,
     StructureRejection,
     canonicalize_graph_assertions,
+    merge_activates_cycle,
     project_goal_graph,
+    structure_cycles,
     structure_rejection,
 )
 from matterhorn.engine.goal_graph import (
@@ -852,6 +855,21 @@ class Engine:
             if self._model_assertion_is_unchanged(assertion, stored):
                 counts.unchanged_dropped += 1
                 continue
+            if (
+                assertion.predicate in STRUCTURE_EDGE_PREDICATES
+                or assertion.predicate == GATHERS
+            ):
+                # Schema keeps structure predicates semantic-only, so no
+                # declarative card reaches here today; the gate stays as
+                # defense in depth against a future routing bug reopening
+                # the ungated legacy door that admitted the 2026-08-06
+                # mutual-parent pair.
+                rejection = self._structure_rejection(assertion)
+                if rejection is not None:
+                    self._record_structure_rejection(
+                        assertion.scope_id, rejection
+                    )
+                    continue
             if self._add_assertion(assertion):
                 emitted.append(assertion)
         return emitted, counts
@@ -1938,24 +1956,66 @@ class Engine:
         parent_subject_key: str | None = None,
         source_refs: list[SourceRef | dict[str, Any]],
     ) -> ReviewItem:
-        if action not in {"attach", "new", "drop", "attach_subgoal"}:
+        if action not in {"attach", "new", "drop", "attach_subgoal", "merge"}:
             raise ValueError(
-                "review action MUST be 'attach', 'new', 'drop', or "
-                "'attach_subgoal'"
+                "review action MUST be 'attach', 'new', 'drop', "
+                "'attach_subgoal', or 'merge'"
             )
-        if action == "attach" and not subject_key:
-            raise ValueError("attach review action requires subject_key")
+        if action in {"attach", "merge"} and not subject_key:
+            raise ValueError(f"{action} review action requires subject_key")
         if action in {"new", "drop", "attach_subgoal"} and subject_key is not None:
             raise ValueError(f"{action} review action MUST NOT include subject_key")
-        if action == "attach_subgoal" and not parent_subject_key:
+        if action in {"attach_subgoal", "merge"} and not parent_subject_key:
             raise ValueError(
-                "attach_subgoal review action requires parent_subject_key"
+                f"{action} review action requires parent_subject_key"
             )
-        if action != "attach_subgoal" and parent_subject_key is not None:
+        if action not in {"attach_subgoal", "merge"} and parent_subject_key is not None:
             raise ValueError(
                 f"{action} review action MUST NOT include parent_subject_key"
             )
         refs = _source_refs(source_refs, operation="review resolutions")
+        if action == "merge":
+            item = self.store.review_item(scope_id, review_id)
+            if item is None:
+                raise ResourceNotFoundError(f"unknown review_id: {review_id}")
+            if item.resolved_at is not None:
+                raise ReviewConflictError(
+                    f"review_id {review_id!r} is already resolved"
+                )
+            # merge_subjects owns its transaction and every merge gate
+            # (including the cycle-mint check). A crash between the merge
+            # and the resolution below leaves the review open; re-resolving
+            # is recovered by treating an already-canonicalized pair as done.
+            try:
+                self.merge_subjects(
+                    scope_id,
+                    subject_key or "",
+                    parent_subject_key or "",
+                    source_refs=refs,
+                    valid_from=self._clock(),
+                )
+            except SubjectMergeConflictError:
+                if self.canonical_subject_key(
+                    scope_id, subject_key or ""
+                ) != self.canonical_subject_key(scope_id, parent_subject_key or ""):
+                    raise
+            with self.store.transaction():
+                resolved_at = self._clock()
+                resolved = self.store.resolve_review_item(
+                    scope_id,
+                    review_id,
+                    resolved_at=resolved_at,
+                    resolution={
+                        "action": "merge",
+                        "subject_key": subject_key,
+                        "parent_subject_key": parent_subject_key,
+                        "source_refs": [
+                            ref.model_dump(mode="json") for ref in refs
+                        ],
+                    },
+                )
+            self._capture_review_resolution(item, resolved)
+            return resolved
         if action == "attach_subgoal":
             item = self.store.review_item(scope_id, review_id)
             resolved = self._resolve_subgoal_review(
@@ -2598,6 +2658,22 @@ class Engine:
             raise ResourceNotFoundError(
                 f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
             ) from error
+
+    def structure_cycles(self, scope_id: str) -> list[list[str]]:
+        """Report projected structure-edge cycles for one scope (pure read).
+
+        Admission only vetoes cycles the candidate edge participates in, so
+        a cycle can survive in projection when election arithmetic shifts
+        under stored assertions; this read is the audit surface that finds
+        them for human repair (correction or merge).
+        """
+
+        return structure_cycles(
+            self.profile,
+            self.store.assertions(scope_id),
+            self.store.subject_merges(scope_id),
+            human_edge_weight=self.human_edge_weight,
+        )
 
     def gather_view(self, scope_id: str, subject_key: str) -> GatherView:
         """Project one layer-2 representation across scope-local goal graphs."""
@@ -3930,9 +4006,11 @@ class Engine:
             election_after = self._structure_election(assertion)
             if (
                 election_before is not None
-                and election_after is not None
-                and election_before.elected_target
-                != election_after.elected_target
+                and (
+                    election_after is None
+                    or election_before.elected_target
+                    != election_after.elected_target
+                )
                 and election_before.winner.model_weight > 0
                 and election_before.winner.human_weight == 0
             ):
@@ -3988,7 +4066,7 @@ class Engine:
         assertion: Assertion,
         *,
         before: StructureElection,
-        after: StructureElection,
+        after: StructureElection | None,
     ) -> None:
         try:
             model_assertions = [
@@ -4011,7 +4089,14 @@ class Engine:
                 model_output={"election": _election_capture_payload(before)},
                 human_output={
                     "assertion": assertion.model_dump(mode="json"),
-                    "election": _election_capture_payload(after),
+                    # A detachment empties the slot: "no parent" is the
+                    # human's answer, and it is the strongest label the
+                    # corpus can receive about a wrong model placement.
+                    "election": (
+                        _election_capture_payload(after)
+                        if after is not None
+                        else None
+                    ),
                 },
             )
         except Exception:
@@ -4232,6 +4317,18 @@ class Engine:
             ):
                 raise SubjectMergeConflictError(
                     "subject merge would create a cycle"
+                )
+            if merge_activates_cycle(
+                self.profile,
+                self.store.assertions(scope_id),
+                self.store.subject_merges(scope_id),
+                merge,
+                human_edge_weight=self.human_edge_weight,
+            ):
+                raise SubjectMergeConflictError(
+                    "STRUCTURE_CYCLE: merging would activate a structure-edge "
+                    "cycle through the surviving subject; retract the "
+                    "offending edge first"
                 )
             for source_ref in refs:
                 self.store.observe_source(scope_id, source_ref)

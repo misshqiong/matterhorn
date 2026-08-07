@@ -141,7 +141,7 @@ class ReviewListResponse(RootModel[list[ReviewItemResponse]]):
 
 
 class ReviewResolveInput(StrictModel):
-    action: Literal["attach", "new", "drop", "attach_subgoal"]
+    action: Literal["attach", "new", "drop", "attach_subgoal", "merge"]
     subject_key: str | None = None
     parent_subject_key: str | None = None
     source_refs: list[SourceRef] = Field(min_length=1)

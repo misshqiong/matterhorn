@@ -264,7 +264,12 @@ def _elect(
 
 
 def _retracts(retract: Assertion, contribution: Assertion) -> bool:
-    if retract.origin != contribution.origin:
+    # A human retraction is authoritative over every origin: it is the only
+    # label this system receives, and same-origin-only withdrawal silently
+    # discarded it (observed live 2026-08-06, a human retract left a model
+    # edge elected at human=0 model=14). A model retraction still withdraws
+    # model contributions only, so the model cannot cancel a human vote.
+    if retract.origin is not Origin.human and retract.origin != contribution.origin:
         return False
     return (
         retract.object_key == FIELD_WIDE_RETRACT

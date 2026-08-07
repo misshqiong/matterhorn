@@ -1,6 +1,6 @@
 case_id: theme-auto-confidence-gate
 title: Auto theme application requires deterministic multi-kind confidence
-invariants: [INV-20, INV-21]
+invariants: [INV-19, INV-20]
 schema_profile: org-matters/v1
 scope_id: octo-theme-confidence
 clock: ['2026-08-06T10:00:00Z']

@@ -1,0 +1,65 @@
+case_id: merge-minted-cycle-rejected
+title: A subject merge that would activate a cycle through the survivor is rejected while a void-self-edge merge repairs
+invariants: [INV-19, INV-22]
+schema_profile: org-matters/v1
+scope_id: octo-merge-cycle
+clock:
+  - "2026-08-07T11:00:00Z"
+  - "2026-08-07T11:01:00Z"
+  - "2026-08-07T11:02:00Z"
+cards:
+  - card_id: merge-cycle-left
+    scope_id: octo-merge-cycle
+    subject_key: left
+    date: 2026-08-07
+    title: Fictional left workstream
+    status: open
+    source_refs: [{source_id: octo-room:left, sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes}]
+  - card_id: merge-cycle-bridge
+    scope_id: octo-merge-cycle
+    subject_key: bridge
+    date: 2026-08-07
+    title: Fictional bridge workstream
+    status: open
+    source_refs: [{source_id: octo-room:bridge, sent_at: "2026-08-07T09:01:00Z", sender: Dana Reyes}]
+  - card_id: merge-cycle-right
+    scope_id: octo-merge-cycle
+    subject_key: right
+    date: 2026-08-07
+    title: Fictional right workstream
+    status: open
+    source_refs: [{source_id: octo-room:right, sent_at: "2026-08-07T09:02:00Z", sender: Dana Reyes}]
+# Corrections run before merge operations in the harness, so the tree
+# exists by the time the merge door is exercised.
+corrections:
+  - {scope_id: octo-merge-cycle, subject_key: left, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: bridge, valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: review:left-bridge, sent_at: "2026-08-07T09:10:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-merge-cycle, subject_key: bridge, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: right, valid_from: "2026-08-07T09:20:00Z", source_refs: [{source_id: review:bridge-right, sent_at: "2026-08-07T09:20:00Z", sender: Dana Reyes}]}
+merge_operations:
+  # Retargeting bridge -> right onto the survivor would mint
+  # left -> bridge -> left; the merge door rejects the mint and no merge
+  # lands. (The repairing direction — merging so the collapsed edge voids —
+  # is covered by unit tests; replay re-applies corrections, so this case
+  # keeps every correction valid post-merge by applying none.)
+  - operation: merge
+    source_subject_key: right
+    target_subject_key: left
+    valid_from: "2026-08-07T09:30:00Z"
+    source_refs: [{source_id: review:merge-right-left, sent_at: "2026-08-07T09:30:00Z", sender: Dana Reyes}]
+    expect_error: STRUCTURE_CYCLE
+expect:
+  assertions:
+    - {subject_key: bridge, predicate: part_of, object_value: right}
+    - {subject_key: bridge, predicate: status, object_value: open}
+    - {subject_key: left, predicate: part_of, object_value: bridge}
+    - {subject_key: left, predicate: status, object_value: open}
+    - {subject_key: right, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: bridge, predicate: part_of, object_value: right, valid_to: null}
+    - {subject_key: bridge, predicate: status, object_value: open}
+    - {subject_key: left, predicate: part_of, object_value: bridge, valid_to: null}
+    - {subject_key: left, predicate: status, object_value: open}
+    - {subject_key: right, predicate: status, object_value: open}
+  merge_count: 0
+  matters:
+    - {subject_key: right, descendants_total: 2}
+  queries: []

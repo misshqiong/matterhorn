@@ -1,6 +1,6 @@
 case_id: aggregate-theme-equivalence
 title: Unified aggregate operator preserves the golden theme outcome
-invariants: [INV-19, INV-20, INV-21]
+invariants: [INV-19, INV-20]
 schema_profile: org-matters/v1
 scope_id: aggregate-theme-equivalence
 clock: ['2026-08-07T12:00:00Z']

@@ -42,7 +42,7 @@ tool_loop_sessions:
       - final_message: done
 corrections:
   - scope_id: octo-insight-retract
-    subject_key: sub_25cf3fbdf24ca418af98
+    subject_key: sub_c5d82224c595f3d784d4
     subject_type: TOPIC
     predicate: viewpoint
     operation: RETRACT
@@ -65,6 +65,6 @@ expect:
     - {subject_type: TOPIC, predicate: stated_by, object_value: dana-reyes}
   queries:
     - name: timeline
-      args: {subject_key: sub_25cf3fbdf24ca418af98, predicate: viewpoint}
+      args: {subject_key: sub_c5d82224c595f3d784d4, predicate: viewpoint}
       result:
         - {value: {who: ellis-stone, stance: informs, content: "The broad rubric has twelve fields.", where: octo-insight-retract:room}}

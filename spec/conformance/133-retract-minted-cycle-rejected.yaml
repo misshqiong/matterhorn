@@ -1,0 +1,64 @@
+case_id: retract-minted-cycle-rejected
+title: A retract that flips the election onto a cycle is rejected and a field-wide retract still escapes
+invariants: [INV-19, INV-22]
+schema_profile: org-matters/v1
+scope_id: octo-retract-cycle
+clock:
+  - "2026-08-07T10:00:00Z"
+  - "2026-08-07T10:01:00Z"
+  - "2026-08-07T10:02:00Z"
+cards:
+  - card_id: retract-cycle-alpha
+    scope_id: octo-retract-cycle
+    subject_key: alpha
+    date: 2026-08-07
+    title: Fictional alpha initiative
+    status: open
+    source_refs: [{source_id: octo-room:alpha, sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes}]
+  - card_id: retract-cycle-beta
+    scope_id: octo-retract-cycle
+    subject_key: beta
+    date: 2026-08-07
+    title: Fictional beta initiative
+    status: open
+    source_refs: [{source_id: octo-room:beta, sent_at: "2026-08-07T09:01:00Z", sender: Dana Reyes}]
+  - card_id: retract-cycle-gamma
+    scope_id: octo-retract-cycle
+    subject_key: gamma
+    date: 2026-08-07
+    title: Fictional gamma initiative
+    status: open
+    source_refs: [{source_id: octo-room:gamma, sent_at: "2026-08-07T09:02:00Z", sender: Dana Reyes}]
+structure_operations:
+  # alpha's slate gains gamma, then beta wins by recency at equal human weight.
+  - {scope_id: octo-retract-cycle, subject_key: alpha, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: gamma, valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: review:alpha-gamma, sent_at: "2026-08-07T09:10:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-retract-cycle, subject_key: alpha, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: beta, valid_from: "2026-08-07T09:20:00Z", source_refs: [{source_id: review:alpha-beta, sent_at: "2026-08-07T09:20:00Z", sender: Dana Reyes}]}
+  # gamma under alpha is acyclic while alpha's elected parent is beta.
+  - {scope_id: octo-retract-cycle, subject_key: gamma, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: alpha, valid_from: "2026-08-07T09:30:00Z", source_refs: [{source_id: review:gamma-alpha, sent_at: "2026-08-07T09:30:00Z", sender: Dana Reyes}]}
+  # Withdrawing the beta contribution would re-elect gamma and mint
+  # alpha -> gamma -> alpha; the retract is gated exactly like an assert.
+  - {scope_id: octo-retract-cycle, subject_key: alpha, subject_type: MATTER, predicate: part_of, operation: RETRACT, object_value: beta, valid_from: "2026-08-07T09:40:00Z", source_refs: [{source_id: review:retract-beta, sent_at: "2026-08-07T09:40:00Z", sender: Dana Reyes}], expect_error: STRUCTURE_CYCLE}
+  # The field-wide retract can only empty the slot, so escape stays open.
+  - {scope_id: octo-retract-cycle, subject_key: alpha, subject_type: MATTER, predicate: part_of, operation: RETRACT, object_value: null, valid_from: "2026-08-07T09:50:00Z", source_refs: [{source_id: review:retract-all, sent_at: "2026-08-07T09:50:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: alpha, predicate: part_of, operation: ASSERT, object_value: gamma}
+    - {subject_key: alpha, predicate: part_of, operation: ASSERT, object_value: beta}
+    - {subject_key: alpha, predicate: part_of, operation: RETRACT, object_value: null}
+    - {subject_key: alpha, predicate: status, object_value: open}
+    - {subject_key: beta, predicate: status, object_value: open}
+    - {subject_key: gamma, predicate: part_of, operation: ASSERT, object_value: alpha}
+    - {subject_key: gamma, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: alpha, predicate: part_of, object_value: gamma, valid_to: "2026-08-07T09:20:00.000000Z"}
+    - {subject_key: alpha, predicate: part_of, object_value: beta, valid_to: "2026-08-07T09:50:00.000000Z"}
+    - {subject_key: alpha, predicate: status, object_value: open}
+    - {subject_key: beta, predicate: status, object_value: open}
+    - {subject_key: gamma, predicate: part_of, object_value: alpha, valid_to: null}
+    - {subject_key: gamma, predicate: status, object_value: open}
+  gate_statistics:
+    rejections: {STRUCTURE_CYCLE: 1}
+  matters:
+    - {subject_key: alpha, descendants_total: 1}
+    - {subject_key: beta, descendants_total: 0}
+  queries: []

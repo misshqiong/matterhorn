@@ -116,6 +116,310 @@ def test_closed_world_rejects_one_intent_without_aborting_valid_peer(tmp_path) -
     assert created.source_ids == frozenset({"octo-room:r1"})
 
 
+def _declare_turns(
+    title: str,
+    *,
+    predicate: str = "status",
+    value: str = "open",
+) -> list[dict]:
+    return [
+        {
+            "tool_call": {
+                "name": "emit",
+                "arguments": {
+                    "assertions": [
+                        {
+                            "subject": {
+                                "new_subject": {
+                                    "ref": "topic",
+                                    "subject_type": "MATTER",
+                                    "title": title,
+                                }
+                            },
+                            "predicate": predicate,
+                            "operation": "ASSERT",
+                            "object_value": value,
+                            "evidence_aliases": ["m1"],
+                        }
+                    ]
+                },
+            }
+        },
+        {"final_message": "done"},
+    ]
+
+
+def _titled_record(record_id: str, *, container: str = "octo-room") -> Record:
+    return Record.model_validate(
+        {
+            "record_id": record_id,
+            "container_id": container,
+            "sent_at": "2026-08-06T09:00:00Z",
+            "author": {"id": "dana-reyes", "display_name": "Dana Reyes", "kind": "human"},
+            "content": "Fictional discussion of the compatibility audit.",
+            "kind": "im",
+        }
+    )
+
+
+def test_same_title_in_two_windows_of_one_container_is_one_subject(tmp_path) -> None:
+    title = "Fictional compatibility audit"
+    gateway = FixtureGateway(
+        extraction=[],
+        adjudication=[],
+        semantic=[],
+        tool_loop=[
+            {"turns": _declare_turns(title)},
+            {
+                "turns": _declare_turns(
+                    title,
+                    predicate="progress",
+                    value="The audit moved to its second window.",
+                )
+            },
+        ],
+    )
+    engine = Engine(
+        tmp_path / "mint.db",
+        gateway=gateway,
+        unified_loop=True,
+        clock=lambda: datetime(2026, 8, 6, 10, tzinfo=UTC),
+    )
+
+    engine.add_records([_titled_record("octo-room:r1")], scope_id="scope")
+    engine.add_records([_titled_record("octo-room:r2")], scope_id="scope")
+
+    matters = [item for item in engine.store.subjects("scope") if item.title == title]
+    assert len(matters) == 1
+    # The second window becomes evidence on the same subject, not a twin.
+    assert matters[0].source_ids == frozenset({"octo-room:r1", "octo-room:r2"})
+
+
+def test_same_title_in_two_containers_stays_two_subjects(tmp_path) -> None:
+    title = "Fictional compatibility audit"
+    gateway = FixtureGateway(
+        extraction=[],
+        adjudication=[],
+        semantic=[],
+        tool_loop=[{"turns": _declare_turns(title)}, {"turns": _declare_turns(title)}],
+    )
+    engine = Engine(
+        tmp_path / "mint-containers.db",
+        gateway=gateway,
+        unified_loop=True,
+        clock=lambda: datetime(2026, 8, 6, 10, tzinfo=UTC),
+    )
+
+    engine.add_records([_titled_record("octo-room:r1")], scope_id="scope")
+    engine.add_records(
+        [_titled_record("other-room:r1", container="other-room")], scope_id="scope"
+    )
+
+    assert len([item for item in engine.store.subjects("scope") if item.title == title]) == 2
+
+
+def test_a_merged_away_declared_subject_is_not_re_minted(tmp_path) -> None:
+    """A stable declared key can now name a subject a human merged away."""
+
+    title = "Fictional compatibility audit"
+    gateway = FixtureGateway(
+        extraction=[],
+        adjudication=[],
+        semantic=[],
+        tool_loop=[
+            {"turns": _declare_turns(title)},
+            {
+                "turns": _declare_turns(
+                    title,
+                    predicate="progress",
+                    value="The audit continued after the merge.",
+                )
+            },
+        ],
+    )
+    engine = Engine(
+        tmp_path / "mint-merged.db",
+        gateway=gateway,
+        unified_loop=True,
+        clock=lambda: datetime(2026, 8, 6, 10, tzinfo=UTC),
+    )
+    engine.add_records([_titled_record("octo-room:r1")], scope_id="scope")
+    minted = next(
+        item for item in engine.store.subjects("scope") if item.title == title
+    )
+    engine._ingest_cards_sync(
+        [
+            EpisodeCard(
+                card_id="survivor",
+                scope_id="scope",
+                subject_key="survivor",
+                date=date(2026, 8, 6),
+                title="Fictional surviving audit",
+                status="open",
+                source_refs=[
+                    SourceRef(
+                        source_id="octo-seed:survivor",
+                        sent_at=datetime(2026, 8, 6, 8, tzinfo=UTC),
+                        sender="Dana Reyes",
+                    )
+                ],
+            )
+        ],
+        scope_id="scope",
+    )
+    engine.merge_subjects(
+        "scope",
+        minted.subject_key,
+        "survivor",
+        source_refs=[
+            SourceRef(
+                source_id="review:merge-away",
+                sent_at=datetime(2026, 8, 6, 9, tzinfo=UTC),
+                sender="Dana Reyes",
+            )
+        ],
+        valid_from=datetime(2026, 8, 6, 9, tzinfo=UTC),
+    )
+
+    engine.add_records([_titled_record("octo-room:r2")], scope_id="scope")
+
+    # The second window must write to the survivor, not resurrect the
+    # merged-away key.
+    progress = engine.query.current("scope", "survivor", "progress")
+    assert [item.value for item in progress] == [
+        "The audit continued after the merge."
+    ]
+
+
+def test_degenerate_titles_never_become_identity_anchors(tmp_path) -> None:
+    gateway = FixtureGateway(
+        extraction=[],
+        adjudication=[],
+        semantic=[],
+        tool_loop=[{"turns": _declare_turns("总结")}, {"turns": _declare_turns("总结")}],
+    )
+    engine = Engine(
+        tmp_path / "mint-degenerate.db",
+        gateway=gateway,
+        unified_loop=True,
+        clock=lambda: datetime(2026, 8, 6, 10, tzinfo=UTC),
+    )
+
+    engine.add_records([_titled_record("octo-room:r1")], scope_id="scope")
+    engine.add_records([_titled_record("octo-room:r2")], scope_id="scope")
+
+    # Fusing on "总结" would build one immortal accreting subject.
+    assert len([item for item in engine.store.subjects("scope") if item.title == "总结"]) == 2
+
+
+def test_mutual_parent_rejection_enqueues_one_merge_suggestion(tmp_path) -> None:
+    gateway = _gateway(
+        [
+            {
+                "tool_call": {
+                    "name": "read_neighborhood",
+                    "arguments": {"subject_keys": ["alpha", "beta"]},
+                }
+            },
+            {
+                "tool_call": {
+                    "name": "emit",
+                    "arguments": {
+                        "assertions": [
+                            {
+                                "subject": {"subject_key": "alpha"},
+                                "predicate": "part_of",
+                                "operation": "ASSERT",
+                                "object_value": "beta",
+                                "evidence_aliases": ["m1"],
+                            }
+                        ]
+                    },
+                }
+            },
+            {"final_message": "done"},
+        ]
+    )
+    engine = Engine(
+        tmp_path / "mutual.db",
+        gateway=gateway,
+        unified_loop=True,
+        clock=lambda: datetime(2026, 8, 6, 10, tzinfo=UTC),
+    )
+    for key in ("alpha", "beta"):
+        engine._ingest_cards_sync(
+            [
+                EpisodeCard(
+                    card_id=f"seed-{key}",
+                    scope_id="scope",
+                    subject_key=key,
+                    date=date(2026, 8, 6),
+                    title=f"Fictional {key} initiative",
+                    status="open",
+                    source_refs=[
+                        SourceRef(
+                            source_id=f"octo-seed:{key}",
+                            sent_at=datetime(2026, 8, 6, 8, tzinfo=UTC),
+                            sender="Dana Reyes",
+                        )
+                    ],
+                )
+            ],
+            scope_id="scope",
+        )
+    engine.correct(
+        {
+            "scope_id": "scope",
+            "subject_key": "beta",
+            "subject_type": "MATTER",
+            "predicate": "part_of",
+            "operation": "ASSERT",
+            "object_value": "alpha",
+            "valid_from": datetime(2026, 8, 6, 8, 30, tzinfo=UTC),
+            "source_refs": [
+                {
+                    "source_id": "review:beta-alpha",
+                    "sent_at": datetime(2026, 8, 6, 8, 30, tzinfo=UTC),
+                    "sender": "Dana Reyes",
+                }
+            ],
+        }
+    )
+
+    report = engine.add_records([_record()], scope_id="scope")
+
+    assert report.drop_reasons.get("STRUCTURE_CYCLE") == 1
+    suggestions = [
+        item
+        for item in engine.review_items("scope")
+        if "MERGE_SUGGESTION" in item.reasons
+    ]
+    assert len(suggestions) == 1
+    candidate = suggestions[0].candidates_json[0]
+    assert candidate["action"] == "merge"
+    assert candidate["subject_key"] == "alpha"
+    assert candidate["parent_subject_key"] == "beta"
+
+    # The suggestion resolves through the merge door and dissolves the pair.
+    resolved = engine.resolve_review(
+        "scope",
+        suggestions[0].review_id,
+        action="merge",
+        subject_key=candidate["subject_key"],
+        parent_subject_key=candidate["parent_subject_key"],
+        source_refs=[
+            {
+                "source_id": "review:merge-resolution",
+                "sent_at": datetime(2026, 8, 6, 11, tzinfo=UTC),
+                "sender": "Dana Reyes",
+            }
+        ],
+    )
+    assert resolved.resolved_at is not None
+    assert engine.canonical_subject_key("scope", "alpha") == "beta"
+    assert engine.structure_cycles("scope") == []
+
+
 def test_emit_batch_rolls_back_subject_and_assertions_on_store_failure(
     tmp_path, monkeypatch
 ) -> None:

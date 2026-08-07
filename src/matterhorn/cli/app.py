@@ -854,6 +854,35 @@ def graph_command(
     print_node(graph.tree)
 
 
+@app.command("cycles")
+def cycles_command(
+    scope_id: str | None = typer.Argument(None),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Audit one scope for projected structure-edge cycles (read-only)."""
+
+    engine = _engine(db, schema, schema_dir)
+    scope = _scope(scope_id)
+    titles = {
+        subject.subject_key: subject.title
+        for subject in engine.store.subjects(scope)
+    }
+    found = engine.structure_cycles(scope)
+    _print(
+        [
+            [
+                {"subject_key": key, "title": titles.get(key, key)}
+                for key in cycle
+            ]
+            for cycle in found
+        ]
+    )
+    if found:
+        raise typer.Exit(code=1)
+
+
 @app.command("brief")
 def brief_command(
     window_start: datetime | None = typer.Option(None),
@@ -1601,6 +1630,15 @@ def unmerge_subject(
     except (MatterhornError, ValueError, TypeError) as error:
         raise typer.BadParameter(str(error)) from error
     _print(event.model_dump(mode="json"))
+    # An unmerge is ungated by design (reversibility beats the cycle gate);
+    # surface any cycle the re-split projection brings back immediately.
+    resurfaced = engine.structure_cycles(scope_id)
+    if resurfaced:
+        typer.echo(
+            "WARNING: the unmerged projection holds structure cycles "
+            f"{resurfaced}; run 'mh cycles {scope_id}' and repair.",
+            err=True,
+        )
 
 
 @query_app.command("current")

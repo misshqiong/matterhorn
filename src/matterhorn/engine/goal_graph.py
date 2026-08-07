@@ -8,8 +8,10 @@ from typing import Any
 
 from matterhorn.canonical import object_key
 from matterhorn.contracts import (
+    FIELD_WIDE_RETRACT,
     Assertion,
     Operation,
+    Origin,
     SchemaProfile,
     SubjectMerge,
     SubjectRecord,
@@ -17,6 +19,7 @@ from matterhorn.contracts import (
 from matterhorn.engine.structure_election import (
     DEFAULT_HUMAN_EDGE_WEIGHT,
     PART_OF,
+    elected_part_of,
 )
 from matterhorn.projection import project_assertions
 
@@ -32,6 +35,7 @@ class StructureRejection(str, Enum):
     CROSS_SCOPE = "STRUCTURE_CROSS_SCOPE"
     SELF_REFERENCE = "STRUCTURE_SELF_REFERENCE"
     CYCLE = "STRUCTURE_CYCLE"
+    HUMAN_PLACEMENT_HELD = "STRUCTURE_HUMAN_PLACEMENT_HELD"
 
 
 @dataclass(frozen=True)
@@ -206,6 +210,12 @@ def canonicalize_graph_assertions(
             and isinstance(assertion.object_value, str)
         ):
             target = canonical_subject_key(assertion.object_value, edges)
+            if target == updates["subject_key"]:
+                # A merge can collapse both endpoints of a stored structure
+                # edge onto one subject. Admission rejects self-reference,
+                # so such an edge is void: it must not project, vote in
+                # elections, or count as an unchanged duplicate.
+                continue
             updates.update(
                 {
                     "object_value": target,
@@ -386,44 +396,67 @@ def structure_rejection(
     target_exists_outside_scope: bool = False,
     human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
 ) -> StructureRejection | None:
-    if (
-        assertion.operation != Operation.ASSERT
-        or assertion.predicate not in STRUCTURE_EDGE_PREDICATES
-    ):
+    if assertion.predicate not in STRUCTURE_EDGE_PREDICATES:
         return None
-    if not isinstance(assertion.object_value, str) or not assertion.object_value:
-        return StructureRejection.INVALID_TARGET
-    subjects = list(subjects)
+    if assertion.operation not in {Operation.ASSERT, Operation.RETRACT}:
+        return None
     assertions = list(assertions)
     merges = list(merges)
-    keys = {item.subject_key for item in subjects}
-    if assertion.object_value not in keys:
-        return (
-            StructureRejection.CROSS_SCOPE
-            if target_exists_outside_scope
-            else StructureRejection.UNKNOWN_TARGET
-        )
     edges = merge_edges(merges)
     source = canonical_subject_key(assertion.subject_key, edges)
-    target = canonical_subject_key(assertion.object_value, edges)
-    if source == target:
-        return StructureRejection.SELF_REFERENCE
-    projected = project_goal_graph(
-        profile,
-        subjects,
+    if assertion.operation == Operation.ASSERT:
+        if not isinstance(assertion.object_value, str) or not assertion.object_value:
+            return StructureRejection.INVALID_TARGET
+        keys = {item.subject_key for item in subjects}
+        if assertion.object_value not in keys:
+            return (
+                StructureRejection.CROSS_SCOPE
+                if target_exists_outside_scope
+                else StructureRejection.UNKNOWN_TARGET
+            )
+        target = canonical_subject_key(assertion.object_value, edges)
+        if source == target:
+            return StructureRejection.SELF_REFERENCE
+    # Minting test: RETRACT shifts votes exactly like ASSERT, so both run
+    # it. One operation can change only the asserting subject's own elected
+    # edges; reject exactly when it does change them AND leaves the subject
+    # on an active cycle. A losing vote (edges unchanged) passes — blocking
+    # it would also block votes that accumulate toward escaping a legacy
+    # cycle. Known accepted corner: an operation that swaps the subject
+    # from one cycle onto another is admitted (net cycle count unchanged);
+    # the audit read reports the survivor.
+    before = active_structure_adjacency(
+        assertions,
+        merges,
+        profile=profile,
+        human_edge_weight=human_edge_weight,
+    )
+    after = active_structure_adjacency(
         [*assertions, assertion],
         merges,
+        profile=profile,
+        human_edge_weight=human_edge_weight,
+    )
+    if before.get(source, set()) != after.get(source, set()) and _cycle_through(
+        after, source
+    ):
+        return StructureRejection.CYCLE
+    return None
+
+
+def active_structure_adjacency(
+    assertions: Iterable[Assertion],
+    merges: Iterable[SubjectMerge],
+    *,
+    profile: SchemaProfile,
+    human_edge_weight: int,
+) -> dict[str, set[str]]:
+    intervals, _ = project_assertions(
+        canonicalize_graph_assertions(assertions, merges),
+        profile,
         human_edge_weight=human_edge_weight,
     )
     adjacency: dict[str, set[str]] = {}
-    canonical_assertions = canonicalize_graph_assertions(
-        [*assertions, assertion], merges
-    )
-    intervals, _ = project_assertions(
-        canonical_assertions,
-        profile,
-        human_edge_weight=human_edge_weight,
-    )
     for interval in intervals:
         if (
             interval.valid_to is None
@@ -433,19 +466,177 @@ def structure_rejection(
             adjacency.setdefault(interval.subject_key, set()).add(
                 interval.object_value
             )
-    if _has_cycle(adjacency, set(projected.nodes)):
-        return StructureRejection.CYCLE
+    return adjacency
+
+
+def _cycle_through(adjacency: dict[str, set[str]], origin: str) -> bool:
+    """True when origin lies on a cycle of active structure edges.
+
+    One admission can shift only the origin subject's own elected edges, so
+    a cycle the admission creates must pass through origin. A projected
+    cycle that predates the admission (vote shifts through retracts, an
+    election-semantics migration) never vetoes an edge outside it.
+    """
+
+    seen: set[str] = set()
+    stack = sorted(adjacency.get(origin, ()), key=lambda value: value.encode())
+    while stack:
+        node = stack.pop()
+        if node == origin:
+            return True
+        if node in seen:
+            continue
+        seen.add(node)
+        if len(seen) > MAX_GRAPH_VISITS:
+            return True
+        stack.extend(
+            sorted(adjacency.get(node, ()), key=lambda value: value.encode())
+        )
+    return False
+
+
+def automatic_reparent_rejection(
+    assertion: Assertion,
+    *,
+    assertions: Iterable[Assertion],
+    merges: Iterable[SubjectMerge],
+) -> StructureRejection | None:
+    """Reject a model re-parent that contradicts a standing human placement.
+
+    INV-22 counts votes, and a human vote is worth ten. But votes only bound
+    a decision that is made once. An automatic door re-proposes parentage on
+    every window, so ten windows outvote one human -- and once a human
+    retraction empties the slot, the next window re-asserts into it for free.
+    This gate runs only on automatic doors: it governs which doors may
+    PRODUCE admissions, leaving INV-22's arithmetic untouched for the
+    correction door, where a human is doing the outvoting deliberately.
+
+    A human placement is held when the human has spoken about this subject's
+    parentage and the model now names something else: a live human placement
+    on another target, or a human retraction of this exact (child, target)
+    pair at any time. Naming the human's own live placement is never a
+    re-parent and always passes.
+    """
+
+    if assertion.predicate != PART_OF or assertion.origin is not Origin.model:
+        return None
+    merges = list(merges)
+    edges = merge_edges(merges)
+    source = canonical_subject_key(assertion.subject_key, edges)
+    target = (
+        canonical_subject_key(assertion.object_value, edges)
+        if isinstance(assertion.object_value, str) and assertion.object_value
+        else None
+    )
+    # Read exactly the rows the election reads. Canonicalization rewrites a
+    # structure edge's object_key to its canonical target and drops an edge
+    # whose endpoints a merge collapsed onto one subject; reading raw rows
+    # made this gate hold placements the projection had already withdrawn,
+    # permanently closing both automatic doors for that subject.
+    human_rows = [
+        item
+        for item in canonicalize_graph_assertions(assertions, merges)
+        if item.predicate == PART_OF
+        and item.origin is Origin.human
+        and item.subject_key == source
+    ]
+    if not human_rows:
+        return None
+    # Ask the election what the human still holds rather than replaying the
+    # rows again. Retraction, supersession and tie-breaking already live in
+    # election_history; a second hand-written replay diverged from it in
+    # four distinct ways before this call replaced it.
+    election = elected_part_of(human_rows).get(
+        (assertion.scope_id, source)
+    )
+    live = election.elected_target if election is not None else None
+    if target is not None and target == live:
+        # Agreeing with the human's own live placement is not a re-parent.
+        return None
+    for item in human_rows:
+        if item.operation is not Operation.RETRACT:
+            continue
+        if item.object_key == FIELD_WIDE_RETRACT:
+            return StructureRejection.HUMAN_PLACEMENT_HELD
+        if isinstance(item.object_value, str) and item.object_value == target:
+            return StructureRejection.HUMAN_PLACEMENT_HELD
+    if live is not None:
+        return StructureRejection.HUMAN_PLACEMENT_HELD
     return None
 
 
-def _has_cycle(adjacency: dict[str, set[str]], nodes: set[str]) -> bool:
+def merge_activates_cycle(
+    profile: SchemaProfile,
+    assertions: Iterable[Assertion],
+    merges: Iterable[SubjectMerge],
+    candidate: SubjectMerge,
+    *,
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
+) -> bool:
+    """True when applying the candidate merge would mint an active cycle.
+
+    Every edge a merge rewrites gains the canonical survivor as an
+    endpoint, so a minted cycle must pass through the survivor. A cycle
+    the survivor already sits on is legacy, not minted — vetoing it would
+    take the repair tool away from exactly the graphs that need repair.
+    """
+
+    assertions = list(assertions)
+    merges = list(merges)
+    before = active_structure_adjacency(
+        assertions,
+        merges,
+        profile=profile,
+        human_edge_weight=human_edge_weight,
+    )
+    survivor_before = canonical_subject_key(
+        candidate.target_subject_key, merge_edges(merges)
+    )
+    after_merges = [*merges, candidate]
+    after = active_structure_adjacency(
+        assertions,
+        after_merges,
+        profile=profile,
+        human_edge_weight=human_edge_weight,
+    )
+    survivor_after = canonical_subject_key(
+        candidate.target_subject_key, merge_edges(after_merges)
+    )
+    return _cycle_through(after, survivor_after) and not _cycle_through(
+        before, survivor_before
+    )
+
+
+def structure_cycles(
+    profile: SchemaProfile,
+    assertions: Iterable[Assertion],
+    merges: Iterable[SubjectMerge],
+    *,
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
+) -> list[list[str]]:
+    """List projected structure-edge cycles as canonical key sequences.
+
+    Pure zero-model read for the cycle audit: each cycle appears once per
+    back edge, nodes in traversal order starting at the earliest-reached
+    member. An empty result certifies the scope's active graph is acyclic.
+    """
+
+    adjacency = active_structure_adjacency(
+        assertions,
+        merges,
+        profile=profile,
+        human_edge_weight=human_edge_weight,
+    )
+    nodes: set[str] = set(adjacency)
+    for targets in adjacency.values():
+        nodes |= targets
     state: dict[str, int] = {}
-    visits = 0
-    for start in sorted(nodes):
+    cycles: list[list[str]] = []
+    for start in sorted(nodes, key=lambda value: value.encode()):
         if state.get(start, 0) != 0:
             continue
         state[start] = 1
-        visits += 1
+        path = [start]
         stack = [
             (
                 start,
@@ -464,15 +655,15 @@ def _has_cycle(adjacency: dict[str, set[str]], nodes: set[str]) -> bool:
             except StopIteration:
                 state[node] = 2
                 stack.pop()
-                continue
-            if target not in nodes or state.get(target, 0) == 2:
+                path.pop()
                 continue
             if state.get(target, 0) == 1:
-                return True
-            visits += 1
-            if visits > MAX_GRAPH_VISITS:
-                return True
+                cycles.append(path[path.index(target) :])
+                continue
+            if state.get(target, 0) == 2:
+                continue
             state[target] = 1
+            path.append(target)
             stack.append(
                 (
                     target,
@@ -484,7 +675,7 @@ def _has_cycle(adjacency: dict[str, set[str]], nodes: set[str]) -> bool:
                     ),
                 )
             )
-    return False
+    return cycles
 
 
 def _single(values: list[Any]) -> Any:

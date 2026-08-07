@@ -207,6 +207,42 @@ def test_three_human_override_kinds_capture_end_to_end_on_both_backends(
     )
 
 
+def test_human_detachment_of_a_model_edge_is_captured(capture_engine) -> None:
+    """Emptying the slot is the strongest label a wrong placement can get."""
+
+    engine, scope_id = capture_engine
+    _seed(engine, scope_id)
+    _add_model_edge(engine, scope_id)
+
+    engine.correct(
+        {
+            "scope_id": scope_id,
+            "subject_key": "child",
+            "subject_type": "MATTER",
+            "predicate": "part_of",
+            "operation": "RETRACT",
+            "object_value": "model-parent",
+            "valid_from": NOW + timedelta(minutes=30),
+            "source_refs": [
+                _source("octo-org:human:detach", 30).model_dump(mode="json")
+            ],
+        }
+    )
+
+    assert engine.query.current(scope_id, "child", "part_of") == []
+    captures = [
+        item
+        for item in engine.correction_captures(scope_id)
+        if item.kind == CorrectionCaptureKind.election_override
+    ]
+    assert len(captures) == 1
+    assert captures[0].model_output_json["election"]["elected_target"] == (
+        "model-parent"
+    )
+    # "No parent" is the human's answer, and the corpus must record it.
+    assert captures[0].human_output_json["election"] is None
+
+
 def test_capture_failure_is_logged_and_does_not_block_correction(
     tmp_path, monkeypatch, caplog
 ) -> None:

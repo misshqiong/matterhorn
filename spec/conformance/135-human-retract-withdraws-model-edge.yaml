@@ -1,0 +1,51 @@
+case_id: human-retract-withdraws-model-edge
+title: One human retraction withdraws every model contribution to a structure edge
+invariants: [INV-19, INV-22]
+schema_profile: org-matters/v1
+scope_id: octo-human-retract
+clock:
+  - "2026-08-07T10:00:00Z"
+  - "2026-08-07T10:01:00Z"
+  - "2026-08-07T10:02:00Z"
+cards:
+  - card_id: retract-child
+    scope_id: octo-human-retract
+    subject_key: child
+    date: 2026-08-07
+    title: Fictional child workstream
+    status: open
+    source_refs: [{source_id: octo-room:child, sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes}]
+  - card_id: retract-wrong
+    scope_id: octo-human-retract
+    subject_key: wrong
+    date: 2026-08-07
+    title: Fictional wrong parent
+    status: open
+    source_refs: [{source_id: octo-room:wrong, sent_at: "2026-08-07T09:01:00Z", sender: Dana Reyes}]
+structure_operations:
+  # Three separate gated model admissions accumulate weight 3 on one target.
+  - {origin: model, scope_id: octo-human-retract, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: wrong, valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: octo-org:model:01, sent_at: "2026-08-07T09:10:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-human-retract, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: wrong, valid_from: "2026-08-07T09:11:00Z", source_refs: [{source_id: octo-org:model:02, sent_at: "2026-08-07T09:11:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-human-retract, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: wrong, valid_from: "2026-08-07T09:12:00Z", source_refs: [{source_id: octo-org:model:03, sent_at: "2026-08-07T09:12:00Z", sender: Octo Agent}]}
+  # ONE human retraction withdraws all three. Same-origin-only withdrawal
+  # silently discarded the only label this system receives: observed live
+  # 2026-08-06, where a human retract left a model edge elected at
+  # human=0 model=14. A model retraction still reaches model rows only.
+  - {scope_id: octo-human-retract, subject_key: child, subject_type: MATTER, predicate: part_of, operation: RETRACT, object_value: wrong, valid_from: "2026-08-07T09:20:00Z", source_refs: [{source_id: review:detach, sent_at: "2026-08-07T09:20:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: wrong, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, operation: ASSERT, object_value: wrong, origin: model}
+    - {subject_key: child, predicate: part_of, operation: ASSERT, object_value: wrong, origin: model}
+    - {subject_key: child, predicate: part_of, operation: ASSERT, object_value: wrong, origin: model}
+    - {subject_key: child, predicate: part_of, operation: RETRACT, object_value: wrong, origin: human}
+  intervals:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: wrong, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: wrong, valid_to: "2026-08-07T09:20:00.000000Z"}
+  matters:
+    - {subject_key: child, descendants_total: 0}
+    - {subject_key: wrong, descendants_total: 0}
+  queries:
+    - {name: current, args: {subject_key: child, predicate: part_of}, result: []}
