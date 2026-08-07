@@ -413,6 +413,61 @@ def test_gather_view_is_deterministic_and_rolls_up_two_scope_graphs(
     ) == before
 
 
+def test_gathered_members_are_marked_so_the_wall_shows_one_card(tmp_path) -> None:
+    """A federation and its member must not both render as top-level cards.
+
+    Built on its own store rather than the shared fixture: the marking is a
+    cross-scope read, so it walks every scope the store holds, and a shared
+    backend carries scopes other tests wrote under other schema profiles.
+    """
+
+    from matterhorn.service import MatterhornService
+
+    engine = Engine(
+        SQLiteStore(tmp_path / "gather-wall.db"),
+        clock=lambda: NOW + timedelta(hours=1),
+    )
+    portfolio_scope, scope_a, scope_b = (
+        "octo-wall-portfolio",
+        "octo-wall-a",
+        "octo-wall-b",
+    )
+    engine._ingest_cards_sync(
+        [
+            _card(portfolio_scope, "portfolio", layer=2),
+            _card(scope_a, "alpha-root"),
+            _card(scope_a, "alpha-child", minute=1),
+            _card(scope_b, "bravo-root"),
+        ]
+    )
+    # alpha-root is a real project in its own scope: it has a subgoal.
+    engine.correct(
+        {
+            "scope_id": scope_a,
+            "subject_key": "alpha-child",
+            "subject_type": "MATTER",
+            "predicate": "part_of",
+            "object_value": "alpha-root",
+            "valid_from": NOW + timedelta(minutes=2),
+            "source_refs": [_source("octo-org:alpha-tree", 2).model_dump(mode="json")],
+        }
+    )
+    _correct_gather(engine, portfolio_scope, "portfolio", scope_a, "alpha-root", minute=3)
+
+    rows = MatterhornService(engine).all_matters()
+    by_key = {(item["scope_id"], item["subject_key"]): item for item in rows}
+
+    # The gathered member is marked; the federation and an ungathered peer
+    # are not, so only they survive the console's project filter.
+    assert by_key[(scope_a, "alpha-root")]["gathered_by"] == "portfolio"
+    assert "gathered_by" not in by_key[(portfolio_scope, "portfolio")]
+    assert "gathered_by" not in by_key[(scope_b, "bravo-root")]
+
+    # The member stays in the payload — it is reachable through the
+    # federation card and through its own scope's group.
+    assert by_key[(scope_a, "alpha-root")]["descendants_total"] == 1
+
+
 def test_gather_rest_creation_correction_and_projection_shapes(tmp_path) -> None:
     engine = Engine(
         SQLiteStore(tmp_path / "gather-rest.db"),

@@ -217,6 +217,9 @@ class MatterResponse(StrictModel):
     gather_bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
     gather_members_by_scope: list[dict[str, Any]] = Field(default_factory=list)
     gather_latest_activity: datetime | None = None
+    # Set only on the cross-scope list, which is the sole read that can see
+    # a layer-2 subject gathering a member from another scope.
+    gathered_by: str | None = None
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):

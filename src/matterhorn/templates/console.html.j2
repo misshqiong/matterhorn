@@ -1341,6 +1341,9 @@
     }
 
     function isProject(matter) {
+      // A gathered member is already shown inside its federation card, and
+      // rendering it again beside that card is the same project twice.
+      if (matter.gathered_by) return false;
       return matter.layer >= 2 || (matter.descendants_total || 0) > 0 || state.pinnedProjects.has(projectKey(matter));
     }
 

@@ -303,6 +303,23 @@ class MatterhornService:
         for selected_scope in scopes:
             for item in self.list_matters(scope_id=selected_scope):
                 matters.append({"scope_id": selected_scope, **item})
+        # A layer-2 subject gathers across scopes, so no per-scope read can
+        # tell a member it is contained. This is the only place that sees
+        # every scope at once: mark the members so a reader can fold them
+        # under their federation the way part_of children already fold
+        # under their root, instead of rendering the same project twice.
+        gathered: dict[tuple[str, str], str] = {}
+        for item in matters:
+            for group in item.get("gather_members_by_scope") or []:
+                for member in group.get("members") or []:
+                    gathered[(member["scope_id"], member["subject_key"])] = (
+                        item["subject_key"]
+                    )
+        for item in matters:
+            key = (item["scope_id"], item["subject_key"])
+            owner = gathered.get(key)
+            if owner is not None and owner != item["subject_key"]:
+                item["gathered_by"] = owner
         return matters
 
     def matter_detail(
