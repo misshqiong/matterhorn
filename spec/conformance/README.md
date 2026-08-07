@@ -10,11 +10,12 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-22`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-23`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
 | `cards` | yes | Ordered EpisodeCard mappings, validated exactly as SPEC section 3.3. |
+| `federated_cards` | no | EpisodeCards seeded in additional scopes before cross-scope structure operations; replay covers every declared scope. |
 | `message_batches` | no | Ordered `{messages}` batches passed to `add`, each followed by `flush`. A batch may instead declare `flush: {mode: quiet, at, quiet_period_minutes, max_batch_delay_minutes}` to run deadline-aware quiet selection at the injected instant. |
 | `message_model_responses` | no | Ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
 | `record_batches` | no | Ordered `{records, cursors?, backfill?, batch_size?, purge_staging_at?}` mappings. A `purge_staging_at` RFC 3339 instant runs the configured retention purge immediately before that batch. |
@@ -36,6 +37,11 @@ store view for the case's `scope_id`.
 | `structure_operations` | no | Ordered gated goal-graph assertions, each optionally carrying `expect_error`; human correction origin is the default, while `origin: model` represents one distinct admitted model assertion. These run after merge operations so canonical merge-chain cycle gates are expressible. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
 | `expect` | for success | Expected partial-field multisets, queries, counters, and reports. |
+
+`expect.gather_queries` contains `{scope_id?, subject_key, result,
+replay_identity?}` mappings. Results are partial deterministic gather views;
+when `replay_identity` is true, the complete canonical view must remain
+byte-identical after replay.
 
 Unknown fields in cards, profiles, corrections, model candidates, and model
 response envelopes are errors because their respective contracts are closed.

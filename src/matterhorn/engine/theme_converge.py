@@ -841,6 +841,7 @@ def _apply_proposal_locked(
             title=proposal.title,
             normalized_title=normalize_title(proposal.title),
             source_ids=source_ids,
+            layer=2,
         )
 
     subjects_for_gate = [*current_snapshot.subjects]

@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
+from matterhorn.canonical import object_key as canonical_object_key
 from matterhorn.contracts import (
     FIELD_WIDE_RETRACT,
     Assertion,
@@ -15,6 +16,8 @@ from matterhorn.contracts import (
 )
 
 PART_OF = "part_of"
+GATHERS = "gathers"
+WEIGHTED_STRUCTURE_PREDICATES = frozenset({PART_OF, GATHERS})
 DEFAULT_HUMAN_EDGE_WEIGHT = 10
 
 
@@ -93,13 +96,20 @@ def election_history(
     if not items:
         return ()
     groups = {
-        (item.scope_id, item.subject_key, item.predicate) for item in items
+        _election_stream_key(item)
+        for item in items
+        if not (
+            item.predicate == GATHERS
+            and item.object_key == FIELD_WIDE_RETRACT
+        )
     }
+    if not groups:
+        return ()
     if len(groups) != 1:
         raise ValueError("election_history requires one assertion stream")
-    scope_id, subject_key, predicate = next(iter(groups))
-    if predicate != PART_OF:
-        raise ValueError("weighted election is only implemented for part_of")
+    scope_id, subject_key, predicate, _ = next(iter(groups))
+    if predicate not in WEIGHTED_STRUCTURE_PREDICATES:
+        raise ValueError("weighted election requires a structure predicate")
 
     by_time: dict[datetime, list[Assertion]] = defaultdict(list)
     for item in items:
@@ -153,6 +163,50 @@ def elected_part_of(
     return result
 
 
+def elected_gathers(
+    assertions: Iterable[Assertion],
+    *,
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
+) -> dict[tuple[str, str, str], StructureElection]:
+    """Elect every independent ``gathers`` SET membership slot.
+
+    A normal correction derives ``object_key`` from the canonical member
+    reference, so each member occupies its own slot and the predicate remains
+    a SET. Supplying the same explicit ``object_key`` for competing member
+    references expresses a disputed slot; INV-22 then elects that slot exactly
+    like the single ``part_of`` slot.
+    """
+
+    grouped: dict[tuple[str, str, str], list[Assertion]] = defaultdict(list)
+    field_wide: dict[tuple[str, str], list[Assertion]] = defaultdict(list)
+    for assertion in assertions:
+        if assertion.predicate == GATHERS:
+            if assertion.object_key == FIELD_WIDE_RETRACT:
+                field_wide[(assertion.scope_id, assertion.subject_key)].append(
+                    assertion
+                )
+                continue
+            grouped[
+                (assertion.scope_id, assertion.subject_key, assertion.object_key)
+            ].append(assertion)
+    result: dict[tuple[str, str, str], StructureElection] = {}
+    for key in sorted(
+        grouped,
+        key=lambda item: (
+            item[0].encode(),
+            item[1].encode(),
+            item[2].encode(),
+        ),
+    ):
+        history = election_history(
+            [*grouped[key], *field_wide.get((key[0], key[1]), [])],
+            human_edge_weight=human_edge_weight,
+        )
+        if history and history[-1].election is not None:
+            result[key] = history[-1].election
+    return result
+
+
 def _elect(
     scope_id: str,
     subject_key: str,
@@ -164,20 +218,29 @@ def _elect(
     by_object: dict[str, list[Assertion]] = defaultdict(list)
     for assertion in assertions:
         if isinstance(assertion.object_value, str) and assertion.object_value:
-            by_object[assertion.object_key].append(assertion)
+            candidate_key = (
+                canonical_object_key(assertion.object_value)
+                if predicate == GATHERS
+                else assertion.object_key
+            )
+            by_object[candidate_key].append(assertion)
     if not by_object:
         return None
 
     candidates: list[ElectionCandidate] = []
-    for object_key in sorted(by_object, key=lambda value: value.encode()):
-        contributions = tuple(sorted(by_object[object_key], key=_assertion_recency))
+    for candidate_object_key in sorted(
+        by_object, key=lambda value: value.encode()
+    ):
+        contributions = tuple(
+            sorted(by_object[candidate_object_key], key=_assertion_recency)
+        )
         latest = contributions[-1]
         human_count = sum(item.origin == Origin.human for item in contributions)
         model_count = sum(item.origin == Origin.model for item in contributions)
         candidates.append(
             ElectionCandidate(
                 target=str(latest.object_value),
-                object_key=object_key,
+                object_key=candidate_object_key,
                 human_weight=human_count * human_edge_weight,
                 model_weight=model_count,
                 total_weight=human_count * human_edge_weight + model_count,
@@ -211,6 +274,15 @@ def _retracts(retract: Assertion, contribution: Assertion) -> bool:
     )
 
 
+def _election_stream_key(assertion: Assertion) -> tuple[str, str, str, str]:
+    return (
+        assertion.scope_id,
+        assertion.subject_key,
+        assertion.predicate,
+        assertion.object_key if assertion.predicate == GATHERS else "",
+    )
+
+
 def _assertion_recency(assertion: Assertion) -> tuple[datetime, datetime, bytes]:
     return (
         assertion.valid_from,
@@ -221,10 +293,13 @@ def _assertion_recency(assertion: Assertion) -> tuple[datetime, datetime, bytes]
 
 __all__ = [
     "DEFAULT_HUMAN_EDGE_WEIGHT",
+    "GATHERS",
     "PART_OF",
+    "WEIGHTED_STRUCTURE_PREDICATES",
     "ElectionCandidate",
     "ElectionStep",
     "StructureElection",
+    "elected_gathers",
     "elected_part_of",
     "election_history",
     "validate_human_edge_weight",

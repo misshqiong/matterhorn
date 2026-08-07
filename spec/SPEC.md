@@ -273,6 +273,7 @@ without an offset is interpreted as UTC; canonical output is UTC.
 | `occurred_at` | datetime or null | optional, default null | Exact business effective time. |
 | `last_active_at` | datetime or null | optional, default null | Input metadata; it does not replace `valid_from`. |
 | `source_refs` | non-empty array of SourceRef | required | SourceRef has required string `source_id`, required datetime `sent_at`, required string `sender`, optional nullable string `excerpt`, and optional nullable string `uri`. A Record-derived card MUST copy `record_id`, content, and URI rather than synthesize evidence. |
+| `layer` | integer >= 1 | optional, default `1` | Representation layer assigned when the card creates its subject; an existing subject's layer is immutable. |
 | `cleared_fields` | array of unique strings | optional, default `[]` | A listed input field is explicitly cleared. |
 | `subject_key` | string or null | optional, default null | Explicit subject identity override. |
 | `thread_id` | string or null | optional, default null | Deterministic communication boundary assigned by Record extraction; it is not model-supplied. |
@@ -328,6 +329,8 @@ Each predicate entry has:
 | `extraction` | string | required | `deterministic` or `semantic`. Deterministic extraction MUST skip `semantic`; only `dream()` MAY process it. |
 | `retract_guard` | string | default `explicit` | `explicit`, `never`, or `implicit`. |
 | `object` | string | default `string` | Object category; `person`, `datetime`, `object`, and application-defined strings are allowed. |
+| `subject_layer_min` | integer >= 1 | default `1` | Minimum source-subject layer for a subject-reference predicate; non-default values require `object: subject`. |
+| `cross_scope` | boolean | default `false` | Whether a subject-reference predicate accepts canonical cross-scope object values. |
 | `source_field` | string or null | required for deterministic | EpisodeCard field read by the rule. |
 | `extraction_rule` | string | default `scalar` | `scalar`, `participant_ids`, or `list`. |
 | `role_filter` | array of strings | default `[]` | For `participant_ids`, include all when empty, otherwise only matching roles. |
@@ -358,7 +361,7 @@ An optional CLI schema directory MAY add or override profiles by ID.
 
 Each persisted Subject contains `scope_id`, globally stable `subject_key` within
 that scope, declared `subject_type`, title, normalized title, accumulated source
-IDs, and nullable `parent_subject_key`. A primary subject resolved from an
+IDs, integer `layer` (default 1), and nullable `parent_subject_key`. A primary subject resolved from an
 EpisodeCard MUST have a null `parent_subject_key`. A non-primary subject created
 by semantic distillation MUST name an existing parent instance whose type
 equals the child type's declared `parent`.
@@ -930,8 +933,8 @@ The ownership envelope is one JSON document with this closed top-level shape:
 
 `schema_profile.id` is the profile's `schema` identifier.
 `schema_profile.version` is SHA-256 of canonical JSON for the complete locally
-validated profile. Subjects include identity, parent, source-ID, and thread-ID
-state. Source states retain URI and revocation time. Assertions retain their
+validated profile. Subjects include identity, layer, parent, source-ID, and
+thread-ID state. Source states retain URI and revocation time. Assertions retain their
 original `origin`, so human corrections survive without reinterpretation.
 Events are included as append-only derived delivery history. Intervals,
 projection statistics, and MemoryCards MUST NOT be exported because they are
@@ -957,11 +960,12 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-22`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-23`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
 | `cards` | Ordered EpisodeCard mappings. |
+| `federated_cards` | Optional EpisodeCards seeded in additional scopes before cross-scope structure operations. |
 | `message_batches` | Optional ordered `{messages}` batches passed through `add`, each followed by `flush`. A batch MAY instead declare `flush: {mode: quiet, at, quiet_period_minutes, max_batch_delay_minutes}` to exercise service-mode due selection at an injected instant. |
 | `message_model_responses` | Optional ordered closed Message/Record-to-card fixture responses, one per extractor call made by message batches. |
 | `record_batches` | Optional ordered `{records,cursors?,backfill?,batch_size?,purge_staging_at?}` batches passed to `add_records`; the optional RFC 3339 instant runs retention purge immediately before that batch. |
@@ -978,6 +982,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `expect.assertions` | Expected assertion mappings. |
 | `expect.intervals` | Expected interval mappings; `supporting_assertion_ids`, when compared, is an order-sensitive exact list. |
 | `expect.queries` | `{name,args,result}` query checks. |
+| `expect.gather_queries` | Federated gather projections; `replay_identity: true` additionally requires byte-identical output after replay of every seeded scope. |
 | `expect.subject_count` | Optional exact subject count. |
 | `expect.conflicts_resolved` | Optional predicate-to-count map. |
 | `expect.gate_statistics` | Optional partial gate-counter object; declared fields compare exactly, including any declared route counters. |

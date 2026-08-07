@@ -375,6 +375,7 @@ class UnifiedLoopSession:
                         title=created.title,
                         normalized_title=created.normalized_title,
                         source_ids=refs,
+                        layer=created.layer,
                         parent_subject_key=created.parent_subject_key,
                         thread_ids=created.thread_ids,
                     )
@@ -391,6 +392,7 @@ class UnifiedLoopSession:
                         title=current.title,
                         normalized_title=current.normalized_title,
                         source_ids=current.source_ids | refs,
+                        layer=current.layer,
                         parent_subject_key=current.parent_subject_key,
                         thread_ids=current.thread_ids,
                     )

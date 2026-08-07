@@ -19,6 +19,7 @@ from matterhorn.contracts import (
 )
 from matterhorn.engine.structure_election import (
     DEFAULT_HUMAN_EDGE_WEIGHT,
+    GATHERS,
     PART_OF,
     ElectionCandidate,
     election_history,
@@ -113,7 +114,14 @@ def project_assertions(
                 projected, conflicts = _project_single(items)
             conflict_totals[(scope_id, predicate_name)] += conflicts
         elif definition.cardinality == Cardinality.SET:
-            projected = _project_set(items)
+            projected = (
+                _project_elected_set(
+                    items,
+                    human_edge_weight=human_edge_weight,
+                )
+                if predicate_name == GATHERS
+                else _project_set(items)
+            )
         else:
             projected = _project_append(
                 items,
@@ -209,6 +217,50 @@ def _project_elected_single(
     return result, conflicts
 
 
+def _project_elected_set(
+    items: list[Assertion],
+    *,
+    human_edge_weight: int,
+) -> list[Interval]:
+    """Project independent weighted membership slots for ``gathers``."""
+
+    by_slot: dict[str, list[Assertion]] = defaultdict(list)
+    field_wide: list[Assertion] = []
+    for item in items:
+        if item.object_key == FIELD_WIDE_RETRACT:
+            field_wide.append(item)
+            continue
+        by_slot[item.object_key].append(item)
+    result: list[Interval] = []
+    for slot in sorted(by_slot, key=lambda value: value.encode("utf-8")):
+        active: Interval | None = None
+        for step in election_history(
+            [*by_slot[slot], *field_wide],
+            human_edge_weight=human_edge_weight,
+        ):
+            election = step.election
+            if election is None:
+                if active is not None:
+                    result.append(
+                        active.model_copy(update={"valid_to": step.instant})
+                    )
+                    active = None
+                continue
+            winner = election.winner
+            if active is not None and active.object_key == winner.object_key:
+                active = _election_interval(
+                    winner,
+                    valid_from=active.valid_from,
+                )
+                continue
+            if active is not None:
+                result.append(active.model_copy(update={"valid_to": step.instant}))
+            active = _election_interval(winner, valid_from=step.instant)
+        if active is not None:
+            result.append(active)
+    return sorted(result, key=_interval_sort)
+
+
 def _election_interval(
     winner: ElectionCandidate,
     *,
@@ -240,7 +292,7 @@ def _election_interval(
         subject_type=base.subject_type,
         predicate=base.predicate,
         object_value=base.object_value,
-        object_key=base.object_key,
+        object_key=winner.object_key,
         valid_from=valid_from,
         valid_to=None,
         assertion_id=base.assertion_id,

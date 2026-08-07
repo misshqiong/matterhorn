@@ -1,0 +1,21 @@
+case_id: gather-layer-monotonicity
+title: Gather rejects a target that is not at a strictly lower layer
+invariants: [INV-23]
+schema_profile: org-matters/v1
+scope_id: octo-gather-layer-gate
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-portfolio, scope_id: octo-gather-layer-gate, subject_key: portfolio, layer: 2, date: 2026-08-07, title: Fictional portfolio, status: open, source_refs: [{source_id: octo-org:seed:portfolio, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+  - {card_id: card-peer, scope_id: octo-gather-layer-gate, subject_key: peer, layer: 2, date: 2026-08-07, title: Fictional peer portfolio, status: open, source_refs: [{source_id: octo-org:seed:peer, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-gather-layer-gate, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_value: "octo-gather-layer-gate:peer", valid_from: "2026-08-07T09:00:00Z", source_refs: [{source_id: octo-org:gather:peer, sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes}], expect_error: GATHER_LAYER_VIOLATION}
+expect:
+  assertions:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: peer, predicate: status, object_value: open}
+  intervals:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: peer, predicate: status, object_value: open}
+  gate_statistics:
+    rejections: {GATHER_LAYER_VIOLATION: 1}
+

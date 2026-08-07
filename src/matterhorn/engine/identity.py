@@ -19,6 +19,7 @@ def resolve_subject(
             (item for item in existing if item.subject_key == card.subject_key), None
         )
         if match:
+            _require_card_layer(match, card)
             return _with_evidence(match, sources, threads), False
         return (
             SubjectRecord(
@@ -29,6 +30,7 @@ def resolve_subject(
                 normalized,
                 sources,
                 thread_ids=threads,
+                layer=card.layer,
             ),
             True,
         )
@@ -48,6 +50,7 @@ def resolve_subject(
         key = f"sub_{digest}"
         match = next((item for item in existing if item.subject_key == key), None)
         if match is not None:
+            _require_card_layer(match, card)
             return _with_evidence(match, sources, threads), False
         return (
             SubjectRecord(
@@ -58,6 +61,7 @@ def resolve_subject(
                 normalized,
                 sources,
                 thread_ids=threads,
+                layer=card.layer,
             ),
             True,
         )
@@ -65,7 +69,9 @@ def resolve_subject(
     title_matches = [
         item
         for item in existing
-        if item.subject_type == subject_type and item.normalized_title == normalized
+        if item.subject_type == subject_type
+        and item.normalized_title == normalized
+        and item.layer == card.layer
     ]
     if title_matches:
         chosen = min(title_matches, key=lambda item: item.subject_key)
@@ -95,6 +101,7 @@ def thread_match(
         item
         for item in existing
         if item.subject_type == profile.primary_subject.type
+        and item.layer == card.layer
         and card.thread_id in item.thread_ids
     ]
     return min(matches, key=lambda item: item.subject_key) if matches else None
@@ -112,6 +119,8 @@ def evidence_match(
     for item in existing:
         if item.subject_type != subject_type:
             continue
+        if item.layer != card.layer:
+            continue
         shared = len(sources & item.source_ids)
         ratio = shared / len(card.source_refs)
         if shared >= 2 and (
@@ -128,6 +137,7 @@ def evidence_match(
 
 
 def attach_subject(record: SubjectRecord, card: EpisodeCard) -> SubjectRecord:
+    _require_card_layer(record, card)
     return _with_evidence(
         record,
         frozenset(ref.source_id for ref in card.source_refs),
@@ -179,6 +189,7 @@ def new_subject(
         normalize_title(card.title),
         sources,
         thread_ids=threads,
+        layer=card.layer,
     )
 
 
@@ -196,4 +207,12 @@ def _with_evidence(
         record.source_ids | sources,
         record.parent_subject_key,
         record.thread_ids | threads,
+        record.layer,
     )
+
+
+def _require_card_layer(record: SubjectRecord, card: EpisodeCard) -> None:
+    if record.layer != card.layer:
+        raise ValueError(
+            f"subject layer is immutable: existing={record.layer}, card={card.layer}"
+        )

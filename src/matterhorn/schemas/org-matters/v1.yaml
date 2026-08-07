@@ -93,6 +93,13 @@ predicates:
     cardinality: SINGLE
     extraction: semantic
     object: subject
+  - name: gathers
+    subject: MATTER
+    cardinality: SET
+    extraction: semantic
+    object: subject
+    subject_layer_min: 2
+    cross_scope: true
   - name: spawned_from
     subject: MATTER
     cardinality: SINGLE

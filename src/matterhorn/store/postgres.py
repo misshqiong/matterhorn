@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS subjects (
     title TEXT NOT NULL,
     normalized_title TEXT NOT NULL,
     source_ids_json JSONB NOT NULL,
+    layer INTEGER NOT NULL DEFAULT 1 CHECK(layer >= 1),
     thread_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     PRIMARY KEY (scope_id, subject_key)
 );
@@ -361,6 +362,12 @@ class PostgresStore:
                 ALTER TABLE subjects
                 ADD COLUMN IF NOT EXISTS thread_ids_json
                 JSONB NOT NULL DEFAULT '[]'::jsonb
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE subjects
+                ADD COLUMN IF NOT EXISTS layer INTEGER NOT NULL DEFAULT 1
                 """
             )
             cursor.execute(
@@ -1246,6 +1253,7 @@ class PostgresStore:
                 title=row["title"],
                 normalized_title=row["normalized_title"],
                 source_ids=frozenset(row["source_ids_json"]),
+                layer=row["layer"],
                 parent_subject_key=row["parent_subject_key"],
                 thread_ids=frozenset(row["thread_ids_json"]),
             )
@@ -1257,10 +1265,11 @@ class PostgresStore:
             """
             INSERT INTO subjects(
               scope_id,subject_key,subject_type,parent_subject_key,title,
-              normalized_title,source_ids_json,thread_ids_json
-            ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+              normalized_title,source_ids_json,layer,thread_ids_json
+            ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT(scope_id,subject_key) DO UPDATE SET
               source_ids_json=excluded.source_ids_json,
+              layer=excluded.layer,
               thread_ids_json=excluded.thread_ids_json
             """,
             (
@@ -1271,6 +1280,7 @@ class PostgresStore:
                 subject.title,
                 subject.normalized_title,
                 self._json_param(sorted(subject.source_ids)),
+                subject.layer,
                 self._json_param(sorted(subject.thread_ids)),
             ),
         )

@@ -28,6 +28,7 @@ from matterhorn.api.models import (
     ConnectionsResponse,
     ConsoleConfigResponse,
     CorrectionInput,
+    GatherViewResponse,
     HealthResponse,
     IngestResponse,
     MailAccountsResponse,
@@ -495,6 +496,17 @@ def create_app(
     )
     def matter_graph(scope_id: str, subject_key: str):
         return service.matter_graph(
+            scope_id=scope_id,
+            subject_key=subject_key,
+        )
+
+    @app.get(
+        "/v1/scopes/{scope_id}/matters/{subject_key}/gather",
+        response_model=GatherViewResponse,
+        summary="Read one deterministic cross-scope gather projection",
+    )
+    def gather_view(scope_id: str, subject_key: str):
+        return service.gather_view(
             scope_id=scope_id,
             subject_key=subject_key,
         )

@@ -68,6 +68,16 @@ from matterhorn.engine.aggregate import (
 )
 from matterhorn.engine.events import derive_change_events
 from matterhorn.engine.extractor import extract_card
+from matterhorn.engine.gather import (
+    FederatedRollup,
+    GatherMember,
+    GatherRejection,
+    GatherScope,
+    GatherView,
+    decode_subject_ref,
+    encode_subject_ref,
+    gather_rejection,
+)
 from matterhorn.engine.goal_graph import (
     DECISION,
     PART_OF,
@@ -112,7 +122,9 @@ from matterhorn.engine.signals import (
 )
 from matterhorn.engine.structure_election import (
     DEFAULT_HUMAN_EDGE_WEIGHT,
+    GATHERS,
     StructureElection,
+    elected_gathers,
     elected_part_of,
     validate_human_edge_weight,
 )
@@ -169,6 +181,7 @@ class Matter:
     next_step: Any
     due: Any
     subject_key: str
+    layer: int
     aliases: list[str]
     updated_at: datetime | None
     owners_display: list[Any] | None = None
@@ -180,6 +193,12 @@ class Matter:
     descendants_blocked: int = 0
     bubbled_blockers: list[dict[str, Any]] | None = None
     latest_activity: datetime | None = None
+    gather_total: int = 0
+    gather_completed: int = 0
+    gather_blocked: int = 0
+    gather_bubbled_blockers: list[dict[str, Any]] | None = None
+    gather_members_by_scope: list[dict[str, Any]] | None = None
+    gather_latest_activity: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -192,6 +211,7 @@ class Matter:
             "next_step": self.next_step,
             "due": self.due,
             "subject_key": self.subject_key,
+            "layer": self.layer,
             "owners_display": self.owners_display or self.owners,
             "participants_display": self.participants_display or self.participants,
             "sources_display": self.sources_display or [],
@@ -202,6 +222,12 @@ class Matter:
             "descendants_blocked": self.descendants_blocked,
             "bubbled_blockers": self.bubbled_blockers or [],
             "latest_activity": self.latest_activity,
+            "gather_total": self.gather_total,
+            "gather_completed": self.gather_completed,
+            "gather_blocked": self.gather_blocked,
+            "gather_bubbled_blockers": self.gather_bubbled_blockers or [],
+            "gather_members_by_scope": self.gather_members_by_scope or [],
+            "gather_latest_activity": self.gather_latest_activity,
         }
 
 
@@ -2357,6 +2383,9 @@ class Engine:
             subject.subject_key: subject.source_ids
             for subject in bundle.subjects
         }
+        layer_by_subject = {
+            subject.subject_key: subject.layer for subject in bundle.subjects
+        }
         conversation_names = self.conversation_display_names(scope_id)
         progress_subjects = {
             predicate.subject
@@ -2387,6 +2416,7 @@ class Engine:
                     next_step=current.get("next_step"),
                     due=current.get("due_at"),
                     subject_key=subject.subject_key,
+                    layer=layer_by_subject.get(subject.subject_key, 1),
                     aliases=aliases.get(subject.subject_key, []),
                     owners_display=[
                         names.get(str(item), item)
@@ -2421,9 +2451,14 @@ class Engine:
         graph = bundle.graph
         result = []
         for matter in matters:
-            if matter.subject_key in graph.parents:
+            if matter.layer < 2 and matter.subject_key in graph.parents:
                 continue
             rollup = graph.rollup(matter.subject_key)
+            gather = (
+                self.gather_view(scope_id, matter.subject_key)
+                if matter.layer >= 2
+                else None
+            )
             result.append(
                 Matter(
                     **{
@@ -2434,6 +2469,30 @@ class Engine:
                         "descendants_blocked": rollup.descendants_blocked,
                         "bubbled_blockers": rollup.bubbled_blockers,
                         "latest_activity": rollup.latest_activity,
+                        "gather_total": (
+                            gather.aggregate.total if gather is not None else 0
+                        ),
+                        "gather_completed": (
+                            gather.aggregate.completed if gather is not None else 0
+                        ),
+                        "gather_blocked": (
+                            gather.aggregate.blocked if gather is not None else 0
+                        ),
+                        "gather_bubbled_blockers": (
+                            gather.aggregate.bubbled_blockers
+                            if gather is not None
+                            else []
+                        ),
+                        "gather_members_by_scope": (
+                            [item.to_dict() for item in gather.members_by_scope]
+                            if gather is not None
+                            else []
+                        ),
+                        "gather_latest_activity": (
+                            gather.aggregate.latest_activity
+                            if gather is not None
+                            else None
+                        ),
                     }
                 )
             )
@@ -2461,6 +2520,152 @@ class Engine:
             raise ResourceNotFoundError(
                 f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
             ) from error
+
+    def gather_view(self, scope_id: str, subject_key: str) -> GatherView:
+        """Project one layer-2 representation across scope-local goal graphs."""
+
+        if not self.subject_exists(scope_id, subject_key):
+            raise ResourceNotFoundError(
+                f"unknown subject_key {subject_key!r} in scope {scope_id!r}"
+            )
+        canonical = self.canonical_subject_key(scope_id, subject_key)
+        subject = next(
+            item
+            for item in self.store.subjects(scope_id)
+            if item.subject_key == canonical
+        )
+        if subject.layer < 2:
+            raise ValueError("gather view requires a subject at layer >= 2")
+
+        memberships = self.query.current(scope_id, canonical, GATHERS)
+        referenced: dict[tuple[str, str], Any] = {}
+        for membership in memberships:
+            target = decode_subject_ref(membership.value)
+            prior = referenced.get(target)
+            if prior is None or (
+                membership.recorded_at,
+                membership.assertion_id.encode("utf-8"),
+            ) > (
+                prior.recorded_at,
+                prior.assertion_id.encode("utf-8"),
+            ):
+                referenced[target] = membership
+
+        projections = {
+            target_scope: self._goal_projection(target_scope)
+            for target_scope in sorted(
+                {item[0] for item in referenced}, key=lambda item: item.encode()
+            )
+        }
+        by_scope: dict[str, list[GatherMember]] = {}
+        blockers: list[dict[str, Any]] = []
+        total = completed = blocked = 0
+        latest_activity: datetime | None = None
+        for target_scope, target_key in sorted(
+            referenced,
+            key=lambda item: (item[0].encode(), item[1].encode()),
+        ):
+            if not self.subject_exists(target_scope, target_key):
+                raise ResourceNotFoundError(
+                    "gather target no longer exists: "
+                    f"{encode_subject_ref(target_scope, target_key)}"
+                )
+            canonical_target = self.canonical_subject_key(
+                target_scope, target_key
+            )
+            projection = projections[target_scope]
+            if canonical_target not in projection.nodes:
+                raise ResourceNotFoundError(
+                    "gather target is absent from its scope-local graph: "
+                    f"{encode_subject_ref(target_scope, target_key)}"
+                )
+            node = projection.nodes[canonical_target]
+            rollup = projection.rollup(canonical_target)
+            target_subject = next(
+                item
+                for item in self.store.subjects(target_scope)
+                if item.subject_key == canonical_target
+            )
+            membership = referenced[(target_scope, target_key)]
+            member = GatherMember(
+                scope_id=target_scope,
+                subject_key=canonical_target,
+                title=node.title,
+                layer=target_subject.layer,
+                status=node.status,
+                blocker=node.blocker,
+                rollup=rollup,
+                source_ids=membership.source_ids,
+                supporting_assertion_ids=membership.supporting_assertion_ids,
+                origin=membership.origin,
+            )
+            by_scope.setdefault(target_scope, []).append(member)
+            member_completed = int(
+                str(node.status).casefold() in projection.completed_values
+            )
+            member_blocked = int(bool(node.blocker))
+            total += 1 + rollup.descendants_total
+            completed += member_completed + rollup.descendants_completed
+            blocked += member_blocked + rollup.descendants_blocked
+            if node.blocker:
+                blockers.append(
+                    {
+                        "scope_id": target_scope,
+                        "subject_key": canonical_target,
+                        "reference": encode_subject_ref(
+                            target_scope, canonical_target
+                        ),
+                        "blocker": node.blocker,
+                    }
+                )
+            blockers.extend(
+                {
+                    "scope_id": target_scope,
+                    "subject_key": item["subject_key"],
+                    "reference": encode_subject_ref(
+                        target_scope, item["subject_key"]
+                    ),
+                    "blocker": item["blocker"],
+                }
+                for item in rollup.bubbled_blockers
+            )
+            if rollup.latest_activity is not None and (
+                latest_activity is None
+                or rollup.latest_activity > latest_activity
+            ):
+                latest_activity = rollup.latest_activity
+
+        blockers.sort(
+            key=lambda item: (
+                item["scope_id"].encode(),
+                item["subject_key"].encode(),
+            )
+        )
+        groups = [
+            GatherScope(
+                scope_id=selected_scope,
+                members=sorted(
+                    members,
+                    key=lambda item: item.subject_key.encode(),
+                ),
+            )
+            for selected_scope, members in sorted(
+                by_scope.items(), key=lambda item: item[0].encode()
+            )
+        ]
+        return GatherView(
+            scope_id=scope_id,
+            subject_key=canonical,
+            subject=subject,
+            members_by_scope=groups,
+            aggregate=FederatedRollup(
+                total=total,
+                completed=completed,
+                blocked=blocked,
+                bubbled_blockers=blockers,
+                latest_activity=latest_activity,
+            ),
+        )
 
     def matter_unseen(self, scope_id: str, subject_key: str) -> bool:
         """Return whether a root or any descendant has activity past its watermark."""
@@ -2711,7 +2916,12 @@ class Engine:
         )
         activity_by_root: dict[tuple[str, str], list[Assertion]] = {}
         for (scope_id, subject_key), assertions in activity_by_matter.items():
-            root = graph_by_scope[scope_id].root_for(subject_key)
+            matter = matters_by_key[(scope_id, subject_key)]
+            root = (
+                subject_key
+                if matter.layer >= 2
+                else graph_by_scope[scope_id].root_for(subject_key)
+            )
             activity_by_root.setdefault((scope_id, root), []).extend(assertions)
 
         completed_values = {
@@ -2794,6 +3004,7 @@ class Engine:
                         "scope_id": scope_id,
                         "subject_key": subject_key,
                         "title": matter.title,
+                        "layer": matter.layer,
                         "status": matter.status,
                         "progress": (
                             latest_progress
@@ -2807,6 +3018,15 @@ class Engine:
                         "descendants_completed": matter.descendants_completed,
                         "descendants_blocked": matter.descendants_blocked,
                         "bubbled_blockers": matter.bubbled_blockers or [],
+                        "gather_total": matter.gather_total,
+                        "gather_completed": matter.gather_completed,
+                        "gather_blocked": matter.gather_blocked,
+                        "gather_bubbled_blockers": (
+                            matter.gather_bubbled_blockers or []
+                        ),
+                        "gather_latest_activity": (
+                            matter.gather_latest_activity
+                        ),
                     }
                 )
             entries.sort(
@@ -2884,8 +3104,12 @@ class Engine:
             ):
                 continue
             root_key = (
-                key[0],
-                graph_by_scope[key[0]].root_for(key[1]),
+                key
+                if matter.layer >= 2
+                else (
+                    key[0],
+                    graph_by_scope[key[0]].root_for(key[1]),
+                )
             )
             if root_key in needs_matter_keys:
                 continue
@@ -3419,7 +3643,21 @@ class Engine:
     def _structure_rejection(
         self,
         assertion: Assertion,
-    ) -> StructureRejection | None:
+    ) -> StructureRejection | GatherRejection | None:
+        if assertion.predicate == GATHERS:
+            subjects = {
+                (scope_id, subject.subject_key): subject
+                for scope_id in self.store.list_scopes()
+                for subject in self.store.subjects(scope_id)
+            }
+            return gather_rejection(
+                assertion,
+                subjects=subjects,
+                source_layer_min=self.profile.predicate(
+                    GATHERS
+                ).subject_layer_min,
+                subject_key_resolver=self.canonical_subject_key,
+            )
         target = assertion.object_value
         outside = False
         if isinstance(target, str):
@@ -3444,13 +3682,30 @@ class Engine:
     def _add_assertion(self, assertion: Assertion) -> bool:
         """Commit one assertion and emit any deterministic election notice."""
 
-        before = self._part_of_election(assertion)
+        before = self._structure_election(assertion)
         inserted = self.store.add_assertion(assertion)
-        if not inserted or assertion.predicate != PART_OF:
+        if not inserted or assertion.predicate not in {PART_OF, GATHERS}:
             return inserted
-        after = self._part_of_election(assertion)
+        after = self._structure_election(assertion)
         self._enqueue_election_notice(assertion, before=before, after=after)
         return True
+
+    def _structure_election(
+        self,
+        assertion: Assertion,
+    ) -> StructureElection | None:
+        if assertion.predicate == GATHERS:
+            return elected_gathers(
+                self.store.assertions(assertion.scope_id),
+                human_edge_weight=self.human_edge_weight,
+            ).get(
+                (
+                    assertion.scope_id,
+                    assertion.subject_key,
+                    assertion.object_key,
+                )
+            )
+        return self._part_of_election(assertion)
 
     def _part_of_election(
         self,
@@ -3520,6 +3775,7 @@ class Engine:
             occurred_at=assertion.valid_from,
             title=(subject.title if subject is not None else subject_key),
             source_refs=assertion.source_refs,
+            layer=(subject.layer if subject is not None else 1),
         )
         self.store.add_review_item(
             ReviewItem(
@@ -3546,7 +3802,7 @@ class Engine:
     def _record_structure_rejection(
         self,
         scope_id: str,
-        reason: StructureRejection,
+        reason: StructureRejection | GatherRejection,
     ) -> None:
         with self.store.transaction():
             self.store.record_gate_report(
@@ -3813,6 +4069,7 @@ class Engine:
                     title=item.title,
                     normalized_title=item.normalized_title,
                     source_ids=sorted(item.source_ids),
+                    layer=item.layer,
                     parent_subject_key=item.parent_subject_key,
                     thread_ids=sorted(item.thread_ids),
                 )
@@ -3869,6 +4126,7 @@ class Engine:
                         title=item.title,
                         normalized_title=item.normalized_title,
                         source_ids=frozenset(item.source_ids),
+                        layer=item.layer,
                         parent_subject_key=item.parent_subject_key,
                         thread_ids=frozenset(item.thread_ids),
                     )
@@ -4039,6 +4297,7 @@ class Engine:
                                         normalized_title=existing_subject.normalized_title,
                                         source_ids=existing_subject.source_ids
                                         | source_ids,
+                                        layer=existing_subject.layer,
                                         parent_subject_key=(
                                             existing_subject.parent_subject_key
                                         ),
@@ -4206,6 +4465,7 @@ def _canonicalized_subject(
         title=target.title,
         normalized_title=target.normalized_title,
         source_ids=target.source_ids | subject.source_ids,
+        layer=target.layer,
         parent_subject_key=target.parent_subject_key,
         thread_ids=target.thread_ids | subject.thread_ids,
     )
@@ -4249,6 +4509,7 @@ def _canonicalized_subjects(
                 title=canonical.title,
                 normalized_title=canonical.normalized_title,
                 source_ids=source_ids,
+                layer=canonical.layer,
                 parent_subject_key=parent_subject_key,
                 thread_ids=thread_ids,
             )

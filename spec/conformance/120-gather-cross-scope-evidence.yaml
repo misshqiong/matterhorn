@@ -1,0 +1,31 @@
+case_id: gather-cross-scope-evidence
+title: Cross-scope gather membership is admitted with evidence
+invariants: [INV-8, INV-23]
+schema_profile: org-matters/v1
+scope_id: octo-gather-cross-portfolio
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-portfolio, scope_id: octo-gather-cross-portfolio, subject_key: portfolio, layer: 2, date: 2026-08-07, title: Fictional cross-scope portfolio, status: open, source_refs: [{source_id: octo-org:seed:portfolio, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+federated_cards:
+  - {card_id: card-member, scope_id: octo-gather-cross-target, subject_key: remote-member, date: 2026-08-07, title: Fictional remote member, status: open, source_refs: [{source_id: octo-org:seed:remote-member, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-gather-cross-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_value: "octo-gather-cross-target:remote-member", valid_from: "2026-08-07T09:00:00Z", source_refs: [{source_id: octo-org:gather:remote-member, sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes, excerpt: Fictional cross-scope placement evidence.}]}
+expect:
+  assertions:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-cross-target:remote-member", origin: human}
+  intervals:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-cross-target:remote-member", origin: human}
+  queries:
+    - {name: current, args: {subject_key: portfolio, predicate: gathers}, result: [{value: "octo-gather-cross-target:remote-member", source_ids: [octo-org:gather:remote-member]}]}
+  gather_queries:
+    - subject_key: portfolio
+      result:
+        subject: {layer: 2}
+        members_by_scope:
+          - scope_id: octo-gather-cross-target
+            members:
+              - {subject_key: remote-member, origin: human, source_ids: [octo-org:gather:remote-member]}
+        aggregate: {total: 1, completed: 0, blocked: 0}
+

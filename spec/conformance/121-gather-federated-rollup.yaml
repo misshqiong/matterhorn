@@ -1,0 +1,42 @@
+case_id: gather-federated-rollup
+title: Gather rollup combines scope-local trees from two scopes
+invariants: [INV-18, INV-19, INV-23]
+schema_profile: org-matters/v1
+scope_id: octo-gather-rollup-portfolio
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-portfolio, scope_id: octo-gather-rollup-portfolio, subject_key: portfolio, layer: 2, date: 2026-08-07, title: Fictional delivery portfolio, status: open, source_refs: [{source_id: octo-org:seed:portfolio, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+federated_cards:
+  - {card_id: card-alpha-root, scope_id: octo-gather-rollup-a, subject_key: alpha-root, date: 2026-08-07, title: Fictional alpha root, status: open, source_refs: [{source_id: octo-org:seed:alpha-root, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+  - {card_id: card-alpha-child, scope_id: octo-gather-rollup-a, subject_key: alpha-child, date: 2026-08-07, title: Fictional alpha child, status: done, source_refs: [{source_id: octo-org:seed:alpha-child, sent_at: "2026-08-07T08:02:00Z", sender: Dana Reyes}]}
+  - {card_id: card-bravo-root, scope_id: octo-gather-rollup-b, subject_key: bravo-root, date: 2026-08-07, title: Fictional bravo root, status: blocked, blocker: Dana review, source_refs: [{source_id: octo-org:seed:bravo-root, sent_at: "2026-08-07T08:03:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-gather-rollup-a, subject_key: alpha-child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: alpha-root, valid_from: "2026-08-07T09:00:00Z", source_refs: [{source_id: octo-org:tree:alpha, sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-gather-rollup-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_value: "octo-gather-rollup-b:bravo-root", valid_from: "2026-08-07T09:02:00Z", source_refs: [{source_id: octo-org:gather:bravo, sent_at: "2026-08-07T09:02:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-gather-rollup-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_value: "octo-gather-rollup-a:alpha-root", valid_from: "2026-08-07T09:01:00Z", source_refs: [{source_id: octo-org:gather:alpha, sent_at: "2026-08-07T09:01:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-rollup-a:alpha-root"}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-rollup-b:bravo-root"}
+  intervals:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-rollup-a:alpha-root"}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-rollup-b:bravo-root"}
+  gather_queries:
+    - subject_key: portfolio
+      result:
+        members_by_scope:
+          - scope_id: octo-gather-rollup-a
+            members:
+              - {subject_key: alpha-root, rollup: {descendants_total: 1, descendants_completed: 1, descendants_blocked: 0}}
+          - scope_id: octo-gather-rollup-b
+            members:
+              - {subject_key: bravo-root, rollup: {descendants_total: 0, descendants_completed: 0, descendants_blocked: 0}}
+        aggregate:
+          total: 3
+          completed: 1
+          blocked: 1
+          bubbled_blockers:
+            - {scope_id: octo-gather-rollup-b, subject_key: bravo-root, reference: "octo-gather-rollup-b:bravo-root", blocker: [Dana review]}
+

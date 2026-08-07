@@ -1,0 +1,32 @@
+case_id: gather-replay-byte-identical
+title: Federated gather projection replays byte-identically
+invariants: [INV-3, INV-7, INV-18, INV-22, INV-23]
+schema_profile: org-matters/v1
+scope_id: octo-gather-replay-portfolio
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-portfolio, scope_id: octo-gather-replay-portfolio, subject_key: portfolio, layer: 2, date: 2026-08-07, title: Fictional replay portfolio, status: open, source_refs: [{source_id: octo-org:seed:portfolio, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+federated_cards:
+  - {card_id: card-alpha, scope_id: octo-gather-replay-a, subject_key: alpha, date: 2026-08-07, title: Fictional alpha, status: done, source_refs: [{source_id: octo-org:seed:alpha, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+  - {card_id: card-bravo, scope_id: octo-gather-replay-b, subject_key: bravo, date: 2026-08-07, title: Fictional bravo, status: open, source_refs: [{source_id: octo-org:seed:bravo, sent_at: "2026-08-07T08:02:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-gather-replay-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_value: "octo-gather-replay-b:bravo", valid_from: "2026-08-07T09:02:00Z", source_refs: [{source_id: octo-org:gather:bravo, sent_at: "2026-08-07T09:02:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-gather-replay-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_value: "octo-gather-replay-a:alpha", valid_from: "2026-08-07T09:01:00Z", source_refs: [{source_id: octo-org:gather:alpha, sent_at: "2026-08-07T09:01:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-replay-a:alpha"}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-replay-b:bravo"}
+  intervals:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-replay-a:alpha", valid_to: null}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-replay-b:bravo", valid_to: null}
+  gather_queries:
+    - subject_key: portfolio
+      replay_identity: true
+      result:
+        members_by_scope:
+          - {scope_id: octo-gather-replay-a, members: [{subject_key: alpha}]}
+          - {scope_id: octo-gather-replay-b, members: [{subject_key: bravo}]}
+        aggregate: {total: 2, completed: 1, blocked: 0}
+  replay_events_emitted: 0

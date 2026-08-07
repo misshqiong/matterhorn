@@ -220,6 +220,15 @@ class MatterhornService:
         self._require_subject(scope_id, subject_key)
         return self.engine.matter_graph(scope_id, subject_key).to_dict()
 
+    def gather_view(
+        self,
+        *,
+        scope_id: str,
+        subject_key: str,
+    ) -> dict[str, Any]:
+        self._require_subject(scope_id, subject_key)
+        return self.engine.gather_view(scope_id, subject_key).to_dict()
+
     def brief(
         self,
         *,
@@ -325,6 +334,7 @@ class MatterhornService:
             "subject_key": subject.subject_key,
             "subject_type": subject.subject_type,
             "title": subject.title,
+            "layer": subject.layer,
             "person_names": self.engine.store.person_names(scope_id),
             "conversation_names": self.engine.conversation_display_names(scope_id),
             "aliases": self.engine._subject_aliases(scope_id).get(subject_key, []),
@@ -344,6 +354,11 @@ class MatterhornService:
             "graph": self.engine.matter_graph(
                 scope_id, subject_key
             ).to_dict(),
+            "gather": (
+                self.engine.gather_view(scope_id, subject_key).to_dict()
+                if subject.layer >= 2
+                else None
+            ),
             "current": current,
             "timeline": {
                 predicate: values

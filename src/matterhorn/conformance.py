@@ -241,7 +241,8 @@ def run_suite(
                 else SQLiteStore(root / f"{case_path.stem}.db")
             )
             try:
-                store.clear_scope(case["scope_id"])
+                for scope_id in _case_scope_ids(case):
+                    store.clear_scope(scope_id)
                 results.append(run_case(case_path, store))
             finally:
                 store.close()
@@ -276,6 +277,12 @@ def _load_case(path: Path) -> dict[str, Any]:
     if "corrections" in case and not isinstance(case["corrections"], list):
         raise ValueError(
             f"malformed conformance case {path}: invalid corrections"
+        )
+    if "federated_cards" in case and not isinstance(
+        case["federated_cards"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid federated_cards"
         )
     if "model_responses" in case and not isinstance(
         case["model_responses"], list
@@ -457,6 +464,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     engine._ingest_cards_sync(
         case.get("cards", []), scope_id=case["scope_id"]
     )
+    engine._ingest_cards_sync(case.get("federated_cards", []))
     _run_handle_operations(engine, case)
     record_reports, staging_purge_counts = _run_record_batches(engine, case)
     message_tasks, message_flush_reports = _run_message_batches(engine, case)
@@ -663,6 +671,27 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             _plain(query["result"]),
             f"graph_queries[{index}]",
         )
+    gather_replay: list[tuple[str, str, str]] = []
+    for index, query in enumerate(expect.get("gather_queries", [])):
+        selected_scope = query.get("scope_id", case["scope_id"])
+        actual = _plain(
+            engine.gather_view(
+                selected_scope, query["subject_key"]
+            ).to_dict()
+        )
+        _equal(
+            _project_partial(actual, query["result"]),
+            _plain(query["result"]),
+            f"gather_queries[{index}]",
+        )
+        if query.get("replay_identity"):
+            gather_replay.append(
+                (
+                    selected_scope,
+                    query["subject_key"],
+                    canonical_json(actual),
+                )
+            )
     if "conflicts_resolved" in expect:
         actual_stats = {
             item.predicate: item.conflicts_resolved
@@ -697,6 +726,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     engine._ingest_cards_sync(
         case.get("cards", []), scope_id=case["scope_id"]
     )
+    engine._ingest_cards_sync(case.get("federated_cards", []))
     second_record_reports, _ = _run_record_batches(engine, case)
     second_message_tasks, second_message_flush_reports = _run_message_batches(
         engine, case
@@ -773,6 +803,9 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         else None
     )
     replay_report = engine.replay(case["scope_id"])
+    for selected_scope in _case_scope_ids(case):
+        if selected_scope != case["scope_id"]:
+            engine.replay(selected_scope)
     if "replay_events_emitted" in expect:
         _equal(
             replay_report.events_emitted,
@@ -780,6 +813,16 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             "replay events emitted",
         )
     _equal(_snapshot(engine, case["scope_id"]), initial, "replay snapshot")
+    for selected_scope, selected_subject, before in gather_replay:
+        _equal(
+            canonical_json(
+                engine.gather_view(
+                    selected_scope, selected_subject
+                ).to_dict()
+            ),
+            before,
+            "gather replay view",
+        )
     if export_before_replay is not None:
         _equal(
             canonical_json(
@@ -827,6 +870,18 @@ def _run_message_batches(
         flush_reports.append(reports)
         results.append(engine.task(receipt.task_id))
     return results, flush_reports
+
+
+def _case_scope_ids(case: dict[str, Any]) -> list[str]:
+    scopes = {
+        case["scope_id"],
+        *(
+            card["scope_id"]
+            for card in case.get("federated_cards", [])
+            if isinstance(card, dict) and isinstance(card.get("scope_id"), str)
+        ),
+    }
+    return sorted(scopes, key=lambda item: item.encode("utf-8"))
 
 
 def _run_record_batches(

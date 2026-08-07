@@ -1,0 +1,56 @@
+case_id: gather-election-flip-notice
+title: Ten model gather contributions flip a human membership slot with notice
+invariants: [INV-22, INV-23]
+schema_profile: org-matters/v1
+scope_id: octo-gather-election-portfolio
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-portfolio, scope_id: octo-gather-election-portfolio, subject_key: portfolio, layer: 2, date: 2026-08-07, title: Fictional elected portfolio, status: open, source_refs: [{source_id: octo-org:seed:portfolio, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+federated_cards:
+  - {card_id: card-human, scope_id: octo-gather-election-a, subject_key: human-member, date: 2026-08-07, title: Fictional human member, status: open, source_refs: [{source_id: octo-org:seed:human-member, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+  - {card_id: card-model, scope_id: octo-gather-election-b, subject_key: model-member, date: 2026-08-07, title: Fictional model member, status: open, source_refs: [{source_id: octo-org:seed:model-member, sent_at: "2026-08-07T08:02:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-a:human-member", valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: octo-org:human:gather, sent_at: "2026-08-07T09:10:00Z", sender: Dana Reyes}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:11:00Z", source_refs: [{source_id: octo-org:model:gather:01, sent_at: "2026-08-07T09:11:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:12:00Z", source_refs: [{source_id: octo-org:model:gather:02, sent_at: "2026-08-07T09:12:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:13:00Z", source_refs: [{source_id: octo-org:model:gather:03, sent_at: "2026-08-07T09:13:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:14:00Z", source_refs: [{source_id: octo-org:model:gather:04, sent_at: "2026-08-07T09:14:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:15:00Z", source_refs: [{source_id: octo-org:model:gather:05, sent_at: "2026-08-07T09:15:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:16:00Z", source_refs: [{source_id: octo-org:model:gather:06, sent_at: "2026-08-07T09:16:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:17:00Z", source_refs: [{source_id: octo-org:model:gather:07, sent_at: "2026-08-07T09:17:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:18:00Z", source_refs: [{source_id: octo-org:model:gather:08, sent_at: "2026-08-07T09:18:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:19:00Z", source_refs: [{source_id: octo-org:model:gather:09, sent_at: "2026-08-07T09:19:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-gather-election-portfolio, subject_key: portfolio, subject_type: MATTER, predicate: gathers, operation: ASSERT, object_key: delivery-slot, object_value: "octo-gather-election-b:model-member", valid_from: "2026-08-07T09:20:00Z", source_refs: [{source_id: octo-org:model:gather:10, sent_at: "2026-08-07T09:20:00Z", sender: Octo Agent}]}
+expect:
+  assertions:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-a:human-member", origin: human}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", origin: model}
+  intervals:
+    - {subject_key: portfolio, predicate: status, object_value: open}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-a:human-member", valid_to: "2026-08-07T09:20:00.000000Z"}
+    - {subject_key: portfolio, predicate: gathers, object_value: "octo-gather-election-b:model-member", valid_to: null}
+  queries:
+    - {name: current, args: {subject_key: portfolio, predicate: gathers}, result: [{value: "octo-gather-election-b:model-member", origin: model}]}
+  review_items:
+    - reasons: [ELECTION_OVERRODE_HUMAN]
+      card_json: {subject_key: portfolio}
+      candidates_json:
+        - action: election_notice
+          subject_key: portfolio
+          old_human_target: "octo-gather-election-a:human-member"
+          new_elected_target: "octo-gather-election-b:model-member"
+          weights:
+            "octo-gather-election-a:human-member": {human: 10, model: 0, total: 10}
+            "octo-gather-election-b:model-member": {human: 0, model: 10, total: 10}
+  gather_queries:
+    - {subject_key: portfolio, result: {members_by_scope: [{scope_id: octo-gather-election-b, members: [{subject_key: model-member}]}], aggregate: {total: 1}}}

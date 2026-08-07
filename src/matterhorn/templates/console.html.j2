@@ -348,6 +348,10 @@
     .project-next { color: var(--muted); font: 10.5px var(--mono); margin: 0; }
     .project-card footer { color: var(--faint); font: 10px var(--mono); margin-top: auto; text-align: right; }
     .project-card .child-rows { margin-left: .4rem; }
+    .gather-scope { border-top: 1px solid var(--rule); padding-top: .35rem; }
+    .gather-scope-label { color: var(--faint); font: 10px var(--mono); margin-right: .35rem; }
+    .gather-member-chip { border: 1px solid var(--rule); background: var(--soft); color: var(--ink); cursor: pointer; font: 10px var(--mono); margin: .12rem .18rem .12rem 0; padding: .12rem .28rem; }
+    .gather-member-chip:hover { border-color: var(--rule-strong); }
     .others-drawer > summary { cursor: pointer; padding: .6rem .85rem; font-weight: 600;
       border: 1px solid var(--rule); background: var(--sheet); list-style: none; }
     .others-drawer > summary::before { content: "▸ "; color: var(--faint); }
@@ -718,7 +722,7 @@
   <script>
     "use strict";
     const state = {
-      scopes: [], filter: "all", matters: [], detail: null, selected: "",
+      scopes: [], filter: "all", matters: [], layerProjects: [], detail: null, selected: "",
       chatScope: "", chatHistory: [], mailAccounts: [], ai: null,
       queryResult: null, activity: [], connections: null,
       reviews: [], reviewCount: 0, rawStream: [], streamNewestRecordId: null, assetVersion: null,
@@ -750,6 +754,9 @@
       if (value && typeof value === "object") return value.display_name || value.name || value.id || JSON.stringify(value);
       return String(value ?? "—");
     };
+    const gatherSubjectRef = (scope, subject) => [scope, subject].map((value) =>
+      encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+    ).join(":");
     const api = async (path, options = {}) => {
       const isForm = options.body instanceof FormData;
       const response = await fetch(path, {
@@ -883,7 +890,12 @@
 
     async function loadMatters() {
       const query = state.filter === "all" ? "" : `?scope=${encodeURIComponent(state.filter)}`;
-      state.matters = await api(`/v1/matters${query}`);
+      const [visible, all] = await Promise.all([
+        api(`/v1/matters${query}`),
+        query ? api("/v1/matters") : Promise.resolve(null)
+      ]);
+      state.matters = visible;
+      state.layerProjects = (all || visible).filter((matter) => matter.layer === 2);
       renderMatters();
       renderToday();
     }
@@ -1150,6 +1162,20 @@
         : "";
       const timeline = timelineHtml(detail, personNames);
       const timeTree = detail.subject_type === "TOPIC" ? "" : timeTreeHtml(detail);
+      const gatherGroups = (detail.gather?.members_by_scope || []).map((group) =>
+        `<section class="gather-scope"><h4>${escapeHtml(group.scope_id)}</h4><div>${group.members.map((member) =>
+          `<button type="button" class="gather-member-chip" data-gather-scope="${escapeHtml(member.scope_id)}" data-gather-subject="${escapeHtml(member.subject_key)}">${escapeHtml(member.title)} · ${escapeHtml(compactValue(member.status))} · ${member.rollup.descendants_completed}/${member.rollup.descendants_total + 1}</button>`
+        ).join("")}</div></section>`
+      ).join("");
+      const gatherMembership = detail.layer >= 2
+        ? `<section class="gather-panel"><h3>Gathered membership</h3><p class="project-count">${detail.gather.aggregate.completed}/${detail.gather.aggregate.total} across scopes · ${detail.gather.aggregate.blocked} blocked</p>${gatherGroups || '<p class="empty">No gathered members yet.</p>'}</section>`
+        : "";
+      const gatherTargets = state.layerProjects;
+      const gatherControl = detail.layer < 2 && gatherTargets.length
+        ? `<section class="gather-panel"><h3>Gather into project</h3><form class="form-stack" id="gather-form"><label>Layer-2 project<select id="gather-target" required>${gatherTargets.sort((left, right) => bytewise(left.scope_id, right.scope_id) || bytewise(left.subject_key, right.subject_key)).map((matter) =>
+          `<option value="${escapeHtml(JSON.stringify({ scope_id: matter.scope_id, subject_key: matter.subject_key }))}">${escapeHtml(matter.title)} · ${escapeHtml(matter.scope_id)}</option>`
+        ).join("")}</select></label><label>Reason<textarea id="gather-reason" required></textarea></label><label>Your name<input id="gather-sender" required value="${escapeHtml(localStorage.getItem("matterhorn.console.sender") || "")}"></label><div id="gather-error"></div><button class="button" type="submit">Gather into project</button></form></section>`
+        : "";
       const related = detail.related?.length
         ? `<section class="related-panel"><h3>Related</h3><ul class="related-list">${detail.related.map((matter) =>
             `<li><button type="button" class="related-item" data-related-scope="${escapeHtml(matter.scope_id)}" data-related-subject="${escapeHtml(matter.subject_key)}"><span class="scope-chip">${escapeHtml(matter.scope_id)}</span><strong>${escapeHtml(matter.title)}</strong><span class="related-via">${escapeHtml(matter.via)}</span></button></li>`
@@ -1172,7 +1198,7 @@
           </section>`
         : '<section class="merge-panel"><h3>Merge into…</h3><p class="empty">No other matters in this scope are currently on the wall.</p></section>';
       return `<div class="detail-head"><div><p class="eyebrow">${escapeHtml(detail.scope_id)} · ${escapeHtml(detail.subject_key)}</p><h2>${escapeHtml(detail.title)}</h2></div><button type="button" class="detail-close">Close</button></div>
-        ${aliases}${handles}<ul class="detail-values">${values}</ul>${timeTree}${timeline}${related}${mergeControl}`;
+        ${aliases}${handles}<ul class="detail-values">${values}</ul>${gatherMembership}${gatherControl}${timeTree}${timeline}${related}${mergeControl}`;
     }
 
     function timelineHtml(detail, personNames = {}) {
@@ -1311,7 +1337,7 @@
     }
 
     function isProject(matter) {
-      return (matter.descendants_total || 0) > 0 || state.pinnedProjects.has(projectKey(matter));
+      return matter.layer >= 2 || (matter.descendants_total || 0) > 0 || state.pinnedProjects.has(projectKey(matter));
     }
 
     function projectSort(left, right) {
@@ -1326,10 +1352,17 @@
       const key = projectKey(matter);
       const expanded = state.expandedRoots.has(key);
       const status = compactValue(matter.status) || "open";
-      const total = matter.descendants_total || 0;
-      const doneShare = total ? (matter.descendants_completed / total) * 100 : 0;
-      const blockers = (matter.bubbled_blockers || []).map((item) =>
-        `${item.subject_key}: ${compactValue(item.blocker)}`).join(" · ");
+      const federated = matter.layer >= 2;
+      const total = federated ? (matter.gather_total || 0) : (matter.descendants_total || 0);
+      const completed = federated ? (matter.gather_completed || 0) : matter.descendants_completed;
+      const doneShare = total ? (completed / total) * 100 : 0;
+      const blockers = (federated ? (matter.gather_bubbled_blockers || []) : (matter.bubbled_blockers || [])).map((item) =>
+        `${item.reference || item.subject_key}: ${compactValue(item.blocker)}`).join(" · ");
+      const gatherChips = federated ? (matter.gather_members_by_scope || []).map((group) =>
+        `<div class="gather-scope"><span class="gather-scope-label">${escapeHtml(group.scope_id)}</span>${group.members.map((member) =>
+          `<button type="button" class="gather-member-chip" data-subject="${escapeHtml(member.subject_key)}" data-scope="${escapeHtml(member.scope_id)}">${escapeHtml(member.title)}</button>`
+        ).join("")}</div>`
+      ).join("") : "";
       const kids = expanded ? (matter.children_preview || []).slice().sort((left, right) =>
         new Date(left.birth_instant || 0) - new Date(right.birth_instant || 0)).map((kid) =>
         `<button type="button" class="child-row" data-subject="${escapeHtml(kid.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">
@@ -1346,11 +1379,12 @@
         </header>
         <h3 class="project-title" data-subject="${escapeHtml(matter.subject_key)}" data-scope="${escapeHtml(matter.scope_id)}">${escapeHtml(matter.title)}</h3>
         ${total ? `<div class="project-progress"><span style="width:${doneShare.toFixed(0)}%"></span></div>
-        <p class="project-count">${matter.descendants_completed}/${total} 子目标 ${expanded ? "▾" : "▸ 点击展开"}</p>` : '<p class="project-count">独立事项 · 置顶项目</p>'}
+        <p class="project-count">${completed}/${total} ${federated ? "across scopes" : `子目标 ${expanded ? "▾" : "▸ 点击展开"}`}</p>` : `<p class="project-count">${federated ? "0/0 across scopes" : "独立事项 · 置顶项目"}</p>`}
+        ${gatherChips}
         ${miniTreeSvg(matter)}
         ${blockers ? `<p class="project-blockers">⛔ ${escapeHtml(blockers)}</p>` : ""}
         ${matter.next_step != null ? `<p class="project-next">next · ${escapeHtml(compactValue(matter.next_step))}</p>` : ""}
-        <footer><time>${escapeHtml(compactTime(matter.latest_activity || matter.updated_at))}</time></footer>
+        <footer><time>${escapeHtml(compactTime((federated ? matter.gather_latest_activity : matter.latest_activity) || matter.updated_at))}</time></footer>
         ${kids ? `<div class="child-rows">${kids}</div>` : ""}
       </article>`;
     }
@@ -1490,6 +1524,39 @@
         sender: byId("decision-sender").value.trim(),
         errorId: "decision-error"
       });
+    }
+
+    async function submitGather(event) {
+      event.preventDefault();
+      const target = JSON.parse(byId("gather-target").value);
+      const sender = byId("gather-sender").value.trim();
+      const reason = byId("gather-reason").value.trim();
+      const now = new Date().toISOString();
+      localStorage.setItem("matterhorn.console.sender", sender);
+      try {
+        await api(`/v1/scopes/${encodeURIComponent(target.scope_id)}/corrections`, {
+          method: "POST",
+          body: JSON.stringify({
+            subject_key: target.subject_key,
+            subject_type: "MATTER",
+            predicate: "gathers",
+            object_value: gatherSubjectRef(state.detail.scope_id, state.detail.subject_key),
+            valid_from: now,
+            source_refs: [{
+              source_id: `console:${crypto.randomUUID()}`,
+              sent_at: now,
+              sender,
+              excerpt: `Console gather into project. Reason: ${reason}`
+            }]
+          })
+        });
+        await Promise.all([
+          loadDetail(state.detail.scope_id, state.detail.subject_key),
+          loadMatters()
+        ]);
+      } catch (error) {
+        byId("gather-error").innerHTML = `<div class="error-box">${escapeHtml(error.message)}</div>`;
+      }
     }
 
     async function submitMerge(event) {
@@ -1972,6 +2039,8 @@
       if (button) resolveReview(button);
     });
     byId("detail-dialog").addEventListener("click", (event) => {
+      const gathered = event.target.closest("[data-gather-subject]");
+      if (gathered) { loadDetail(gathered.dataset.gatherScope, gathered.dataset.gatherSubject); return; }
       const tree = event.target.closest("[data-tree-subject]");
       if (tree) { loadDetail(tree.dataset.treeScope, tree.dataset.treeSubject); return; }
       const related = event.target.closest("[data-related-subject]");
@@ -1986,6 +2055,7 @@
     });
     byId("detail-dialog").addEventListener("submit", (event) => {
       if (event.target.closest("#merge-form")) submitMerge(event);
+      else if (event.target.closest("#gather-form")) submitGather(event);
       else if (event.target.closest("#reparent-form")) submitReparent(event);
       else if (event.target.closest("#decision-form")) submitDecision(event);
     });

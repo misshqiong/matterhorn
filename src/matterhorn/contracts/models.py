@@ -156,6 +156,13 @@ class SubjectRecord:
     source_ids: frozenset[str]
     parent_subject_key: str | None = None
     thread_ids: frozenset[str] = frozenset()
+    layer: int = 1
+
+    def __post_init__(self) -> None:
+        if isinstance(self.layer, bool) or not isinstance(self.layer, int):
+            raise TypeError("subject layer MUST be an integer >= 1")
+        if self.layer < 1:
+            raise ValueError("subject layer MUST be an integer >= 1")
 
 
 class EvidenceStatus(str, Enum):
@@ -204,6 +211,7 @@ class EpisodeCard(StrictModel):
     occurred_at: datetime | None = None
     last_active_at: datetime | None = None
     source_refs: list[SourceRef]
+    layer: int = Field(default=1, ge=1)
     cleared_fields: list[str] = Field(default_factory=list)
     subject_key: str | None = None
     thread_id: str | None = None
@@ -313,6 +321,8 @@ class PredicateDefinition(StrictModel):
     extraction: ExtractionMode
     retract_guard: RetractGuard = RetractGuard.explicit
     object: str = "string"
+    subject_layer_min: int = Field(default=1, ge=1)
+    cross_scope: bool = False
     source_field: str | None = None
     extraction_rule: str = "scalar"
     role_filter: list[str] = Field(default_factory=list)
@@ -342,6 +352,12 @@ class PredicateDefinition(StrictModel):
                 raise ValueError("field_domains values MUST be unique")
         if self.retractable and self.cardinality != Cardinality.APPEND:
             raise ValueError("retractable is only valid for APPEND predicates")
+        if self.object != "subject" and (
+            self.subject_layer_min != 1 or self.cross_scope
+        ):
+            raise ValueError(
+                "subject_layer_min and cross_scope require a subject reference"
+            )
         return self
 
     def value_is_in_domain(self, value: Any) -> bool:
@@ -464,11 +480,13 @@ class SchemaProfile(StrictModel):
         for predicate in self.predicates:
             if predicate.subject not in subject_names:
                 raise ValueError(f"unknown predicate subject: {predicate.subject}")
-            if (
-                predicate.object == "subject"
-                and predicate.cardinality != Cardinality.SINGLE
-            ):
-                raise ValueError("subject-reference predicates MUST be SINGLE")
+            if predicate.object == "subject" and predicate.cardinality not in {
+                Cardinality.SINGLE,
+                Cardinality.SET,
+            }:
+                raise ValueError(
+                    "subject-reference predicates MUST be SINGLE or SET"
+                )
         if sum(1 for item in self.subjects if item.primary) > 1:
             raise ValueError("at most one subject may be primary")
         if self.completion and self.completion.predicate not in predicate_names:
@@ -784,6 +802,7 @@ class ExportSubject(StrictModel):
     title: str
     normalized_title: str
     source_ids: list[str] = Field(default_factory=list)
+    layer: int = Field(default=1, ge=1)
     parent_subject_key: str | None = None
     thread_ids: list[str] = Field(default_factory=list)
 

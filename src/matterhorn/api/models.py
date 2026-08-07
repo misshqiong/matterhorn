@@ -64,6 +64,7 @@ class CardInput(StrictModel):
     occurred_at: datetime | None = None
     last_active_at: datetime | None = None
     source_refs: list[SourceRef] = Field(min_length=1)
+    layer: int = Field(default=1, ge=1)
     cleared_fields: list[str] = Field(default_factory=list)
     subject_key: str | None = None
     thread_id: str | None = None
@@ -196,6 +197,7 @@ class MatterResponse(StrictModel):
     next_step: Any = None
     due: Any = None
     subject_key: str
+    layer: int = Field(default=1, ge=1)
     aliases: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
     unseen: bool | None = None
@@ -208,6 +210,12 @@ class MatterResponse(StrictModel):
     bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
     latest_activity: datetime | None = None
     children_preview: list[dict[str, Any]] = Field(default_factory=list)
+    gather_total: int = Field(default=0, ge=0)
+    gather_completed: int = Field(default=0, ge=0)
+    gather_blocked: int = Field(default=0, ge=0)
+    gather_bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    gather_members_by_scope: list[dict[str, Any]] = Field(default_factory=list)
+    gather_latest_activity: datetime | None = None
 
 
 class MatterListResponse(RootModel[list[MatterResponse]]):
@@ -289,6 +297,7 @@ class BriefMatterResponse(StrictModel):
     scope_id: str
     subject_key: str
     title: str
+    layer: int = Field(default=1, ge=1)
     status: Any = None
     progress: str | None = None
     blocker: list[Any] = Field(default_factory=list)
@@ -298,6 +307,11 @@ class BriefMatterResponse(StrictModel):
     descendants_completed: int = Field(default=0, ge=0)
     descendants_blocked: int = Field(default=0, ge=0)
     bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    gather_total: int = Field(default=0, ge=0)
+    gather_completed: int = Field(default=0, ge=0)
+    gather_blocked: int = Field(default=0, ge=0)
+    gather_bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    gather_latest_activity: datetime | None = None
 
 
 class BriefWorthKnowingResponse(StrictModel):
@@ -369,6 +383,52 @@ class StructuralRollupResponse(StrictModel):
     latest_activity: datetime | None = None
 
 
+class GatherSubjectResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    subject_type: str
+    title: str
+    normalized_title: str
+    source_ids: list[str] = Field(default_factory=list)
+    parent_subject_key: str | None = None
+    thread_ids: list[str] = Field(default_factory=list)
+    layer: int = Field(ge=2)
+
+
+class GatherMemberResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    title: str
+    layer: int = Field(ge=1)
+    status: Any = None
+    blocker: list[Any] = Field(default_factory=list)
+    rollup: StructuralRollupResponse
+    source_ids: list[str] = Field(default_factory=list)
+    supporting_assertion_ids: list[str] = Field(default_factory=list)
+    origin: str
+
+
+class GatherScopeResponse(StrictModel):
+    scope_id: str
+    members: list[GatherMemberResponse]
+
+
+class FederatedRollupResponse(StrictModel):
+    total: int = Field(ge=0)
+    completed: int = Field(ge=0)
+    blocked: int = Field(ge=0)
+    bubbled_blockers: list[dict[str, Any]] = Field(default_factory=list)
+    latest_activity: datetime | None = None
+
+
+class GatherViewResponse(StrictModel):
+    scope_id: str
+    subject_key: str
+    subject: GatherSubjectResponse
+    members_by_scope: list[GatherScopeResponse]
+    aggregate: FederatedRollupResponse
+
+
 class MatterGraphResponse(StrictModel):
     scope_id: str
     subject_key: str
@@ -384,12 +444,14 @@ class MatterDetailResponse(StrictModel):
     subject_key: str
     subject_type: str
     title: str
+    layer: int = Field(default=1, ge=1)
     person_names: dict[str, str] = Field(default_factory=dict)
     conversation_names: dict[str, str] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
     handles: list[SubjectHandleResponse] = Field(default_factory=list)
     related: list[RelatedMatterResponse] = Field(default_factory=list)
     graph: MatterGraphResponse
+    gather: GatherViewResponse | None = None
     current: list[ValueResponse]
     timeline: dict[str, list[ValueResponse]]
 

@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS subjects (
     title TEXT NOT NULL,
     normalized_title TEXT NOT NULL,
     source_ids_json TEXT NOT NULL,
+    layer INTEGER NOT NULL DEFAULT 1 CHECK(layer >= 1),
     thread_ids_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (scope_id, subject_key)
 );
@@ -355,6 +356,10 @@ class SQLiteStore:
                 ALTER TABLE subjects
                 ADD COLUMN thread_ids_json TEXT NOT NULL DEFAULT '[]'
                 """
+            )
+        if "layer" not in subject_columns:
+            self.connection.execute(
+                "ALTER TABLE subjects ADD COLUMN layer INTEGER NOT NULL DEFAULT 1"
             )
         assertion_columns = {
             row["name"]
@@ -1270,6 +1275,7 @@ class SQLiteStore:
                 title=row["title"],
                 normalized_title=row["normalized_title"],
                 source_ids=frozenset(json.loads(row["source_ids_json"])),
+                layer=row["layer"],
                 parent_subject_key=row["parent_subject_key"],
                 thread_ids=frozenset(json.loads(row["thread_ids_json"])),
             )
@@ -1281,10 +1287,11 @@ class SQLiteStore:
             """
             INSERT INTO subjects(
               scope_id,subject_key,subject_type,parent_subject_key,title,
-              normalized_title,source_ids_json,thread_ids_json
-            ) VALUES(?,?,?,?,?,?,?,?)
+              normalized_title,source_ids_json,layer,thread_ids_json
+            ) VALUES(?,?,?,?,?,?,?,?,?)
             ON CONFLICT(scope_id,subject_key) DO UPDATE SET
               source_ids_json=excluded.source_ids_json,
+              layer=excluded.layer,
               thread_ids_json=excluded.thread_ids_json
             """,
             (
@@ -1295,6 +1302,7 @@ class SQLiteStore:
                 subject.title,
                 subject.normalized_title,
                 canonical_json(sorted(subject.source_ids)),
+                subject.layer,
                 canonical_json(sorted(subject.thread_ids)),
             ),
         )
