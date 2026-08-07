@@ -2101,15 +2101,17 @@ is emitting nothing.
 
 A declared subject's key MUST be derived from its scope, subject type,
 normalized title, and CONTAINER — never from the window's record ids. The
+degenerate titles that fall back to window scope are schema configuration
+(`identity.degenerate_titles`), not code: which words name the act of
+recording rather than a subject depends on the corpus and its language,
+exactly like `completion.completed_values`. The
 same ongoing concern is titled again in a later window of the same
 container, so a window-scoped key mints a fresh subject every time: this
 produced 32 redundant copies of 242 live matters, including 14 of one pull
 request, against one merge in all history. Container scope, not bare title,
 because a bare title fuses across containers into one immortal accreting
-subject and the system has no split primitive. A degenerate title (a
-configured stop list such as "总结"/"讨论"/"summary", which names the act of
-summarizing rather than a subject) is not an identity and MUST fall back to
-window scope. Re-declaring an existing subject accrues evidence onto it
+subject and the system has no split primitive. A degenerate title is not an identity and MUST fall
+back to window scope. Re-declaring an existing subject accrues evidence onto it
 rather than minting a twin.
 
 ### 26.3 Gates
@@ -2238,9 +2240,19 @@ Clusters below `theme_min_cluster` (default 3) are discarded. When a
 cluster member already parents children, the proposal targets that
 existing root instead of a new theme.
 
-Clustering MAY consult the model. The rules above are the deterministic
-floor, not a ceiling: they describe how affinity is computed today, and a
-model-consulted partition MAY replace or extend them. Until 2026-08-07
+Clustering MAY consult the model, and does so through `akin_to`. The model
+asserts "these two matters are one ongoing concern" during a section 26
+session, while it still holds the raw window; clustering then reads those
+committed rows as a fourth affinity kind, `bond`, strong in either
+direction. This is how semantics reach layer 1→2 without layer 1→2 calling
+a model: the judgement is the model's, but it arrives as an ordinary
+evidence-bearing assertion that a human can retract and replay reproduces.
+`akin_to` is SET, same-scope, and carries no containment, so it never
+enters the cycle or election gates — but a merge MUST rewrite it, or the
+same knowledge survives or dies according to which direction it was
+emitted.
+
+The rules above are the deterministic floor, not a ceiling. Until 2026-08-07
 clustering was required to be zero-model and reproducible from committed
 store state alone; that requirement is retired because it contradicted
 section 29.1. One operator applied at adjacent layers cannot divide labour
@@ -2267,12 +2279,19 @@ Application mode `theme_converge ∈ {off, review, auto}` (default
 applies directly (model origin, P8 human corrections override) when the
 confidence gate holds — the cluster exhibits at least two distinct
 affinity kinds, or at least five members with one kind — and falls back to
-review otherwise. A model-consulted partition (section 28.1) carries no
-affinity kinds of its own, so extending `auto` to one means deciding what
-its gate reads. Note what is at stake in that choice: `auto` is the only
-unreviewed write path in the system, and a gate fed by the model's own
-confidence would put it under the judgement of the thing it governs.
-Committed evidence a later reader can recount does not have that problem.
+review otherwise. The gate reads two signals and no others: a shared
+handle, which is structural identity, or `bond` edges spanning the cluster
+that are witnessed by at least `theme_min_witnesses` (default 2) distinct
+evidence windows. Title affinity alone is never sufficient — duplicate
+identities of one subject share wording perfectly, and the retired rule
+("two affinity kinds, or five members with one") let 24 copies of one pull
+request clear the gate, because `evidence` is free whenever two members
+share a container. Witnesses are counted from committed source ids, never
+from model-authored timestamps: one emission can assert any number of
+bonds, so bond count alone would let a single window auto-mint a theme.
+`auto` is the only unreviewed write path in the system, so its gate MUST
+read committed state a later reader can recount, never the model's own
+confidence in itself.
 
 ### 28.3 Scheduling
 
@@ -2304,11 +2323,16 @@ whose parentage a human has ruled on, whatever the pass does.
 ### 28.4 Conformance and evaluation
 
 Golden cases MUST cover: affinity-edge kinds and min-cluster discard;
-merge-into-existing-root; the auto/review confidence gate; idempotent
-re-run; cycle rejection through a proposed edge. The evaluation suite
-gains a rediscovery test: a fixture scope whose known theme structure has
-been stripped MUST be rediscovered by the pass (fictionalized from the
-2026-08-06 manual backfill, which is the acceptance answer key).
+merge-into-existing-root; the auto/review confidence gate, including a
+bonded cluster that auto-applies beside a wording-only cluster that does
+not; idempotent re-run; cycle rejection through a proposed edge. The
+evaluation suite gains a rediscovery test: a fixture scope whose known
+theme structure has been stripped MUST be rediscovered by the pass
+(fictionalized from the 2026-08-06 manual backfill, which is the
+acceptance answer key). Rediscovery MUST be scored on the proposal, not
+on whether the edge auto-applied — the confidence gate is a separate
+judgement, and scoring the applied edge made tightening it read as a
+capability loss.
 
 ## 29. Layered memory network
 

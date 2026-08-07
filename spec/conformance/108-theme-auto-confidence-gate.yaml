@@ -1,5 +1,5 @@
 case_id: theme-auto-confidence-gate
-title: Auto theme application requires deterministic multi-kind confidence
+title: Auto theme application requires semantic bonds witnessed by independent windows
 invariants: [INV-19, INV-20]
 schema_profile: org-matters/v1
 scope_id: octo-theme-confidence
@@ -12,6 +12,12 @@ cards:
   - {card_id: l-b-card, scope_id: octo-theme-confidence, subject_key: l-b, date: 2026-08-06, title: Octo lunar beta, status: open, source_refs: [{source_id: low-b:l-b, sent_at: '2026-08-06T09:04:00Z', sender: Dana Reyes}]}
   - {card_id: l-c-card, scope_id: octo-theme-confidence, subject_key: l-c, date: 2026-08-06, title: Octo lunar gamma, status: open, source_refs: [{source_id: low-c:l-c, sent_at: '2026-08-06T09:05:00Z', sender: Dana Reyes}]}
 theme_config: {theme_converge: auto, theme_min_cluster: 3}
+# The h-* group carries semantic bonds cited by two independent windows.
+# The l-* group shares wording only — which is what a cluster of duplicate
+# identities also shares, so it can never be the auto signal.
+corrections:
+  - {scope_id: octo-theme-confidence, subject_key: h-a, subject_type: MATTER, predicate: akin_to, operation: ASSERT, object_value: h-b, valid_from: '2026-08-06T09:30:00Z', source_refs: [{source_id: bond-room:w1, sent_at: '2026-08-06T09:30:00Z', sender: Dana Reyes}]}
+  - {scope_id: octo-theme-confidence, subject_key: h-b, subject_type: MATTER, predicate: akin_to, operation: ASSERT, object_value: h-c, valid_from: '2026-08-06T09:31:00Z', source_refs: [{source_id: bond-room:w2, sent_at: '2026-08-06T09:31:00Z', sender: Dana Reyes}]}
 tool_loop_sessions:
   - turns: [{tool_call: {name: emit, arguments: {title: Dana launch theme, member_subject_keys: [h-a, h-b, h-c], existing_root_subsumes: null}}}]
   - turns: [{tool_call: {name: emit, arguments: {title: Octo lunar theme, member_subject_keys: [l-a, l-b, l-c], existing_root_subsumes: null}}}]
@@ -28,6 +34,8 @@ expect:
     - {subject_key: l-a, predicate: status, object_value: open}
     - {subject_key: l-b, predicate: status, object_value: open}
     - {subject_key: l-c, predicate: status, object_value: open}
+    - {subject_key: h-a, predicate: akin_to, object_value: h-b, origin: human}
+    - {subject_key: h-b, predicate: akin_to, object_value: h-c, origin: human}
     - {subject_key: h-a, predicate: part_of, origin: model}
     - {subject_key: h-b, predicate: part_of, origin: model}
     - {subject_key: h-c, predicate: part_of, origin: model}
@@ -38,6 +46,8 @@ expect:
     - {subject_key: l-a, predicate: status, object_value: open}
     - {subject_key: l-b, predicate: status, object_value: open}
     - {subject_key: l-c, predicate: status, object_value: open}
+    - {subject_key: h-a, predicate: akin_to, object_value: h-b}
+    - {subject_key: h-b, predicate: akin_to, object_value: h-c}
     - {subject_key: h-a, predicate: part_of, origin: model}
     - {subject_key: h-b, predicate: part_of, origin: model}
     - {subject_key: h-c, predicate: part_of, origin: model}

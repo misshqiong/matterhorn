@@ -770,8 +770,21 @@ def run_theme_rediscovery(
             for theme in themes
             for member in theme["members"]
         }
+        # Score the proposal, not the applied edge. Rediscovery asks whether
+        # the mechanism found the known grouping; whether that grouping then
+        # auto-applies or waits for review is the confidence gate's separate
+        # judgement, and folding it in here made a safety tightening read as
+        # a capability loss.
         actual_by_member: dict[str, str | None] = {}
+        proposed = {
+            member: proposal.title
+            for proposal in report.proposals
+            for member in proposal.member_subject_keys
+        }
         for member in expected_by_member:
+            if member in proposed:
+                actual_by_member[member] = proposed[member]
+                continue
             parents = engine.query.current(scope_id, member, "part_of")
             parent_key = parents[0].value if parents else None
             actual_by_member[member] = title_by_key.get(parent_key)

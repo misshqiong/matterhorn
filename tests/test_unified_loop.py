@@ -312,6 +312,54 @@ def test_degenerate_titles_never_become_identity_anchors(tmp_path) -> None:
     assert len([item for item in engine.store.subjects("scope") if item.title == "总结"]) == 2
 
 
+def test_duplicates_command_reports_pairs_but_never_degenerate_titles(tmp_path) -> None:
+    from typer.testing import CliRunner
+
+    from matterhorn.cli.app import app
+
+    db = tmp_path / "dupes.db"
+    engine = Engine(db, clock=lambda: datetime(2026, 8, 6, 10, tzinfo=UTC))
+
+    def seed(key: str, title: str) -> None:
+        engine._ingest_cards_sync(
+            [
+                EpisodeCard(
+                    card_id=f"card-{key}",
+                    scope_id="scope",
+                    subject_key=key,
+                    date=date(2026, 8, 6),
+                    title=title,
+                    status="open",
+                    source_refs=[
+                        SourceRef(
+                            source_id=f"octo-room:{key}",
+                            sent_at=datetime(2026, 8, 6, 8, tzinfo=UTC),
+                            sender="Dana Reyes",
+                        )
+                    ],
+                )
+            ],
+            scope_id="scope",
+        )
+
+    seed("dup-1", "Fictional compatibility audit")
+    seed("dup-2", "Fictional compatibility audit")
+    seed("noise-1", "总结")
+    seed("noise-2", "总结")
+
+    result = CliRunner().invoke(app, ["duplicates", "scope", "--db", str(db)])
+
+    assert result.exit_code == 1
+    groups = json.loads(result.stdout)
+    assert [item["normalized_title"] for item in groups] == [
+        "fictional compatibility audit"
+    ]
+    assert groups[0]["keep"] == "dup-1"
+    assert groups[0]["merge_away"] == ["dup-2"]
+    # The command only reports; merging stays a human decision.
+    assert engine.canonical_subject_key("scope", "dup-2") == "dup-2"
+
+
 def test_mutual_parent_rejection_enqueues_one_merge_suggestion(tmp_path) -> None:
     gateway = _gateway(
         [

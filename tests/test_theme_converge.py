@@ -92,6 +92,38 @@ def _seed(
             )
 
 
+def _bond(
+    engine: Engine,
+    left: str,
+    right: str,
+    *,
+    window: str,
+    minute: int,
+    scope_id: str = SCOPE,
+) -> None:
+    """Assert `left akin_to right`, cited by one distinct evidence window."""
+
+    engine.correct(
+        {
+            "scope_id": scope_id,
+            "subject_key": left,
+            "subject_type": "MATTER",
+            "predicate": "akin_to",
+            "operation": "ASSERT",
+            "object_value": right,
+            "valid_from": NOW + timedelta(minutes=minute),
+            "source_refs": [
+                {
+                    "source_id": window,
+                    "sent_at": NOW + timedelta(minutes=minute),
+                    "sender": "Dana Reyes",
+                    "excerpt": f"Fictional bond {left}~{right}.",
+                }
+            ],
+        }
+    )
+
+
 def _candidate(
     key: str,
     *,
@@ -286,17 +318,30 @@ def test_auto_applies_five_member_one_kind_cluster_as_model_edges(tmp_path) -> N
 
     report = engine.themes(SCOPE)
 
-    assert report.edges_applied == 5
-    assert report.reviews_enqueued == 0
+    # Shared wording alone no longer auto-applies, however many members
+    # share it: 24 duplicate identities of one pull request cleared the
+    # retired gate. The grouping is still found, it just waits for review.
+    assert report.edges_applied == 0
+    assert report.reviews_enqueued == 5
     assert report.roots_created == 1
+    assert report.proposals[0].disposition == "review"
+    assert not report.clusters[0].confident
+
+    # Apply the proposal by hand so the rest of the case keeps its subject.
+    for item in engine.review_items(SCOPE):
+        candidate = item.candidates_json[0]
+        engine.resolve_review(
+            SCOPE,
+            item.review_id,
+            action="attach_subgoal",
+            parent_subject_key=candidate["parent_subject_key"],
+            source_refs=[_source(f"review-{item.review_id[:8]}")],
+        )
     parents = {
         engine.query.current(SCOPE, key, "part_of")[0].value for key in members
     }
     assert parents == {report.proposals[0].parent_subject_key}
-    assert all(
-        engine.query.current(SCOPE, key, "part_of")[0].origin == "model"
-        for key in members
-    )
+
     _seed(engine, [("human-parent", "Fictional human parent", None)])
     engine.correct(
         {
@@ -313,6 +358,86 @@ def test_auto_applies_five_member_one_kind_cluster_as_model_edges(tmp_path) -> N
     assert corrected.value == "human-parent"
     assert corrected.origin == "human"
     assert engine.themes(SCOPE).clusters == ()
+
+
+def test_semantic_bonds_carry_a_cluster_the_wording_cannot(tmp_path) -> None:
+    """akin_to is how the model's reading of the raw window reaches layer 2."""
+
+    members = ["grok", "codex", "deepseek"]
+    gateway = ThemeGateway(
+        [
+            {
+                "title": "AI 订阅与额度",
+                "member_subject_keys": members,
+                "existing_root_subsumes": None,
+            }
+        ]
+    )
+    engine = Engine(
+        tmp_path / "bonded.db",
+        gateway=gateway,
+        clock=lambda: NOW + timedelta(hours=1),
+        theme_converge="auto",
+    )
+    # Titles that share no tokens at all: lexical clustering cannot see
+    # these as one concern, which is exactly the live failure.
+    _seed(
+        engine,
+        [
+            ("grok", "grok套餐价格评估", "room-x"),
+            ("codex", "Codex 订阅区域比价", "room-y"),
+            ("deepseek", "deepseek 自部署讨论", "room-z"),
+        ],
+    )
+    assert engine.themes(SCOPE).clusters == ()
+
+    _bond(engine, "grok", "codex", window="bond-room:w1", minute=1)
+    _bond(engine, "codex", "deepseek", window="bond-room:w2", minute=2)
+
+    report = engine.themes(SCOPE)
+
+    assert len(report.clusters) == 1
+    assert set(report.clusters[0].member_keys) == set(members)
+    assert AffinityKind.bond in report.clusters[0].affinity_kinds
+    assert report.clusters[0].confident is True
+    assert report.edges_applied == 3
+    assert report.roots_created == 1
+
+
+def test_bonds_from_one_window_do_not_auto_apply(tmp_path) -> None:
+    """One emission must not be able to mint a theme by itself."""
+
+    gateway = ThemeGateway(
+        [
+            {
+                "title": "AI 订阅与额度",
+                "member_subject_keys": ["grok", "codex", "deepseek"],
+                "existing_root_subsumes": None,
+            }
+        ]
+    )
+    engine = Engine(
+        tmp_path / "one-window.db",
+        gateway=gateway,
+        clock=lambda: NOW + timedelta(hours=1),
+        theme_converge="auto",
+    )
+    _seed(
+        engine,
+        [
+            ("grok", "grok套餐价格评估", "room-x"),
+            ("codex", "Codex 订阅区域比价", "room-y"),
+            ("deepseek", "deepseek 自部署讨论", "room-z"),
+        ],
+    )
+    _bond(engine, "grok", "codex", window="bond-room:same", minute=1)
+    _bond(engine, "codex", "deepseek", window="bond-room:same", minute=2)
+
+    report = engine.themes(SCOPE)
+
+    assert report.clusters[0].confident is False
+    assert report.edges_applied == 0
+    assert report.reviews_enqueued == 3
 
 
 def test_review_mode_always_queues_even_with_two_affinity_kinds(tmp_path) -> None:
@@ -339,6 +464,10 @@ def test_review_mode_always_queues_even_with_two_affinity_kinds(tmp_path) -> Non
             ("c", "Dana octo gamma", "shared-room"),
         ],
     )
+    # Bonds across two distinct windows make this cluster genuinely
+    # confident, so the case still proves review mode overrides the gate.
+    _bond(engine, "a", "b", window="bond-room:w1", minute=1)
+    _bond(engine, "b", "c", window="bond-room:w2", minute=2)
 
     report = engine.themes(SCOPE)
 
@@ -412,9 +541,18 @@ def test_existing_parent_root_is_reused_and_cycle_edge_is_rejected(tmp_path) -> 
 
     assert report.proposals[0].parent_subject_key == "a"
     assert report.roots_created == 0
-    assert report.edges_applied == 1
+    # Existing-root reuse and cycle rejection are admission decisions and
+    # run whichever disposition the confidence gate picks; shared wording
+    # alone now lands in review.
+    assert report.edges_applied == 0
+    assert report.reviews_enqueued == 1
     assert report.rejection_counts == {"STRUCTURE_CYCLE": 1}
-    assert engine.query.current(SCOPE, "c", "part_of")[0].value == "a"
+    review = next(
+        item
+        for item in engine.review_items(SCOPE)
+        if item.candidates_json[0]["subject_key"] == "c"
+    )
+    assert review.candidates_json[0]["parent_subject_key"] == "a"
 
 
 @pytest.mark.parametrize("backend", ["sqlite", "postgres"])

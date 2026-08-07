@@ -46,6 +46,7 @@ from matterhorn.engine.aggregate import (
     RejectionCounter,
 )
 from matterhorn.engine.goal_graph import (
+    AKIN_TO,
     PART_OF,
     automatic_reparent_rejection,
     canonicalize_graph_assertions,
@@ -54,9 +55,11 @@ from matterhorn.engine.goal_graph import (
 )
 from matterhorn.engine.structure_election import validate_human_edge_weight
 from matterhorn.engine.unified_loop import run_bounded_tool_loop
+from matterhorn.projection import project_assertions
 from matterhorn.store.base import ThemeScheduleState
 
 DEFAULT_THEME_INTERVAL_HOURS = 6.0
+DEFAULT_THEME_MIN_WITNESSES = 2
 DEFAULT_THEME_CONVERSATION_FANOUT = DEFAULT_CONVERSATION_FANOUT
 DEFAULT_THEME_CONVERGE = "review"
 THEME_TASK_KIND = "themes"
@@ -67,6 +70,7 @@ class AffinityKind(str, Enum):
     handle = "handle"
     evidence = "evidence"
     title = "title"
+    bond = "bond"
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,11 @@ class ThemeCandidate:
     source_refs: tuple[SourceRef, ...]
     child_count: int = 0
     descendant_count: int = 0
+    # Subjects this one is asserted akin to, and the distinct evidence
+    # windows those assertions cite. The model wrote these while it still
+    # held the raw text; clustering only reads committed rows.
+    bonds: frozenset[str] = frozenset()
+    bond_windows: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -130,6 +139,8 @@ class ThemeCluster:
     edges: tuple[AffinityEdge, ...]
     affinity_kinds: frozenset[AffinityKind]
     existing_target_root: str | None = None
+    min_cluster: int = DEFAULT_THEME_MIN_CLUSTER
+    min_witnesses: int = DEFAULT_THEME_MIN_WITNESSES
 
     @property
     def member_keys(self) -> tuple[str, ...]:
@@ -137,9 +148,53 @@ class ThemeCluster:
 
     @property
     def confident(self) -> bool:
-        return len(self.affinity_kinds) >= 2 or (
-            len(self.members) >= 5 and len(self.affinity_kinds) == 1
-        )
+        """Whether this cluster may auto-apply without human review.
+
+        Auto-application is the one unreviewed write path in the system, so
+        it needs a signal that shared wording cannot fake. Two qualify: a
+        shared handle, which is structural identity, and a semantic bond
+        the model asserted with evidence. Either must span the cluster.
+
+        Bonds additionally need `min_witnesses` distinct evidence windows.
+        One emission can assert any number of bonds, so counting bonds
+        alone would let a single window auto-mint a theme; windows are
+        counted from committed source ids, never from model-authored
+        timestamps, which the model chooses.
+
+        Title affinity alone is never enough. That is the retired rule
+        ("2 kinds, or 5 members with 1 kind") and what it cost: `evidence`
+        is free whenever two members share a container, so a cluster of 24
+        duplicate identities of ONE pull request cleared the gate.
+        """
+
+        spanning = min(len(self.members), self.min_cluster)
+
+        def spanned_by(kind: AffinityKind) -> bool:
+            keys = {
+                key
+                for edge in self.edges
+                if kind in edge.kinds
+                for key in (edge.left, edge.right)
+            }
+            return len(keys) >= spanning
+
+        if spanned_by(AffinityKind.handle):
+            return True
+        if not spanned_by(AffinityKind.bond):
+            return False
+        bonded = {
+            key
+            for edge in self.edges
+            if AffinityKind.bond in edge.kinds
+            for key in (edge.left, edge.right)
+        }
+        witnesses = {
+            window
+            for member in self.members
+            if member.subject_key in bonded
+            for window in member.bond_windows
+        }
+        return len(witnesses) >= self.min_witnesses
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -538,6 +593,33 @@ def snapshot_theme_state(engine: Any, scope_id: str) -> ThemeSnapshot:
         and isinstance(candidate.get("subject_key"), str)
     )
 
+    # Live akin_to rows, symmetric: the model may emit either direction and
+    # the bond means the same thing both ways.
+    bonds: dict[str, set[str]] = {}
+    bond_windows: dict[str, set[str]] = {}
+    bond_intervals, _ = project_assertions(
+        canonical_assertions,
+        engine.profile,
+        human_edge_weight=engine.human_edge_weight,
+    )
+    by_interval_assertion = {item.assertion_id: item for item in canonical_assertions}
+    for interval in bond_intervals:
+        if (
+            interval.valid_to is not None
+            or interval.predicate != AKIN_TO
+            or not isinstance(interval.object_value, str)
+        ):
+            continue
+        left, right = interval.subject_key, interval.object_value
+        bonds.setdefault(left, set()).add(right)
+        bonds.setdefault(right, set()).add(left)
+        source = by_interval_assertion.get(interval.assertion_id)
+        window = stable_hash(
+            sorted(ref.source_id for ref in source.source_refs)
+        ) if source is not None else interval.assertion_id
+        bond_windows.setdefault(left, set()).add(window)
+        bond_windows.setdefault(right, set()).add(window)
+
     canonical_subjects: dict[str, SubjectRecord] = {}
     for subject in subjects:
         key = engine.canonical_subject_key(scope_id, subject.subject_key)
@@ -573,6 +655,8 @@ def snapshot_theme_state(engine: Any, scope_id: str) -> ThemeSnapshot:
                 source_refs=refs,
                 child_count=len(graph.children.get(key, [])),
                 descendant_count=len(graph.descendants(key)),
+                bonds=frozenset(bonds.get(key, set())),
+                bond_windows=frozenset(bond_windows.get(key, set())),
             )
         )
     return ThemeSnapshot(
@@ -590,6 +674,7 @@ def cluster_themes(
     *,
     min_cluster: int = DEFAULT_THEME_MIN_CLUSTER,
     conversation_fanout: int = DEFAULT_THEME_CONVERSATION_FANOUT,
+    min_witnesses: int = DEFAULT_THEME_MIN_WITNESSES,
 ) -> tuple[ThemeCluster, ...]:
     """Return deterministic connected components from an immutable snapshot."""
 
@@ -699,6 +784,8 @@ def cluster_themes(
                 edges=component_edges,
                 affinity_kinds=kinds,
                 existing_target_root=target,
+                min_cluster=min_cluster,
+                min_witnesses=min_witnesses,
             )
         )
     return tuple(sorted(result, key=lambda item: item.member_keys[0].encode("utf-8")))
@@ -1038,6 +1125,8 @@ def _affinity_kinds(
     """Return (kinds, weak): weak bonds carry a lone distinctive token only."""
 
     kinds: set[AffinityKind] = set()
+    if right.subject_key in left.bonds or left.subject_key in right.bonds:
+        kinds.add(AffinityKind.bond)
     if left.handle_values & right.handle_values:
         kinds.add(AffinityKind.handle)
     if (left.conversations & right.conversations) - discounted_conversations:
@@ -1049,7 +1138,11 @@ def _affinity_kinds(
     )
     if strong_title or weak_title:
         kinds.add(AffinityKind.title)
-    weak = weak_title and AffinityKind.handle not in kinds
+    weak = (
+        weak_title
+        and AffinityKind.handle not in kinds
+        and AffinityKind.bond not in kinds
+    )
     return frozenset(kinds), weak
 
 

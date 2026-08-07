@@ -883,6 +883,68 @@ def cycles_command(
         raise typer.Exit(code=1)
 
 
+@app.command("duplicates")
+def duplicates_command(
+    scope_id: str | None = typer.Argument(None),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Report same-title duplicate subjects for human merge (read-only).
+
+    Container-scoped identity stops new duplicates at the mint, but a
+    stored subject_key is referenced by every assertion citing it, so there
+    is no rekey path for the ones already written. This lists the pairs; a
+    human decides and runs `mh merge`, because a wrong merge is not
+    reversible by the same one-liner that made it.
+    """
+
+    engine = _engine(db, schema, schema_dir)
+    scopes = [_scope(scope_id)] if scope_id is not None else engine.store.list_scopes()
+    groups: list[dict[str, Any]] = []
+    for scope in scopes:
+        by_title: dict[tuple[str, str], list[Any]] = {}
+        for subject in engine.store.subjects(scope):
+            if subject.subject_type != engine.profile.primary_subject.type:
+                continue
+            canonical = engine.canonical_subject_key(scope, subject.subject_key)
+            if canonical != subject.subject_key:
+                continue
+            if engine.profile.identity.title_is_degenerate(
+                subject.normalized_title
+            ):
+                # A degenerate title is not an identity, so two subjects
+                # carrying one are not duplicates — they are two different
+                # things the model failed to name. Merging them would be
+                # the mistake the mint anchor already refuses to make.
+                continue
+            key = (subject.normalized_title, subject.subject_type)
+            by_title.setdefault(key, []).append(subject)
+        for (title, _), rows in sorted(by_title.items()):
+            if len(rows) < 2:
+                continue
+            ordered = sorted(rows, key=lambda item: item.subject_key)
+            survivor = ordered[0]
+            groups.append(
+                {
+                    "scope_id": scope,
+                    "normalized_title": title,
+                    "title": survivor.title,
+                    "copies": len(ordered),
+                    "keep": survivor.subject_key,
+                    "merge_away": [item.subject_key for item in ordered[1:]],
+                    "commands": [
+                        f"mh merge {scope} {item.subject_key} {survivor.subject_key}"
+                        ' --reason "same-title duplicate" --sender "<you>"'
+                        for item in ordered[1:]
+                    ],
+                }
+            )
+    _print(groups)
+    if groups:
+        raise typer.Exit(code=1)
+
+
 @app.command("brief")
 def brief_command(
     window_start: datetime | None = typer.Option(None),

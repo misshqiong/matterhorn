@@ -25,7 +25,22 @@ from matterhorn.projection import project_assertions
 
 SPAWNED_FROM = "spawned_from"
 DECISION = "decision"
+AKIN_TO = "akin_to"
+GATHERS = "gathers"
+# The tree: these carry containment, so they are what the cycle and
+# election gates police.
 STRUCTURE_EDGE_PREDICATES = frozenset({PART_OF, SPAWNED_FROM})
+# Predicates whose object names a subject IN THIS SCOPE, so a merge must
+# rewrite it. Leave one out and the surviving edge points at a key nobody
+# canonicalizes: the same knowledge then survives or dies depending on
+# which direction the model happened to emit it.
+#
+# `gathers` is deliberately absent. Its object is a cross-scope
+# "scope:subject" reference this scope's merge graph cannot resolve, and it
+# carries an explicit object_key to express a disputed membership slot
+# (section 29.3) — rewriting that key collapses two competing references
+# into one and destroys the slot election.
+SUBJECT_OBJECT_PREDICATES = frozenset({PART_OF, SPAWNED_FROM, AKIN_TO})
 MAX_GRAPH_VISITS = 10_000
 
 
@@ -206,7 +221,7 @@ def canonicalize_graph_assertions(
             "subject_key": canonical_subject_key(assertion.subject_key, edges)
         }
         if (
-            assertion.predicate in STRUCTURE_EDGE_PREDICATES
+            assertion.predicate in SUBJECT_OBJECT_PREDICATES
             and isinstance(assertion.object_value, str)
         ):
             target = canonical_subject_key(assertion.object_value, edges)

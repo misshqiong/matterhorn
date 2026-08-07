@@ -42,13 +42,6 @@ MAX_TOOL_CALLS = 16
 MAX_EMISSIONS = 4
 NEW_SUBJECT_PREFIX = "$new:"
 
-# Labels the model reaches for when a window carries no identifiable concern.
-# They name the act of summarizing, not a subject, so they must never become
-# identity anchors. Observed live: four separate "总结" matters across three
-# containers.
-DEGENERATE_TITLES = frozenset(
-    {"总结", "讨论", "无实质内容", "summary", "discussion", "untitled"}
-)
 
 
 class NewSubjectDeclaration(StrictModel):
@@ -718,7 +711,9 @@ class UnifiedLoopSession:
         one immortal accreting subject -- so those fall back to window scope.
         """
 
-        if _title_is_degenerate(declaration.title):
+        if self.engine.profile.identity.title_is_degenerate(
+            normalize_title(declaration.title)
+        ):
             return [[record.record_id for record in self.records]]
         return [sorted({record.container_id for record in self.records})]
 
@@ -750,9 +745,6 @@ class UnifiedLoopSession:
                 rejections={reason: 1},
             )
 
-
-def _title_is_degenerate(title: str) -> bool:
-    return normalize_title(title) in DEGENERATE_TITLES
 
 
 def tool_definitions() -> list[dict[str, Any]]:

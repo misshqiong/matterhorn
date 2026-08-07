@@ -427,6 +427,15 @@ class MergeEvidence(StrictModel):
 class IdentityDefinition(StrictModel):
     merge_evidence: MergeEvidence = Field(default_factory=MergeEvidence)
     adjudication_confidence_threshold: float = 0.6
+    # Titles naming the act of recording rather than a subject. They are
+    # vocabulary, not logic — which corpus and which language decides them,
+    # so they belong beside completed_values rather than in the loop.
+    degenerate_titles: list[str] = Field(default_factory=list)
+
+    def title_is_degenerate(self, normalized_title: str) -> bool:
+        return normalized_title in {
+            item.casefold() for item in self.degenerate_titles
+        }
 
     @field_validator("adjudication_confidence_threshold")
     @classmethod

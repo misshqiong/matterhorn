@@ -93,6 +93,11 @@ predicates:
     cardinality: SINGLE
     extraction: semantic
     object: subject
+  - name: akin_to
+    subject: MATTER
+    cardinality: SET
+    extraction: semantic
+    object: subject
   - name: gathers
     subject: MATTER
     cardinality: SET
@@ -138,6 +143,7 @@ completion:
   predicate: status
   completed_values: [done, completed, closed]
 identity:
+  degenerate_titles: ["总结", "讨论", "无实质内容", "summary", "discussion", "untitled"]
   merge_evidence:
     min_shared_sources: 2
     or_share_ratio: 0.5

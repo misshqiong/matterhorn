@@ -28,7 +28,6 @@ expect:
     - {subject_key: child, predicate: status, object_value: open}
     - {subject_key: child, predicate: part_of, object_value: a, origin: human}
     - {subject_key: a, predicate: spawned_from, object_value: b, origin: human}
-    - {subject_key: c, predicate: part_of, object_value: a, origin: model}
   intervals:
     - {subject_key: a, predicate: status, object_value: open}
     - {subject_key: b, predicate: status, object_value: open}
@@ -36,8 +35,7 @@ expect:
     - {subject_key: child, predicate: status, object_value: open}
     - {subject_key: child, predicate: part_of, object_value: a, origin: human}
     - {subject_key: a, predicate: spawned_from, object_value: b, origin: human}
-    - {subject_key: c, predicate: part_of, object_value: a, origin: model}
   gate_statistics: {rejections: {STRUCTURE_CYCLE: 1}}
   tool_loop_calls: 1
   theme_reports:
-    - {edges_applied: 1, roots_created: 0, rejection_counts: {STRUCTURE_CYCLE: 1}}
+    - {edges_applied: 0, reviews_enqueued: 1, roots_created: 0, rejection_counts: {STRUCTURE_CYCLE: 1}}

@@ -581,5 +581,9 @@ def test_theme_rediscovery_fixture_recovers_both_stripped_groups() -> None:
 
     assert report["mode"] == "theme-rediscovery"
     assert report["score"] == {"correct": 10, "total": 10, "fraction": 1.0}
-    assert report["pass"]["edges_applied"] == 10
     assert report["pass"]["roots_created"] == 2
+    # The fixture's groups bond on shared wording alone, which no longer
+    # clears the confidence gate: rediscovery is what this fixture measures,
+    # and the proposals carry it whether or not they auto-apply.
+    assert report["pass"]["edges_applied"] == 0
+    assert report["pass"]["reviews_enqueued"] == 10

@@ -26,17 +26,13 @@ expect:
     - {subject_key: c, predicate: status, object_value: open}
     - {subject_key: child, predicate: status, object_value: open}
     - {subject_key: child, predicate: part_of, object_value: a, origin: human}
-    - {subject_key: b, predicate: part_of, object_value: a, origin: model}
-    - {subject_key: c, predicate: part_of, object_value: a, origin: model}
   intervals:
     - {subject_key: a, predicate: status, object_value: open}
     - {subject_key: b, predicate: status, object_value: open}
     - {subject_key: c, predicate: status, object_value: open}
     - {subject_key: child, predicate: status, object_value: open}
     - {subject_key: child, predicate: part_of, object_value: a, origin: human}
-    - {subject_key: b, predicate: part_of, object_value: a, origin: model}
-    - {subject_key: c, predicate: part_of, object_value: a, origin: model}
   subject_count: 4
   tool_loop_calls: 1
   theme_reports:
-    - {edges_applied: 2, roots_created: 0, reviews_enqueued: 0, proposals: [{parent_subject_key: a, existing_target_root: a, disposition: auto}]}
+    - {edges_applied: 0, roots_created: 0, reviews_enqueued: 2, proposals: [{parent_subject_key: a, existing_target_root: a, disposition: review}]}

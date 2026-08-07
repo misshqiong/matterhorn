@@ -21,24 +21,14 @@ expect:
     - {subject_key: c, predicate: status, object_value: open}
     - {subject_key: d, predicate: status, object_value: open}
     - {subject_key: e, predicate: status, object_value: open}
-    - {subject_key: a, predicate: part_of, origin: model}
-    - {subject_key: b, predicate: part_of, origin: model}
-    - {subject_key: c, predicate: part_of, origin: model}
-    - {subject_key: d, predicate: part_of, origin: model}
-    - {subject_key: e, predicate: part_of, origin: model}
   intervals:
     - {subject_key: a, predicate: status, object_value: open}
     - {subject_key: b, predicate: status, object_value: open}
     - {subject_key: c, predicate: status, object_value: open}
     - {subject_key: d, predicate: status, object_value: open}
     - {subject_key: e, predicate: status, object_value: open}
-    - {subject_key: a, predicate: part_of, origin: model}
-    - {subject_key: b, predicate: part_of, origin: model}
-    - {subject_key: c, predicate: part_of, origin: model}
-    - {subject_key: d, predicate: part_of, origin: model}
-    - {subject_key: e, predicate: part_of, origin: model}
   subject_count: 6
   tool_loop_calls: 1
   theme_reports:
-    - {edges_applied: 5, roots_created: 1}
+    - {edges_applied: 0, reviews_enqueued: 5, roots_created: 1}
     - {clusters: [], proposals: [], edges_applied: 0, roots_created: 0}
