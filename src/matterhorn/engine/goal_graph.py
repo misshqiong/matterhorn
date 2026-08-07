@@ -226,6 +226,31 @@ def canonicalize_graph_assertions(
     return result
 
 
+def active_structure_edges(
+    intervals: Iterable[Any],
+) -> dict[tuple[str, str], tuple[str, datetime]]:
+    """The single scan deciding which structure edges are live.
+
+    Every caller that needs "who is whose parent right now" reads this,
+    so the graph projection, the admission gates and the cycle audit
+    cannot drift apart. The election already ran inside
+    `project_assertions`: an open interval IS the elected edge.
+    """
+
+    edges: dict[tuple[str, str], tuple[str, datetime]] = {}
+    for interval in intervals:
+        if (
+            interval.valid_to is None
+            and interval.predicate in STRUCTURE_EDGE_PREDICATES
+            and isinstance(interval.object_value, str)
+        ):
+            edges[(interval.subject_key, interval.predicate)] = (
+                interval.object_value,
+                interval.valid_from,
+            )
+    return edges
+
+
 def project_goal_graph(
     profile: SchemaProfile,
     subjects: Iterable[SubjectRecord],
@@ -250,7 +275,6 @@ def project_goal_graph(
         human_edge_weight=human_edge_weight,
     )
     current: dict[tuple[str, str], list[Any]] = {}
-    active_edges: dict[tuple[str, str], tuple[str, datetime]] = {}
     decisions: dict[str, list[tuple[datetime, str, Any]]] = {}
     for interval in intervals:
         if interval.predicate == DECISION:
@@ -262,14 +286,7 @@ def project_goal_graph(
         current.setdefault((interval.subject_key, interval.predicate), []).append(
             interval.object_value
         )
-        if (
-            interval.predicate in STRUCTURE_EDGE_PREDICATES
-            and isinstance(interval.object_value, str)
-        ):
-            active_edges[(interval.subject_key, interval.predicate)] = (
-                interval.object_value,
-                interval.valid_from,
-            )
+    active_edges = active_structure_edges(intervals)
 
     earliest: dict[str, datetime] = {}
     latest: dict[str, datetime] = {}
@@ -457,15 +474,8 @@ def active_structure_adjacency(
         human_edge_weight=human_edge_weight,
     )
     adjacency: dict[str, set[str]] = {}
-    for interval in intervals:
-        if (
-            interval.valid_to is None
-            and interval.predicate in STRUCTURE_EDGE_PREDICATES
-            and isinstance(interval.object_value, str)
-        ):
-            adjacency.setdefault(interval.subject_key, set()).add(
-                interval.object_value
-            )
+    for (subject_key, _), (target, _) in active_structure_edges(intervals).items():
+        adjacency.setdefault(subject_key, set()).add(target)
     return adjacency
 
 
@@ -533,13 +543,19 @@ def automatic_reparent_rejection(
     # whose endpoints a merge collapsed onto one subject; reading raw rows
     # made this gate hold placements the projection had already withdrawn,
     # permanently closing both automatic doors for that subject.
-    human_rows = [
-        item
-        for item in canonicalize_graph_assertions(assertions, merges)
-        if item.predicate == PART_OF
-        and item.origin is Origin.human
-        and item.subject_key == source
-    ]
+    # Filter on the cheap fields first: canonicalizing the whole scope to
+    # keep a handful of rows copied every assertion in the store, and this
+    # runs once per emitted intent.
+    human_rows = canonicalize_graph_assertions(
+        (
+            item
+            for item in assertions
+            if item.predicate == PART_OF
+            and item.origin is Origin.human
+            and canonical_subject_key(item.subject_key, edges) == source
+        ),
+        merges,
+    )
     if not human_rows:
         return None
     # Ask the election what the human still holds rather than replaying the
