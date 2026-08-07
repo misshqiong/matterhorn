@@ -10,7 +10,7 @@ import webbrowser
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 import yaml
@@ -30,7 +30,13 @@ from matterhorn.connectors.mail import (
     save_mail_config,
 )
 from matterhorn.console.groups import console_group_patterns
-from matterhorn.contracts import Correction, ExportEnvelope, SourceRef
+from matterhorn.contracts import (
+    Correction,
+    CorrectionCapture,
+    CorrectionCaptureStatus,
+    ExportEnvelope,
+    SourceRef,
+)
 from matterhorn.contracts.schema import discover_schemas, resolve_schema
 from matterhorn.defaults import Engine
 from matterhorn.errors import MatterhornError, ResourceNotFoundError
@@ -46,6 +52,7 @@ hook_app = typer.Typer(help="Fail-open agent lifecycle hooks.")
 handles_app = typer.Typer(help="Maintain the subject handle registry.")
 staging_app = typer.Typer(help="Maintain raw extraction context staging.")
 themes_app = typer.Typer(help="Converge flat matters under parent themes.")
+corpus_app = typer.Typer(help="Curate passive human-correction captures.")
 app.add_typer(query_app, name="query")
 app.add_typer(schema_app, name="schema")
 app.add_typer(conformance_app, name="conformance")
@@ -56,6 +63,7 @@ app.add_typer(hook_app, name="hook")
 app.add_typer(handles_app, name="handles")
 app.add_typer(staging_app, name="staging")
 app.add_typer(themes_app, name="themes")
+app.add_typer(corpus_app, name="corpus")
 
 CONFIG_NAME = "matterhorn.toml"
 DEFAULT_DB = "matterhorn.db"
@@ -290,6 +298,75 @@ def _max_batch_delay_minutes(
 
 def _print(value: Any) -> None:
     typer.echo(json.dumps(value, ensure_ascii=False, indent=2, default=str))
+
+
+def _capture_table(captures: list[CorrectionCapture]) -> str:
+    headers = ("capture_id", "scope", "kind", "created_at")
+    rows = [
+        (
+            item.capture_id,
+            item.scope_id,
+            item.kind.value,
+            item.created_at.isoformat(),
+        )
+        for item in captures
+    ]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        if rows
+        else len(headers[index])
+        for index in range(len(headers))
+    ]
+    return "\n".join(
+        [
+            "  ".join(
+                value.ljust(widths[index])
+                for index, value in enumerate(headers)
+            ),
+            "  ".join("-" * width for width in widths),
+            *[
+                "  ".join(
+                    value.ljust(widths[index])
+                    for index, value in enumerate(row)
+                )
+                for row in rows
+            ],
+        ]
+    )
+
+
+def _capture_draft(capture: CorrectionCapture) -> str:
+    model_dump = yaml.safe_dump(
+        capture.model_output_json,
+        allow_unicode=True,
+        sort_keys=False,
+    ).rstrip()
+    human_dump = yaml.safe_dump(
+        capture.human_output_json,
+        allow_unicode=True,
+        sort_keys=False,
+    ).rstrip()
+    comments = [
+        f"# capture_id: {capture.capture_id}",
+        f"# kind: {capture.kind.value}",
+        "# model_output:",
+        *[f"#   {line}" for line in model_dump.splitlines()],
+        "# human_output:",
+        *[f"#   {line}" for line in human_dump.splitlines()],
+        "# Review source_kind and fictionalize every raw value before saving.",
+    ]
+    skeleton = yaml.safe_dump(
+        {
+            "sample_id": "",
+            "source_kind": "",
+            "scope_id": capture.scope_id,
+            "window": capture.window_json,
+            "expected_assertions": [],
+        },
+        allow_unicode=True,
+        sort_keys=False,
+    )
+    return "\n".join(comments) + "\n" + skeleton
 
 
 def _write_gateway(
@@ -1025,6 +1102,78 @@ def export_scope(
         typer.echo(
             f"Exported {selected_scope} as {output_format.value} to {out}"
         )
+
+
+@corpus_app.command("pending")
+def corpus_pending(
+    scope_id: str | None = typer.Option(None, "--scope"),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """List pending local correction captures."""
+
+    captures = _engine(db, schema, schema_dir).correction_captures(
+        scope_id,
+        status=CorrectionCaptureStatus.pending,
+    )
+    typer.echo(_capture_table(captures))
+
+
+@corpus_app.command("show")
+def corpus_show(
+    capture_id: str,
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Render one capture as a draft alignment-sample YAML skeleton."""
+
+    try:
+        capture = _engine(db, schema, schema_dir).correction_capture(capture_id)
+    except ResourceNotFoundError as error:
+        raise typer.BadParameter(str(error)) from error
+    typer.echo(_capture_draft(capture), nl=False)
+
+
+@corpus_app.command("resolve")
+def corpus_resolve(
+    capture_id: str,
+    curated: str | None = typer.Option(
+        None,
+        "--curated",
+        help="Mark curated with the fictionalized alignment sample id.",
+    ),
+    discard: str | None = typer.Option(
+        None,
+        "--discard",
+        help="Discard with a non-empty reason retained locally.",
+    ),
+    db: str = typer.Option(DEFAULT_DB),
+    schema: str = typer.Option(DEFAULT_SCHEMA),
+    schema_dir: Path | None = typer.Option(None),
+) -> None:
+    """Resolve one pending capture as curated or discarded."""
+
+    if (curated is None) == (discard is None):
+        raise typer.BadParameter(
+            "pass exactly one of --curated SAMPLE_ID or --discard REASON"
+        )
+    resolution_note = curated if curated is not None else discard
+    if resolution_note is None or not resolution_note.strip():
+        raise typer.BadParameter("capture resolution note MUST be non-empty")
+    status: Literal["curated", "discarded"] = (
+        "curated" if curated is not None else "discarded"
+    )
+    try:
+        capture = _engine(db, schema, schema_dir).resolve_correction_capture(
+            capture_id,
+            status=status,
+            resolution_note=resolution_note,
+        )
+    except (MatterhornError, KeyError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    _print(capture.model_dump(mode="json"))
 
 
 @app.command("import")

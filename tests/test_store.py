@@ -316,6 +316,10 @@ def test_sqlite_migrates_legacy_task_retry_columns(tmp_path) -> None:
     assert store.connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='review_queue'"
     ).fetchone()
+    assert store.connection.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='correction_captures'"
+    ).fetchone()
     assert store.create_task(
         task_id="task-legacy",
         scope_id="fictional-team",
@@ -374,6 +378,38 @@ def test_postgres_never_calls_executemany_on_connection() -> None:
             violations.append(node.lineno)
 
     assert violations == []
+
+
+def test_postgres_correction_capture_sql_uses_c_collation_and_cursors() -> None:
+    path = Path(__file__).resolve().parents[1] / "src/matterhorn/store/postgres.py"
+    source = path.read_text(encoding="utf-8")
+    table_sql = source.split(
+        "CREATE TABLE IF NOT EXISTS correction_captures (", 1
+    )[1].split(");", 1)[0]
+    for column in ("capture_id", "scope_id", "kind", "status"):
+        assert re.search(rf"{column} TEXT COLLATE \"C\"", table_sql)
+
+    tree = ast.parse(source)
+    store_class = next(
+        item
+        for item in tree.body
+        if isinstance(item, ast.ClassDef) and item.name == "PostgresStore"
+    )
+    capture_methods = {
+        "capture_window",
+        "add_correction_capture",
+        "correction_capture",
+        "correction_captures",
+        "resolve_correction_capture",
+    }
+    checked = set()
+    for method in store_class.body:
+        if isinstance(method, ast.FunctionDef) and method.name in capture_methods:
+            method_source = ast.get_source_segment(source, method)
+            assert method_source is not None
+            assert "self.connection.cursor()" in method_source
+            checked.add(method.name)
+    assert checked == capture_methods
 
 
 def test_backend_sql_and_connections_are_confined_to_store_package() -> None:

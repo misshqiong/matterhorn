@@ -241,6 +241,9 @@ def test_events_export_import_cli_round_trip(tmp_path) -> None:
 def test_extract_cli_wires_records_to_cards_ingest_and_sync_status(
     monkeypatch, tmp_path, capsys
 ) -> None:
+    # Isolate from the developer's local matterhorn.toml: tests must see
+    # exactly what CI sees.
+    monkeypatch.chdir(tmp_path)
     cli_app = import_module("matterhorn.cli.app")
 
     class Gateway:
@@ -668,7 +671,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=126 failed=0 total=126" in completed.stdout
+    assert "SUMMARY passed=132 failed=0 total=132" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

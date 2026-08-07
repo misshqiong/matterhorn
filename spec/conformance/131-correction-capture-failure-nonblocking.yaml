@@ -1,0 +1,21 @@
+case_id: correction-capture-failure-nonblocking
+title: Capture store failure is logged and cannot block a human correction
+invariants: [P8, INV-24]
+schema_profile: org-matters/v1
+scope_id: octo-capture-failure
+clock: ["2026-08-07T12:00:00Z", "2026-08-07T12:01:00Z"]
+capture_store_failure: true
+cards:
+  - {card_id: failure-seed, scope_id: octo-capture-failure, subject_key: failure-matter, date: 2026-08-07, title: Fictional failure matter, status: open, source_refs: [{source_id: "octo-org:failure:model", sent_at: "2026-08-07T11:00:00Z", sender: Octo Agent}]}
+corrections:
+  - {scope_id: octo-capture-failure, subject_key: failure-matter, subject_type: MATTER, predicate: status, operation: ASSERT, object_value: completed, valid_from: "2026-08-07T11:30:00Z", source_refs: [{source_id: "octo-org:failure:human", sent_at: "2026-08-07T11:30:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: failure-matter, predicate: status, object_value: open, origin: model}
+    - {subject_key: failure-matter, predicate: status, object_value: completed, origin: human}
+  intervals:
+    - {subject_key: failure-matter, predicate: status, object_value: open}
+    - {subject_key: failure-matter, predicate: status, object_value: completed}
+  correction_captures: []
+  queries:
+    - {name: current, args: {subject_key: failure-matter, predicate: status}, result: [{value: completed}]}

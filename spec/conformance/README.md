@@ -10,7 +10,7 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-23`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-24`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
@@ -31,6 +31,8 @@ store view for the case's `scope_id`.
 | `theme_operations` | no | Ordered section 28 operations. `observe_record` commits evidence-conversation provenance; `run` invokes one theme pass and may declare `dry_run`. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
 | `review_operations` | no | Ordered review resolutions with `review_id`, `action`, nullable `subject_key`, mandatory `source_refs`, and optional `expect_error`. |
+| `capture_operations` | no | Ordered terminal correction-capture transitions selected by deterministic `capture_index`, with `status` (`curated` or `discarded`) and non-empty `resolution_note`. |
+| `capture_store_failure` | no | Boolean fixture switch that makes capture insertion raise, proving INV-24 does not block the underlying human operation. |
 | `signal_config` | no | Engine signal settings: optional identity handles, pattern extensions, and hotness thresholds. |
 | `signal_operations` | no | Ordered terminal signal acknowledgements with record id, kind, and acknowledgement instant. |
 | `watermark_operations` | no | Ordered matter read-watermark upserts with subject key and last-seen instant. |
@@ -149,6 +151,7 @@ conversation affinity can be formed.
 | `subject_handles` | Mapping from subject key to its exact active canonicalized handle list. |
 | `handle_lookups` | Ordered `{handle_type,value,result}` lookup checks; `handle_type` may be null and `result` is an exact list of partial canonical SubjectHandle mappings. |
 | `review_items` | Partial-field exact multiset of pending or resolved ReviewItems. |
+| `correction_captures` | Partial-field exact multiset of local correction captures, including window source selection and lifecycle state. |
 | `adjudication_calls` | Ordered calls with exact offered candidate keys and optional partial rich-candidate payload checks. |
 | `tool_loop_calls` | Exact number of bounded tool-loop sessions executed before duplicate-ingest and replay checks. |
 | `theme_reports` | Ordered partial section 28 pass reports produced by `theme_operations` whose operation is `run`. |
@@ -183,8 +186,8 @@ Every successful case must additionally:
 
 1. snapshot assertions, intervals, memory cards, projection statistics, events,
    subjects, active merges, all SubjectHandle rows, pending and resolved review
-   rows, Signals, read watermarks, Record observations, source lifecycle, and
-   sync positions in canonical JSON;
+   rows, correction captures, Signals, read watermarks, Record observations,
+   source lifecycle, and sync positions in canonical JSON;
 2. add the identical Message, card, and Record batches again;
 3. if `model_responses` was present, call `dream()` again;
 4. apply the same corrections again;

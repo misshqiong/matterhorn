@@ -370,6 +370,18 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid review_operations"
         )
+    if "capture_operations" in case and not isinstance(
+        case["capture_operations"], list
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid capture_operations"
+        )
+    if "capture_store_failure" in case and not isinstance(
+        case["capture_store_failure"], bool
+    ):
+        raise ValueError(
+            f"malformed conformance case {path}: invalid capture_store_failure"
+        )
     for field in ("signal_operations", "watermark_operations"):
         if field in case and not isinstance(case[field], list):
             raise ValueError(f"malformed conformance case {path}: invalid {field}")
@@ -439,6 +451,13 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         **case.get("signal_config", {}),
         **case.get("theme_config", {}),
     )
+    if case.get("capture_store_failure"):
+
+        def fail_capture(*args: Any, **kwargs: Any) -> bool:
+            del args, kwargs
+            raise RuntimeError("fixture correction capture store failure")
+
+        engine.store.add_correction_capture = fail_capture  # type: ignore[method-assign]
     for normalization_case in case.get("handle_normalization_cases", []):
         _equal(
             normalize_handle(
@@ -489,6 +508,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     _run_structure_operations(engine, case)
     theme_reports = _run_theme_operations(engine, case)
     _run_review_operations(engine, case)
+    _run_capture_operations(engine, case)
     _run_signal_operations(engine, case)
     _run_watermark_operations(engine, case)
     _run_s4_checks(case)
@@ -630,6 +650,15 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
         _assert_review_items(
             engine.review_items(case["scope_id"]),
             expect["review_items"],
+        )
+    if "correction_captures" in expect:
+        actual_captures = _plain(
+            engine.correction_captures(case["scope_id"])
+        )
+        _equal(
+            _project_partial(actual_captures, expect["correction_captures"]),
+            _plain(expect["correction_captures"]),
+            "correction_captures",
         )
     if "matters" in expect:
         _assert_partial_exact(
@@ -1139,6 +1168,23 @@ def _run_review_operations(engine: Engine, case: dict[str, Any]) -> None:
             )
 
 
+def _run_capture_operations(engine: Engine, case: dict[str, Any]) -> None:
+    for operation in case.get("capture_operations", []):
+        captures = engine.correction_captures(case["scope_id"])
+        capture_index = operation["capture_index"]
+        try:
+            capture = captures[capture_index]
+        except IndexError as error:
+            raise ConformanceFailure(
+                f"unknown correction capture index {capture_index}"
+            ) from error
+        engine.resolve_correction_capture(
+            capture.capture_id,
+            status=operation["status"],
+            resolution_note=operation["resolution_note"],
+        )
+
+
 def _run_structure_operations(engine: Engine, case: dict[str, Any]) -> None:
     for operation in case.get("structure_operations", []):
         payload = {
@@ -1523,6 +1569,10 @@ def _snapshot(engine: Engine, scope_id: str) -> str:
                     scope_id,
                     pending_only=False,
                 )
+            ],
+            "correction_captures": [
+                _plain(item)
+                for item in engine.correction_captures(scope_id)
             ],
             "record_observations": [
                 _plain(item)

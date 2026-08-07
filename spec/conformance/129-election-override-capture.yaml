@@ -1,0 +1,42 @@
+case_id: election-override-capture
+title: Human structure vote captures a flip away from a model-elected target
+invariants: [INV-19, INV-22, INV-24]
+schema_profile: org-matters/v1
+scope_id: octo-capture-election
+clock:
+  - "2026-08-07T10:00:00Z"
+  - "2026-08-07T10:01:00Z"
+  - "2026-08-07T10:02:00Z"
+  - "2026-08-07T10:03:00Z"
+  - "2026-08-07T10:04:00Z"
+cards:
+  - {card_id: election-child, scope_id: octo-capture-election, subject_key: child, date: 2026-08-07, title: Fictional child, status: open, source_refs: [{source_id: "octo-org:seed:child", sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes}]}
+  - {card_id: election-model-parent, scope_id: octo-capture-election, subject_key: model-parent, date: 2026-08-07, title: Fictional model parent, status: open, source_refs: [{source_id: "octo-org:seed:model-parent", sent_at: "2026-08-07T09:01:00Z", sender: Dana Reyes}]}
+  - {card_id: election-human-parent, scope_id: octo-capture-election, subject_key: human-parent, date: 2026-08-07, title: Fictional human parent, status: open, source_refs: [{source_id: "octo-org:seed:human-parent", sent_at: "2026-08-07T09:02:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {origin: model, scope_id: octo-capture-election, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: "octo-org:model:placement", sent_at: "2026-08-07T09:10:00Z", sender: Octo Agent, excerpt: "The model placed the fictional child."}]}
+  - {scope_id: octo-capture-election, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: human-parent, valid_from: "2026-08-07T09:11:00Z", source_refs: [{source_id: "octo-org:human:placement", sent_at: "2026-08-07T09:11:00Z", sender: Dana Reyes, excerpt: "Place the fictional child under the human parent."}]}
+expect:
+  assertions:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: model-parent, predicate: status, object_value: open}
+    - {subject_key: human-parent, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: human-parent, origin: human}
+  intervals:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: model-parent, predicate: status, object_value: open}
+    - {subject_key: human-parent, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, valid_to: "2026-08-07T09:11:00.000000Z"}
+    - {subject_key: child, predicate: part_of, object_value: human-parent, valid_to: null}
+  correction_captures:
+    - kind: election_override
+      status: pending
+      window_json:
+        - source: evidence_snapshot
+          source_ref: {source_id: "octo-org:model:placement"}
+      model_output_json:
+        election: {elected_target: model-parent}
+      human_output_json:
+        election: {elected_target: human-parent}
+  queries: []

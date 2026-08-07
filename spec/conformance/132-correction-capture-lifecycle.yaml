@@ -1,0 +1,36 @@
+case_id: correction-capture-lifecycle
+title: Curator promotes one capture and discards another with terminal notes
+invariants: [INV-24]
+schema_profile: org-matters/v1
+scope_id: octo-capture-lifecycle
+clock:
+  - "2026-08-07T13:00:00Z"
+  - "2026-08-07T13:01:00Z"
+  - "2026-08-07T13:02:00Z"
+  - "2026-08-07T13:03:00Z"
+  - "2026-08-07T13:04:00Z"
+  - "2026-08-07T13:05:00Z"
+cards:
+  - {card_id: lifecycle-a, scope_id: octo-capture-lifecycle, subject_key: lifecycle-a, date: 2026-08-07, title: Fictional lifecycle A, status: open, source_refs: [{source_id: "octo-org:lifecycle:model-a", sent_at: "2026-08-07T12:00:00Z", sender: Octo Agent}]}
+  - {card_id: lifecycle-b, scope_id: octo-capture-lifecycle, subject_key: lifecycle-b, date: 2026-08-07, title: Fictional lifecycle B, status: open, source_refs: [{source_id: "octo-org:lifecycle:model-b", sent_at: "2026-08-07T12:01:00Z", sender: Octo Agent}]}
+corrections:
+  - {scope_id: octo-capture-lifecycle, subject_key: lifecycle-a, subject_type: MATTER, predicate: status, operation: ASSERT, object_value: completed, valid_from: "2026-08-07T12:30:00Z", source_refs: [{source_id: "octo-org:lifecycle:human-a", sent_at: "2026-08-07T12:30:00Z", sender: Dana Reyes}]}
+  - {scope_id: octo-capture-lifecycle, subject_key: lifecycle-b, subject_type: MATTER, predicate: status, operation: ASSERT, object_value: blocked, valid_from: "2026-08-07T12:31:00Z", source_refs: [{source_id: "octo-org:lifecycle:human-b", sent_at: "2026-08-07T12:31:00Z", sender: Dana Reyes}]}
+capture_operations:
+  - {capture_index: 0, status: curated, resolution_note: fictionalized-lifecycle-a}
+  - {capture_index: 1, status: discarded, resolution_note: duplicate fictional scenario}
+expect:
+  assertions:
+    - {subject_key: lifecycle-a, predicate: status, object_value: open, origin: model}
+    - {subject_key: lifecycle-b, predicate: status, object_value: open, origin: model}
+    - {subject_key: lifecycle-a, predicate: status, object_value: completed, origin: human}
+    - {subject_key: lifecycle-b, predicate: status, object_value: blocked, origin: human}
+  intervals:
+    - {subject_key: lifecycle-a, predicate: status, object_value: open}
+    - {subject_key: lifecycle-b, predicate: status, object_value: open}
+    - {subject_key: lifecycle-a, predicate: status, object_value: completed}
+    - {subject_key: lifecycle-b, predicate: status, object_value: blocked}
+  correction_captures:
+    - {kind: correction, status: curated, resolution_note: fictionalized-lifecycle-a}
+    - {kind: correction, status: discarded, resolution_note: duplicate fictional scenario}
+  queries: []

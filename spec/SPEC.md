@@ -2292,6 +2292,46 @@ withdrawing weight, layer monotonicity and cross-scope `gathers` with
 federated rollup, single-implementation equivalence of the aggregate
 operator at both instantiated layers, and activation determinism.
 
+## 30. Correction capture
+
+Every human act that overrides model output is training signal; today it
+repairs the ledger and evaporates. Correction capture makes it durable —
+passively, locally, and without ever entering the public repo on its own.
+
+### 30.1 Captured events
+
+A capture is recorded when a human (a) RETRACTs or supersedes a
+model-origin assertion through the correction door, (b) resolves a review
+item (attach / new / drop / attach_subgoal), or (c) casts a structure
+vote against a live model-elected target. Each capture stores: the
+originating record window (resolved from the affected assertion's
+provenance; staged records while retained, evidence snapshots otherwise),
+the model output being corrected, the human outcome, and the event kind.
+
+### 30.2 Lifecycle
+
+Captures land in a store table with status `pending`; a curator reviews,
+fictionalizes, and either promotes one into the corpus partitions
+(status `curated`, with the resulting sample id) or discards it
+(`discarded`). Raw captures contain real data: they live only in the
+local store, are excluded from export by default, and MUST never be
+committed to the repository — only the fictionalized sample derived from
+one may be. `mh corpus pending` lists, `mh corpus show <id>` renders one
+as a draft sample skeleton, `mh corpus resolve <id> --curated <sample_id>
+| --discard` closes it.
+
+- **INV-24 — Passive capture.** Capture MUST NOT change the outcome,
+  latency-fail, or block any correction, review resolution, or election;
+  a capture failure is logged and swallowed. Captures contain only data
+  already present in the ledger and staging, are idempotent per
+  originating event, and replay MUST NOT duplicate them.
+
+### 30.3 Conformance
+
+Golden cases MUST cover: capture on each of the three event kinds with
+window resolution; idempotency under replay; capture failure not blocking
+the correction; and lifecycle transitions.
+
 ## 中文摘要
 
 Matterhorn 是 agent 的 L3 时态记忆层：同步写路径把团队通信 Record 经受控

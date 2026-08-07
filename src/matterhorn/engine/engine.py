@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import warnings
@@ -8,7 +9,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from matterhorn.canonical import (
     as_utc,
@@ -26,6 +27,9 @@ from matterhorn.contracts import (
     Cardinality,
     ChangeEvent,
     Correction,
+    CorrectionCapture,
+    CorrectionCaptureKind,
+    CorrectionCaptureStatus,
     DreamReport,
     EpisodeCard,
     EventType,
@@ -163,6 +167,7 @@ DEFAULT_CONTEXT_MAX_RECORDS = 20
 DEFAULT_CONTEXT_MAX_CHARS = 4000
 SUBJECT_MERGE_PREDICATE = "subject_merge"
 ELECTION_OVERRODE_HUMAN = "ELECTION_OVERRODE_HUMAN"
+LOGGER = logging.getLogger(__name__)
 _TASK_ERROR_SECRET_MARKER = re.compile(
     r"(?i)\b(?:authorization|proxy-authorization|x-api-key|api[ _-]?key|"
     r"access[ _-]?token|refresh[ _-]?token|password|secret|bearer)\b"
@@ -1885,6 +1890,44 @@ class Engine:
     def review_items(self, scope_id: str) -> list[ReviewItem]:
         return self.store.review_items(scope_id)
 
+    def correction_captures(
+        self,
+        scope_id: str | None = None,
+        *,
+        status: CorrectionCaptureStatus | None = None,
+    ) -> list[CorrectionCapture]:
+        return self.store.correction_captures(scope_id, status=status)
+
+    def correction_capture(self, capture_id: str) -> CorrectionCapture:
+        capture = self.store.correction_capture(capture_id)
+        if capture is None:
+            raise ResourceNotFoundError(
+                f"unknown correction capture: {capture_id}"
+            )
+        return capture
+
+    def resolve_correction_capture(
+        self,
+        capture_id: str,
+        *,
+        status: Literal["curated", "discarded"],
+        resolution_note: str,
+    ) -> CorrectionCapture:
+        if status not in {
+            CorrectionCaptureStatus.curated.value,
+            CorrectionCaptureStatus.discarded.value,
+        }:
+            raise ValueError("capture status MUST be curated or discarded")
+        try:
+            return self.store.resolve_correction_capture(
+                capture_id,
+                status=status,
+                resolution_note=resolution_note,
+                resolved_at=self._clock(),
+            )
+        except KeyError as error:
+            raise ResourceNotFoundError(str(error)) from error
+
     def resolve_review(
         self,
         scope_id: str,
@@ -1914,29 +1957,29 @@ class Engine:
             )
         refs = _source_refs(source_refs, operation="review resolutions")
         if action == "attach_subgoal":
-            return self._resolve_subgoal_review(
+            item = self.store.review_item(scope_id, review_id)
+            resolved = self._resolve_subgoal_review(
                 scope_id,
                 review_id,
                 parent_subject_key=parent_subject_key or "",
                 source_refs=refs,
             )
-        with self.store.transaction():
-            item = self.store.review_item(scope_id, review_id)
-            if item is None:
-                raise ResourceNotFoundError(f"unknown review_id: {review_id}")
-            if item.resolved_at is not None:
-                raise ReviewConflictError(
-                    f"review_id {review_id!r} is already resolved"
-                )
-            original_card = EpisodeCard.model_validate(item.card_json)
-            if action == "drop":
-                # Auditor verdict: this card is noise (process log, junk) —
-                # discard it with provenance. The review row keeps the card
-                # and the resolution for the audit trail; nothing is ingested.
+            if item is not None:
+                self._capture_review_resolution(item, resolved)
+            return resolved
+        if action == "drop":
+            with self.store.transaction():
+                item = self.store.review_item(scope_id, review_id)
+                if item is None:
+                    raise ResourceNotFoundError(f"unknown review_id: {review_id}")
+                if item.resolved_at is not None:
+                    raise ReviewConflictError(
+                        f"review_id {review_id!r} is already resolved"
+                    )
                 resolved_at = self._clock()
                 for source_ref in refs:
                     self.store.observe_source(scope_id, source_ref)
-                return self.store.resolve_review_item(
+                resolved = self.store.resolve_review_item(
                     scope_id,
                     review_id,
                     resolved_at=resolved_at,
@@ -1947,6 +1990,17 @@ class Engine:
                         ],
                     },
                 )
+            self._capture_review_resolution(item, resolved)
+            return resolved
+        with self.store.transaction():
+            item = self.store.review_item(scope_id, review_id)
+            if item is None:
+                raise ResourceNotFoundError(f"unknown review_id: {review_id}")
+            if item.resolved_at is not None:
+                raise ReviewConflictError(
+                    f"review_id {review_id!r} is already resolved"
+                )
+            original_card = EpisodeCard.model_validate(item.card_json)
             combined_refs = _stable_source_refs(
                 [*original_card.source_refs, *refs]
             )
@@ -2020,7 +2074,8 @@ class Engine:
                 resolution=resolution,
             )
             self._rebuild(scope_id)
-            return resolved
+        self._capture_review_resolution(item, resolved)
+        return resolved
 
     def _resolve_subgoal_review(
         self,
@@ -2091,6 +2146,7 @@ class Engine:
             raise ValueError(
                 f"{rejection.value}: rejected {PART_OF} edge"
             )
+        _, election_before = self._capture_observation_context(assertion)
         with self.store.transaction():
             for source_ref in source_refs:
                 self.store.observe_source(scope_id, source_ref)
@@ -2111,7 +2167,12 @@ class Engine:
                 },
             )
             self._rebuild(scope_id)
-            return resolved
+        self._capture_assertion_override(
+            assertion,
+            affected_model_assertions=[],
+            election_before=election_before,
+        )
+        return resolved
 
     def subject_is_active(self, scope_id: str, subject_key: str) -> bool:
         if not self.subject_exists(scope_id, subject_key):
@@ -3816,6 +3877,213 @@ class Engine:
             )
         )
 
+    def _capture_review_resolution(
+        self,
+        item: ReviewItem,
+        resolved: ReviewItem,
+    ) -> None:
+        try:
+            card = EpisodeCard.model_validate(item.card_json)
+            self._write_correction_capture(
+                capture_id="capture_"
+                + stable_hash(["review_resolution", item.scope_id, item.review_id]),
+                scope_id=item.scope_id,
+                kind=CorrectionCaptureKind.review_resolution,
+                created_at=resolved.resolved_at or item.created_at,
+                source_refs=card.source_refs,
+                model_output={
+                    "card": item.card_json,
+                    "candidates": item.candidates_json,
+                },
+                human_output=resolved.resolution_json or {},
+            )
+        except Exception:
+            LOGGER.exception(
+                "correction capture failed for review resolution %s",
+                item.review_id,
+            )
+
+    def _capture_observation_context(
+        self,
+        assertion: Assertion,
+    ) -> tuple[list[Assertion], StructureElection | None]:
+        try:
+            return (
+                self._affected_model_assertions(assertion),
+                self._structure_election(assertion),
+            )
+        except Exception:
+            LOGGER.exception(
+                "correction capture context failed for assertion %s",
+                assertion.assertion_id,
+            )
+            return [], None
+
+    def _capture_assertion_override(
+        self,
+        assertion: Assertion,
+        *,
+        affected_model_assertions: list[Assertion],
+        election_before: StructureElection | None,
+    ) -> None:
+        try:
+            election_after = self._structure_election(assertion)
+            if (
+                election_before is not None
+                and election_after is not None
+                and election_before.elected_target
+                != election_after.elected_target
+                and election_before.winner.model_weight > 0
+                and election_before.winner.human_weight == 0
+            ):
+                self._capture_election_override(
+                    assertion,
+                    before=election_before,
+                    after=election_after,
+                )
+            elif affected_model_assertions:
+                self._capture_correction_override(
+                    assertion,
+                    affected_model_assertions,
+                )
+        except Exception:
+            LOGGER.exception(
+                "correction capture detection failed for assertion %s",
+                assertion.assertion_id,
+            )
+
+    def _capture_correction_override(
+        self,
+        assertion: Assertion,
+        model_assertions: list[Assertion],
+    ) -> None:
+        try:
+            source_refs = _stable_source_refs(
+                source_ref
+                for model_assertion in model_assertions
+                for source_ref in model_assertion.source_refs
+            )
+            self._write_correction_capture(
+                capture_id="capture_"
+                + stable_hash(["correction", assertion.assertion_id]),
+                scope_id=assertion.scope_id,
+                kind=CorrectionCaptureKind.correction,
+                created_at=assertion.recorded_at,
+                source_refs=source_refs,
+                model_output={
+                    "assertions": [
+                        item.model_dump(mode="json") for item in model_assertions
+                    ]
+                },
+                human_output={"assertion": assertion.model_dump(mode="json")},
+            )
+        except Exception:
+            LOGGER.exception(
+                "correction capture failed for assertion %s",
+                assertion.assertion_id,
+            )
+
+    def _capture_election_override(
+        self,
+        assertion: Assertion,
+        *,
+        before: StructureElection,
+        after: StructureElection,
+    ) -> None:
+        try:
+            model_assertions = [
+                item
+                for item in before.winner.contributing_assertions
+                if item.origin == Origin.model
+            ]
+            source_refs = _stable_source_refs(
+                source_ref
+                for model_assertion in model_assertions
+                for source_ref in model_assertion.source_refs
+            )
+            self._write_correction_capture(
+                capture_id="capture_"
+                + stable_hash(["election_override", assertion.assertion_id]),
+                scope_id=assertion.scope_id,
+                kind=CorrectionCaptureKind.election_override,
+                created_at=assertion.recorded_at,
+                source_refs=source_refs,
+                model_output={"election": _election_capture_payload(before)},
+                human_output={
+                    "assertion": assertion.model_dump(mode="json"),
+                    "election": _election_capture_payload(after),
+                },
+            )
+        except Exception:
+            LOGGER.exception(
+                "correction capture failed for election assertion %s",
+                assertion.assertion_id,
+            )
+
+    def _write_correction_capture(
+        self,
+        *,
+        capture_id: str,
+        scope_id: str,
+        kind: CorrectionCaptureKind,
+        created_at: datetime,
+        source_refs: list[SourceRef],
+        model_output: dict[str, Any],
+        human_output: dict[str, Any],
+    ) -> None:
+        self.store.add_correction_capture(
+            CorrectionCapture(
+                capture_id=capture_id,
+                scope_id=scope_id,
+                kind=kind,
+                created_at=created_at,
+                window_json=self.store.capture_window(scope_id, source_refs),
+                model_output_json=model_output,
+                human_output_json=human_output,
+            )
+        )
+
+    def _affected_model_assertions(
+        self,
+        correction: Assertion,
+    ) -> list[Assertion]:
+        if correction.predicate in {PART_OF, GATHERS}:
+            return []
+        definition = self.profile.predicate(correction.predicate)
+        if (
+            correction.operation == Operation.ASSERT
+            and definition.cardinality != Cardinality.SINGLE
+        ):
+            return []
+        matching_intervals = []
+        for interval in self.store.intervals(correction.scope_id):
+            if (
+                interval.subject_key != correction.subject_key
+                or interval.predicate != correction.predicate
+                or interval.origin != Origin.model
+                or interval.valid_from > correction.valid_from
+                or (
+                    interval.valid_to is not None
+                    and interval.valid_to <= correction.valid_from
+                )
+            ):
+                continue
+            if correction.operation == Operation.ASSERT:
+                if interval.object_key == correction.object_key:
+                    continue
+            elif (
+                correction.object_key != FIELD_WIDE_RETRACT
+                and interval.object_key != correction.object_key
+            ):
+                continue
+            matching_intervals.append(interval)
+        assertion_ids = {item.assertion_id for item in matching_intervals}
+        return [
+            item
+            for item in self.store.assertions(correction.scope_id)
+            if item.assertion_id in assertion_ids and item.origin == Origin.model
+        ]
+
     def _record_structure_rejection(
         self,
         scope_id: str,
@@ -3895,11 +4163,22 @@ class Engine:
             raise ValueError(
                 f"{rejection.value}: rejected {item.predicate} edge"
             )
+        (
+            affected_model_assertions,
+            election_before,
+        ) = self._capture_observation_context(assertion)
         with self.store.transaction():
             for source_ref in item.source_refs:
                 self.store.observe_source(item.scope_id, source_ref)
-            self._add_assertion(assertion)
+            inserted = self._add_assertion(assertion)
             self._rebuild(item.scope_id)
+        if not inserted:
+            return assertion
+        self._capture_assertion_override(
+            assertion,
+            affected_model_assertions=affected_model_assertions,
+            election_before=election_before,
+        )
         return assertion
 
     def merge_subjects(
@@ -4877,6 +5156,27 @@ def _stable_source_refs(values: Iterable[SourceRef]) -> list[SourceRef]:
         seen.add(value.source_id)
         result.append(value)
     return result
+
+
+def _election_capture_payload(election: StructureElection) -> dict[str, Any]:
+    return {
+        "scope_id": election.scope_id,
+        "subject_key": election.subject_key,
+        "predicate": election.predicate,
+        "elected_target": election.elected_target,
+        "candidates": [
+            {
+                "target": candidate.target,
+                "object_key": candidate.object_key,
+                "weights": candidate.weights(),
+                "contributing_assertions": [
+                    assertion.model_dump(mode="json")
+                    for assertion in candidate.contributing_assertions
+                ],
+            }
+            for candidate in election.candidates
+        ],
+    }
 
 
 def _disagrees(winner: str, lower: Iterable[str | None]) -> bool:

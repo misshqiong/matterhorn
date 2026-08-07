@@ -1,0 +1,61 @@
+case_id: correction-capture-staged-window
+title: Human supersession captures the model assertion and retained Record window
+invariants: [P5, P8, P9, INV-24]
+schema_profile: org-matters/v1
+scope_id: octo-capture-correction
+clock:
+  - "2026-08-07T09:01:00Z"
+  - "2026-08-07T09:02:00Z"
+  - "2026-08-07T09:03:00Z"
+cards:
+  - card_id: octo-capture-seed
+    scope_id: octo-capture-correction
+    subject_key: octo-release
+    date: 2026-08-07
+    occurred_at: "2026-08-07T09:00:00Z"
+    title: Fictional octo-org release
+    status: open
+    source_refs:
+      - {source_id: "octo-capture:room:r1", sent_at: "2026-08-07T09:00:00Z", sender: Dana Reyes, excerpt: "The fictional release is open."}
+record_batches:
+  - records:
+      - record_id: "octo-capture:room:r1"
+        container_id: "octo-capture:room"
+        sent_at: "2026-08-07T09:00:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "The fictional release is open."
+record_model_responses:
+  - {cards: []}
+corrections:
+  - scope_id: octo-capture-correction
+    subject_key: octo-release
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: completed
+    valid_from: "2026-08-07T09:05:00Z"
+    source_refs:
+      - {source_id: "octo-capture:human:c1", sent_at: "2026-08-07T09:05:00Z", sender: Dana Reyes, excerpt: "Mark the fictional release completed."}
+expect:
+  record_reports:
+    - {assertions_emitted: 0}
+  assertions:
+    - {subject_key: octo-release, predicate: status, object_value: open, origin: model}
+    - {subject_key: octo-release, predicate: status, object_value: completed, origin: human}
+  intervals:
+    - {subject_key: octo-release, predicate: status, object_value: open, valid_to: "2026-08-07T09:05:00.000000Z"}
+    - {subject_key: octo-release, predicate: status, object_value: completed, valid_to: null}
+  correction_captures:
+    - kind: correction
+      status: pending
+      window_json:
+        - source: staged_record
+          record:
+            record_id: "octo-capture:room:r1"
+            content: "The fictional release is open."
+      model_output_json:
+        assertions:
+          - {predicate: status, object_value: open, origin: model}
+      human_output_json:
+        assertion: {predicate: status, object_value: completed, origin: human}
+  queries: []

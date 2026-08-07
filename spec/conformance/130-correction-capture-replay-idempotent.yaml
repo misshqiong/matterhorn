@@ -1,0 +1,21 @@
+case_id: correction-capture-replay-idempotent
+title: Duplicate correction and assertion replay preserve one capture
+invariants: [P9, INV-24]
+schema_profile: org-matters/v1
+scope_id: octo-capture-replay
+clock: ["2026-08-07T11:00:00Z", "2026-08-07T11:01:00Z"]
+cards:
+  - {card_id: replay-seed, scope_id: octo-capture-replay, subject_key: replay-matter, date: 2026-08-07, title: Fictional replay matter, status: open, source_refs: [{source_id: "octo-org:replay:model", sent_at: "2026-08-07T10:00:00Z", sender: Octo Agent}]}
+corrections:
+  - {scope_id: octo-capture-replay, subject_key: replay-matter, subject_type: MATTER, predicate: status, operation: ASSERT, object_value: completed, valid_from: "2026-08-07T10:30:00Z", source_refs: [{source_id: "octo-org:replay:human", sent_at: "2026-08-07T10:30:00Z", sender: Dana Reyes}]}
+expect:
+  assertions:
+    - {subject_key: replay-matter, predicate: status, object_value: open, origin: model}
+    - {subject_key: replay-matter, predicate: status, object_value: completed, origin: human}
+  intervals:
+    - {subject_key: replay-matter, predicate: status, object_value: open}
+    - {subject_key: replay-matter, predicate: status, object_value: completed}
+  correction_captures:
+    - {kind: correction, status: pending}
+  replay_events_emitted: 0
+  queries: []

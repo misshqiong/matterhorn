@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from threading import RLock
-from typing import Any
+from typing import Any, Literal
 
 from matterhorn.canonical import (
     as_utc,
@@ -16,6 +16,8 @@ from matterhorn.canonical import (
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
+    CorrectionCapture,
+    CorrectionCaptureStatus,
     EpisodeCard,
     EventType,
     EvidenceRef,
@@ -279,6 +281,33 @@ CREATE INDEX IF NOT EXISTS idx_review_queue_pending
     ON review_queue(
         scope_id COLLATE "C", resolved_at, created_at, review_id COLLATE "C"
     );
+CREATE TABLE IF NOT EXISTS correction_captures (
+    capture_id TEXT COLLATE "C" PRIMARY KEY,
+    scope_id TEXT COLLATE "C" NOT NULL,
+    kind TEXT COLLATE "C" NOT NULL
+        CHECK(kind IN ('correction', 'review_resolution', 'election_override')),
+    created_at TIMESTAMPTZ NOT NULL,
+    window_json JSONB NOT NULL,
+    model_output_json JSONB NOT NULL,
+    human_output_json JSONB NOT NULL,
+    status TEXT COLLATE "C" NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'curated', 'discarded')),
+    resolution_note TEXT,
+    resolved_at TIMESTAMPTZ,
+    CHECK(
+        (status = 'pending' AND resolution_note IS NULL AND resolved_at IS NULL)
+        OR
+        (status IN ('curated', 'discarded')
+         AND resolution_note IS NOT NULL AND resolved_at IS NOT NULL)
+    )
+);
+CREATE INDEX IF NOT EXISTS idx_correction_captures_pending
+    ON correction_captures(
+        status COLLATE "C",
+        scope_id COLLATE "C",
+        created_at,
+        capture_id COLLATE "C"
+    );
 CREATE TABLE IF NOT EXISTS gate_stats (
     scope_id TEXT NOT NULL,
     counter TEXT NOT NULL,
@@ -441,6 +470,7 @@ class PostgresStore:
             for table in (
                 "webhook_deliveries",
                 "events",
+                "correction_captures",
                 "tasks",
                 "review_queue",
                 "distill_queue",
@@ -474,6 +504,7 @@ class PostgresStore:
             "subject_handles",
             "tasks",
             "review_queue",
+            "correction_captures",
             "theme_schedule_state",
             "events",
             "ingested_cards",
@@ -512,6 +543,7 @@ class PostgresStore:
                 UNION ALL SELECT scope_id FROM projection_stats
                 UNION ALL SELECT scope_id FROM distill_queue
                 UNION ALL SELECT scope_id FROM review_queue
+                UNION ALL SELECT scope_id FROM correction_captures
                 UNION ALL SELECT scope_id FROM gate_stats
                 UNION ALL SELECT scope_id FROM theme_schedule_state
                 UNION ALL SELECT scope_id FROM tasks
@@ -1739,6 +1771,122 @@ class PostgresStore:
         assert resolved is not None
         return resolved
 
+    def capture_window(
+        self, scope_id: str, source_refs: list[SourceRef]
+    ) -> list[dict[str, Any]]:
+        if not source_refs:
+            return []
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT record_id,record_json FROM staged_records
+                WHERE scope_id=%s AND record_id = ANY(%s)
+                """,
+                (scope_id, [item.source_id for item in source_refs]),
+            )
+            staged = {
+                row["record_id"]: json_value(row["record_json"])
+                for row in cursor.fetchall()
+            }
+        return [
+            (
+                {"source": "staged_record", "record": staged[item.source_id]}
+                if item.source_id in staged
+                else {
+                    "source": "evidence_snapshot",
+                    "source_ref": item.model_dump(mode="json"),
+                }
+            )
+            for item in source_refs
+        ]
+
+    def add_correction_capture(self, capture: CorrectionCapture) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO correction_captures(
+                  capture_id,scope_id,kind,created_at,window_json,
+                  model_output_json,human_output_json,status,
+                  resolution_note,resolved_at
+                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT(capture_id) DO NOTHING
+                """,
+                (
+                    capture.capture_id,
+                    capture.scope_id,
+                    capture.kind.value,
+                    as_utc(capture.created_at),
+                    Jsonb(json_value(capture.window_json)),
+                    Jsonb(json_value(capture.model_output_json)),
+                    Jsonb(json_value(capture.human_output_json)),
+                    capture.status.value,
+                    capture.resolution_note,
+                    as_utc(capture.resolved_at) if capture.resolved_at else None,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def correction_capture(self, capture_id: str) -> CorrectionCapture | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM correction_captures WHERE capture_id=%s",
+                (capture_id,),
+            )
+            row = cursor.fetchone()
+        return self._row_to_correction_capture(row) if row is not None else None
+
+    def correction_captures(
+        self,
+        scope_id: str | None = None,
+        *,
+        status: CorrectionCaptureStatus | None = None,
+    ) -> list[CorrectionCapture]:
+        conditions = []
+        parameters: list[str] = []
+        if scope_id is not None:
+            conditions.append("scope_id=%s")
+            parameters.append(scope_id)
+        if status is not None:
+            conditions.append("status=%s")
+            parameters.append(status.value)
+        sql = "SELECT * FROM correction_captures"
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += ' ORDER BY created_at,capture_id COLLATE "C"'
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, tuple(parameters))
+            rows = cursor.fetchall()
+        return [self._row_to_correction_capture(row) for row in rows]
+
+    def resolve_correction_capture(
+        self,
+        capture_id: str,
+        *,
+        status: Literal["curated", "discarded"],
+        resolution_note: str,
+        resolved_at: datetime,
+    ) -> CorrectionCapture:
+        if not resolution_note:
+            raise ValueError("correction capture resolution note MUST be non-empty")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE correction_captures
+                SET status=%s,resolution_note=%s,resolved_at=%s
+                WHERE capture_id=%s AND status='pending'
+                """,
+                (status, resolution_note, as_utc(resolved_at), capture_id),
+            )
+            updated = cursor.rowcount
+        if updated != 1:
+            existing = self.correction_capture(capture_id)
+            if existing is None:
+                raise KeyError(f"unknown correction capture: {capture_id}")
+            raise ValueError(f"correction capture {capture_id!r} is already resolved")
+        resolved = self.correction_capture(capture_id)
+        assert resolved is not None
+        return resolved
+
     def record_gate_report(
         self,
         scope_id: str,
@@ -2558,6 +2706,21 @@ class PostgresStore:
                 else None
             ),
             resolution_json=row["resolution_json"],
+        )
+
+    @staticmethod
+    def _row_to_correction_capture(row: dict[str, Any]) -> CorrectionCapture:
+        return CorrectionCapture(
+            capture_id=row["capture_id"],
+            scope_id=row["scope_id"],
+            kind=row["kind"],
+            created_at=row["created_at"],
+            window_json=row["window_json"],
+            model_output_json=row["model_output_json"],
+            human_output_json=row["human_output_json"],
+            status=row["status"],
+            resolution_note=row["resolution_note"],
+            resolved_at=row["resolved_at"],
         )
 
     @staticmethod

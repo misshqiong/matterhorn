@@ -666,6 +666,43 @@ class ReviewItem(StrictModel):
         return self
 
 
+class CorrectionCaptureKind(str, Enum):
+    correction = "correction"
+    review_resolution = "review_resolution"
+    election_override = "election_override"
+
+
+class CorrectionCaptureStatus(str, Enum):
+    pending = "pending"
+    curated = "curated"
+    discarded = "discarded"
+
+
+class CorrectionCapture(StrictModel):
+    capture_id: str = Field(min_length=1)
+    scope_id: str = Field(min_length=1)
+    kind: CorrectionCaptureKind
+    created_at: datetime
+    window_json: list[dict[str, Any]]
+    model_output_json: dict[str, Any]
+    human_output_json: dict[str, Any]
+    status: CorrectionCaptureStatus = CorrectionCaptureStatus.pending
+    resolution_note: str | None = None
+    resolved_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def resolution_is_complete(self) -> CorrectionCapture:
+        if self.status == CorrectionCaptureStatus.pending:
+            if self.resolution_note is not None or self.resolved_at is not None:
+                raise ValueError("pending correction captures MUST NOT be resolved")
+            return self
+        if not self.resolution_note or self.resolved_at is None:
+            raise ValueError(
+                "resolved correction captures require a resolution note and instant"
+            )
+        return self
+
+
 class ProjectionStats(StrictModel):
     scope_id: str
     predicate: str

@@ -10,6 +10,8 @@ from typing import Any, Literal, Protocol
 from matterhorn.contracts import (
     Assertion,
     ChangeEvent,
+    CorrectionCapture,
+    CorrectionCaptureStatus,
     EpisodeCard,
     EvidenceRef,
     GateStatistics,
@@ -385,6 +387,30 @@ class Store(Protocol):
         resolved_at: datetime,
         resolution: dict[str, Any],
     ) -> ReviewItem: ...
+
+    def capture_window(
+        self, scope_id: str, source_refs: list[SourceRef]
+    ) -> list[dict[str, Any]]: ...
+
+    def add_correction_capture(self, capture: CorrectionCapture) -> bool: ...
+
+    def correction_capture(self, capture_id: str) -> CorrectionCapture | None: ...
+
+    def correction_captures(
+        self,
+        scope_id: str | None = None,
+        *,
+        status: CorrectionCaptureStatus | None = None,
+    ) -> list[CorrectionCapture]: ...
+
+    def resolve_correction_capture(
+        self,
+        capture_id: str,
+        *,
+        status: Literal["curated", "discarded"],
+        resolution_note: str,
+        resolved_at: datetime,
+    ) -> CorrectionCapture: ...
 
     def record_gate_report(
         self,
