@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from datetime import datetime
 
 from matterhorn.canonical import instant_text, stable_hash
 from matterhorn.contracts import (
@@ -15,6 +16,12 @@ from matterhorn.contracts import (
     Origin,
     ProjectionStats,
     SchemaProfile,
+)
+from matterhorn.engine.structure_election import (
+    DEFAULT_HUMAN_EDGE_WEIGHT,
+    PART_OF,
+    ElectionCandidate,
+    election_history,
 )
 
 
@@ -78,6 +85,8 @@ def _add_support(interval: Interval, assertion: Assertion) -> Interval:
 def project_assertions(
     assertions: Iterable[Assertion],
     profile: SchemaProfile,
+    *,
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
 ) -> tuple[list[Interval], list[ProjectionStats]]:
     grouped: dict[tuple[str, str, str], list[Assertion]] = defaultdict(list)
     scopes: set[str] = set()
@@ -95,7 +104,13 @@ def project_assertions(
     for (scope_id, _, predicate_name), items in sorted(grouped.items()):
         definition = profile.predicate(predicate_name)
         if definition.cardinality == Cardinality.SINGLE:
-            projected, conflicts = _project_single(items)
+            if predicate_name == PART_OF:
+                projected, conflicts = _project_elected_single(
+                    items,
+                    human_edge_weight=human_edge_weight,
+                )
+            else:
+                projected, conflicts = _project_single(items)
             conflict_totals[(scope_id, predicate_name)] += conflicts
         elif definition.cardinality == Cardinality.SET:
             projected = _project_set(items)
@@ -158,6 +173,83 @@ def _project_single(items: list[Assertion]) -> tuple[list[Interval], int]:
     if active is not None:
         result.append(active)
     return result, conflicts
+
+
+def _project_elected_single(
+    items: list[Assertion],
+    *,
+    human_edge_weight: int,
+) -> tuple[list[Interval], int]:
+    """Project weighted ``part_of`` history without consulting mutable state."""
+
+    asserted_by_time: dict[object, set[str]] = defaultdict(set)
+    for item in items:
+        if item.operation == Operation.ASSERT:
+            asserted_by_time[item.valid_from].add(item.object_key)
+    conflicts = sum(max(0, len(keys) - 1) for keys in asserted_by_time.values())
+
+    result: list[Interval] = []
+    active: Interval | None = None
+    for step in election_history(items, human_edge_weight=human_edge_weight):
+        election = step.election
+        if election is None:
+            if active is not None:
+                result.append(active.model_copy(update={"valid_to": step.instant}))
+                active = None
+            continue
+        winner = election.winner
+        if active is not None and active.object_key == winner.object_key:
+            active = _election_interval(winner, valid_from=active.valid_from)
+            continue
+        if active is not None:
+            result.append(active.model_copy(update={"valid_to": step.instant}))
+        active = _election_interval(winner, valid_from=step.instant)
+    if active is not None:
+        result.append(active)
+    return result, conflicts
+
+
+def _election_interval(
+    winner: ElectionCandidate,
+    *,
+    valid_from: datetime,
+) -> Interval:
+    base = winner.latest_assertion
+    source_refs = []
+    seen_source_ids: set[str] = set()
+    for assertion in winner.contributing_assertions:
+        for source_ref in assertion.source_refs:
+            if source_ref.source_id in seen_source_ids:
+                continue
+            source_refs.append(source_ref)
+            seen_source_ids.add(source_ref.source_id)
+    interval_id = stable_hash(
+        [
+            base.scope_id,
+            base.subject_key,
+            base.predicate,
+            base.object_key,
+            instant_text(valid_from),
+            base.assertion_id,
+        ]
+    )
+    return Interval(
+        interval_id=interval_id,
+        scope_id=base.scope_id,
+        subject_key=base.subject_key,
+        subject_type=base.subject_type,
+        predicate=base.predicate,
+        object_value=base.object_value,
+        object_key=base.object_key,
+        valid_from=valid_from,
+        valid_to=None,
+        assertion_id=base.assertion_id,
+        supporting_assertion_ids=[
+            item.assertion_id for item in winner.contributing_assertions
+        ],
+        source_refs=source_refs,
+        origin=base.origin,
+    )
 
 
 def _project_set(items: list[Assertion]) -> list[Interval]:

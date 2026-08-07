@@ -125,6 +125,7 @@ non-interactive fallback:
 | `MATTERHORN_THEME_MIN_BACKLOG` | Override `[themes] theme_min_backlog` (default `6`) |
 | `MATTERHORN_THEME_INTERVAL_HOURS` | Override `[themes] theme_interval_hours` (default `6`) |
 | `MATTERHORN_THEME_CONVERSATION_FANOUT` | Override `[themes] theme_conversation_fanout` (default `8`) |
+| `MATTERHORN_HUMAN_EDGE_WEIGHT` | Override `[themes] human_edge_weight`; integer at least `2` (default `10`) |
 
 Enable the opt-in loop with `[distill] unified_loop = true` in
 `matterhorn.toml`. The environment override accepts true/false, yes/no,
@@ -302,13 +303,13 @@ Use `--max-batch-delay-minutes` or `MATTERHORN_MAX_BATCH_DELAY` to override it.
 Service mode can also honor a UTC `daily_flush_at = "HH:MM"` and push event webhooks.
 Embedded mode remains host-driven through `flush()` or `wait=True`.
 
-The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 111
+The normative contract is [spec/SPEC.md](spec/SPEC.md). Its 116
 language-neutral golden cases include the Message door, conversation-scoped
 rolling extraction, boundary chunk determinism, and receipt/flush replay:
 
 ```console
 $ mh conformance run
-SUMMARY passed=111 failed=0 total=111
+SUMMARY passed=116 failed=0 total=116
 ```
 
 ### Extraction quality evaluation

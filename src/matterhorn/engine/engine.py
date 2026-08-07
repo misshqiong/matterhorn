@@ -103,6 +103,12 @@ from matterhorn.engine.signals import (
     configured_signal_config,
     first_pattern_match,
 )
+from matterhorn.engine.structure_election import (
+    DEFAULT_HUMAN_EDGE_WEIGHT,
+    StructureElection,
+    elected_part_of,
+    validate_human_edge_weight,
+)
 from matterhorn.engine.theme_converge import (
     DEFAULT_THEME_CONVERGE,
     DEFAULT_THEME_CONVERSATION_FANOUT,
@@ -136,6 +142,7 @@ DEFAULT_MAX_BATCH_DELAY_MINUTES = 5
 DEFAULT_CONTEXT_MAX_RECORDS = 20
 DEFAULT_CONTEXT_MAX_CHARS = 4000
 SUBJECT_MERGE_PREDICATE = "subject_merge"
+ELECTION_OVERRODE_HUMAN = "ELECTION_OVERRODE_HUMAN"
 _TASK_ERROR_SECRET_MARKER = re.compile(
     r"(?i)\b(?:authorization|proxy-authorization|x-api-key|api[ _-]?key|"
     r"access[ _-]?token|refresh[ _-]?token|password|secret|bearer)\b"
@@ -281,6 +288,7 @@ class Engine:
     DEFAULT_THEME_MIN_BACKLOG = DEFAULT_THEME_MIN_BACKLOG
     DEFAULT_THEME_INTERVAL_HOURS = DEFAULT_THEME_INTERVAL_HOURS
     DEFAULT_THEME_CONVERSATION_FANOUT = DEFAULT_THEME_CONVERSATION_FANOUT
+    DEFAULT_HUMAN_EDGE_WEIGHT = DEFAULT_HUMAN_EDGE_WEIGHT
 
     def __init__(
         self,
@@ -306,6 +314,7 @@ class Engine:
         theme_min_backlog: int = DEFAULT_THEME_MIN_BACKLOG,
         theme_interval_hours: float = DEFAULT_THEME_INTERVAL_HOURS,
         theme_conversation_fanout: int = DEFAULT_THEME_CONVERSATION_FANOUT,
+        human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
     ):
         self.store = _resolve_store(store)
         self.profile = resolve_schema(schema)
@@ -333,6 +342,10 @@ class Engine:
             min_backlog=theme_min_backlog,
             interval_hours=theme_interval_hours,
             conversation_fanout=theme_conversation_fanout,
+            human_edge_weight=human_edge_weight,
+        )
+        self.human_edge_weight = validate_human_edge_weight(
+            self.theme_settings.human_edge_weight
         )
         self.signal_config: SignalConfig = configured_signal_config(
             identity_handles=identity_handles,
@@ -545,13 +558,13 @@ class Engine:
                 existing.assertion_id == assertion.assertion_id
                 for existing in stored
             ):
-                if self.store.add_assertion(assertion):
+                if self._add_assertion(assertion):
                     emitted.append(assertion)
                 continue
             if self._model_assertion_is_unchanged(assertion, stored):
                 counts.unchanged_dropped += 1
                 continue
-            if self.store.add_assertion(assertion):
+            if self._add_assertion(assertion):
                 emitted.append(assertion)
         return emitted, counts
 
@@ -571,6 +584,7 @@ class Engine:
                 self.store.subject_merges(assertion.scope_id),
             ),
             self.profile,
+            human_edge_weight=self.human_edge_weight,
         )
         matching = [
             interval
@@ -1813,7 +1827,7 @@ class Engine:
                 origin=Origin.human,
             )
             for assertion in assertions:
-                self.store.add_assertion(assertion)
+                self._add_assertion(assertion)
             for source_ref in refs:
                 self.store.observe_source(scope_id, source_ref)
             self.store.enqueue_distill(
@@ -1920,7 +1934,7 @@ class Engine:
         with self.store.transaction():
             for source_ref in source_refs:
                 self.store.observe_source(scope_id, source_ref)
-            self.store.add_assertion(assertion)
+            self._add_assertion(assertion)
             resolved = self.store.resolve_review_item(
                 scope_id,
                 review_id,
@@ -2199,7 +2213,11 @@ class Engine:
             ),
             graph=(
                 project_goal_graph(
-                    self.profile, subjects, raw_assertions, merges
+                    self.profile,
+                    subjects,
+                    raw_assertions,
+                    merges,
+                    human_edge_weight=self.human_edge_weight,
                 )
                 if self._goal_graph_enabled()
                 else None
@@ -2320,6 +2338,7 @@ class Engine:
                 subjects=self.store.subjects(scope_id),
                 assertions=self.store.assertions(scope_id),
                 merges=self.store.subject_merges(scope_id),
+                human_edge_weight=self.human_edge_weight,
             )
         except KeyError as error:
             raise ResourceNotFoundError(
@@ -2374,6 +2393,7 @@ class Engine:
             self.store.subjects(scope_id),
             self.store.assertions(scope_id),
             self.store.subject_merges(scope_id),
+            human_edge_weight=self.human_edge_weight,
         )
 
     def signals(
@@ -2506,7 +2526,9 @@ class Engine:
                 canonical_subject = subject_by_key.get(canonical, subject)
                 topic_titles[(scope_id, canonical)] = canonical_subject.title
             intervals, _ = project_assertions(
-                bundle.canonical_assertions, self.profile
+                bundle.canonical_assertions,
+                self.profile,
+                human_edge_weight=self.human_edge_weight,
             )
             live_viewpoint_assertion_ids.update(
                 interval.assertion_id
@@ -3299,6 +3321,109 @@ class Engine:
             assertions=self.store.assertions(assertion.scope_id),
             merges=self.store.subject_merges(assertion.scope_id),
             target_exists_outside_scope=outside,
+            human_edge_weight=self.human_edge_weight,
+        )
+
+    def _add_assertion(self, assertion: Assertion) -> bool:
+        """Commit one assertion and emit any deterministic election notice."""
+
+        before = self._part_of_election(assertion)
+        inserted = self.store.add_assertion(assertion)
+        if not inserted or assertion.predicate != PART_OF:
+            return inserted
+        after = self._part_of_election(assertion)
+        self._enqueue_election_notice(assertion, before=before, after=after)
+        return True
+
+    def _part_of_election(
+        self,
+        assertion: Assertion,
+    ) -> StructureElection | None:
+        if assertion.predicate != PART_OF:
+            return None
+        merges = self.store.subject_merges(assertion.scope_id)
+        assertions = canonicalize_graph_assertions(
+            self.store.assertions(assertion.scope_id),
+            merges,
+        )
+        subject_key = self.canonical_subject_key(
+            assertion.scope_id,
+            assertion.subject_key,
+        )
+        return elected_part_of(
+            assertions,
+            human_edge_weight=self.human_edge_weight,
+        ).get((assertion.scope_id, subject_key))
+
+    def _enqueue_election_notice(
+        self,
+        assertion: Assertion,
+        *,
+        before: StructureElection | None,
+        after: StructureElection | None,
+    ) -> None:
+        if before is None or after is None:
+            return
+        old_target = before.elected_target
+        new_target = after.elected_target
+        if old_target == new_target:
+            return
+        old_candidate = after.candidate(old_target)
+        new_candidate = after.candidate(new_target)
+        if (
+            old_candidate is None
+            or old_candidate.human_weight <= 0
+            or new_candidate is None
+            or new_candidate.model_weight < self.human_edge_weight
+        ):
+            return
+        subject_key = after.subject_key
+        subject = next(
+            (
+                item
+                for item in self.store.subjects(assertion.scope_id)
+                if item.subject_key == subject_key
+            ),
+            None,
+        )
+        review_id = "review_election_" + stable_hash(
+            [
+                assertion.scope_id,
+                subject_key,
+                old_target,
+                new_target,
+                assertion.assertion_id,
+            ]
+        )
+        review_card = EpisodeCard(
+            card_id="election_" + stable_hash([assertion.scope_id, subject_key]),
+            scope_id=assertion.scope_id,
+            subject_key=subject_key,
+            date=assertion.valid_from.date(),
+            occurred_at=assertion.valid_from,
+            title=(subject.title if subject is not None else subject_key),
+            source_refs=assertion.source_refs,
+        )
+        self.store.add_review_item(
+            ReviewItem(
+                scope_id=assertion.scope_id,
+                review_id=review_id,
+                card_json=review_card.model_dump(mode="json"),
+                reasons=[ELECTION_OVERRODE_HUMAN],
+                candidates_json=[
+                    {
+                        "action": "election_notice",
+                        "subject_key": subject_key,
+                        "old_human_target": old_target,
+                        "new_elected_target": new_target,
+                        "weights": {
+                            old_target: old_candidate.weights(),
+                            new_target: new_candidate.weights(),
+                        },
+                    }
+                ],
+                created_at=assertion.recorded_at,
+            )
         )
 
     def _record_structure_rejection(
@@ -3349,6 +3474,7 @@ class Engine:
             value_key = (
                 object_key(item.object_value)
                 if item.operation == Operation.ASSERT
+                or item.object_value is not None
                 else FIELD_WIDE_RETRACT
             )
         assertion = Assertion(
@@ -3382,7 +3508,7 @@ class Engine:
         with self.store.transaction():
             for source_ref in item.source_refs:
                 self.store.observe_source(item.scope_id, source_ref)
-            self.store.add_assertion(assertion)
+            self._add_assertion(assertion)
             self._rebuild(item.scope_id)
         return assertion
 
@@ -3635,7 +3761,7 @@ class Engine:
                     raise ImportRefusedError(
                         "export assertion scope_id does not match envelope scope_id"
                     )
-                self.store.add_assertion(assertion)
+                self._add_assertion(assertion)
             for source in snapshot.source_states:
                 self.store.put_source_state(
                     snapshot.scope_id,
@@ -3839,7 +3965,7 @@ class Engine:
                         assertion = assertion.model_copy(
                             update={"recorded_at": self._clock()}
                         )
-                        if self.store.add_assertion(assertion):
+                        if self._add_assertion(assertion):
                             item_new_assertions += 1
                     admitted_count = (
                         gate.accepted_count - sum(structure_rejections.values())
@@ -3892,7 +4018,11 @@ class Engine:
             self.store.assertions(scope_id),
             merges,
         )
-        intervals, stats = project_assertions(assertions, self.profile)
+        intervals, stats = project_assertions(
+            assertions,
+            self.profile,
+            human_edge_weight=self.human_edge_weight,
+        )
         cards = materialize(
             _canonicalized_subjects(subjects, merges),
             intervals,

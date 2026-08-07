@@ -227,7 +227,7 @@ def test_every_shipped_case_has_a_sibling_response_fixture() -> None:
 def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
     samples = [load_alignment_sample(path) for path in discover_alignment_samples()]
 
-    assert len(samples) == 5
+    assert len(samples) == 17
     assert {sample.source_kind for sample in samples} == {"mail", "im", "agent"}
     produced = {
         sample.sample_id: sample.expected_assertions
@@ -240,8 +240,8 @@ def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
         "mis_attached": 0,
     }
     assert scores["typing_accuracy"] == {
-        "correct": 5,
-        "total": 5,
+        "correct": 17,
+        "total": 17,
         "rate": 1.0,
     }
     assert scores["by_type"] == {

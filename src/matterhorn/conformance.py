@@ -14,8 +14,20 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from matterhorn.canonical import canonical_json, instant_text
-from matterhorn.contracts import SchemaProfile
+from matterhorn.canonical import (
+    canonical_json,
+    derive_assertion_id,
+    instant_text,
+    object_key,
+)
+from matterhorn.contracts import (
+    FIELD_WIDE_RETRACT,
+    Assertion,
+    Operation,
+    Origin,
+    SchemaProfile,
+    SourceRef,
+)
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.defaults import Engine
 from matterhorn.distill import ToolLoopResult
@@ -965,6 +977,8 @@ def _run_structure_operations(engine: Engine, case: dict[str, Any]) -> None:
         }
 
         def invoke(current: dict[str, Any] = payload) -> Any:
+            if current.get("origin", "human") == "model":
+                return _admit_model_structure_operation(engine, current)
             return engine.correct(current)
 
         expected_error = operation.get("expect_error")
@@ -983,6 +997,56 @@ def _run_structure_operations(engine: Engine, case: dict[str, Any]) -> None:
             raise ConformanceFailure(
                 f"expected structure error matching {expected_error!r}"
             )
+
+
+def _admit_model_structure_operation(
+    engine: Engine,
+    operation: dict[str, Any],
+) -> Assertion:
+    operation_name = Operation(operation.get("operation", Operation.ASSERT))
+    value = operation.get("object_value")
+    value_key = operation.get("object_key")
+    if value_key is None:
+        value_key = (
+            object_key(value)
+            if operation_name == Operation.ASSERT or value is not None
+            else FIELD_WIDE_RETRACT
+        )
+    source_refs = [SourceRef.model_validate(item) for item in operation["source_refs"]]
+    valid_from = _instant(operation["valid_from"])
+    recorded_at = engine.now()
+    assertion = Assertion(
+        assertion_id=derive_assertion_id(
+            operation["scope_id"],
+            operation["subject_key"],
+            operation["predicate"],
+            operation_name,
+            value_key,
+            valid_from,
+            source_refs,
+        ),
+        scope_id=operation["scope_id"],
+        subject_key=operation["subject_key"],
+        subject_type=operation["subject_type"],
+        predicate=operation["predicate"],
+        operation=operation_name,
+        object_value=value,
+        object_key=value_key,
+        valid_from=valid_from,
+        recorded_at=recorded_at,
+        source_refs=source_refs,
+        origin=Origin.model,
+    )
+    rejection = engine._structure_rejection(assertion)
+    if rejection is not None:
+        engine._record_structure_rejection(assertion.scope_id, rejection)
+        raise ValueError(f"{rejection.value}: rejected {assertion.predicate} edge")
+    with engine.store.transaction():
+        for source_ref in source_refs:
+            engine.store.observe_source(assertion.scope_id, source_ref)
+        engine._add_assertion(assertion)
+        engine._rebuild(assertion.scope_id)
+    return assertion
 
 
 def _run_theme_operations(engine: Engine, case: dict[str, Any]) -> list[Any]:

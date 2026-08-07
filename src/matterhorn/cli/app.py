@@ -154,6 +154,9 @@ def _theme_settings(config: dict[str, Any]) -> dict[str, Any]:
                 "theme_conversation_fanout",
                 distill.get("theme_conversation_fanout"),
             ),
+            human_edge_weight=themes.get(
+                "human_edge_weight", distill.get("human_edge_weight")
+            ),
         )
     except (TypeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
@@ -163,6 +166,7 @@ def _theme_settings(config: dict[str, Any]) -> dict[str, Any]:
         "theme_min_backlog": settings.min_backlog,
         "theme_interval_hours": settings.interval_hours,
         "theme_conversation_fanout": settings.conversation_fanout,
+        "human_edge_weight": settings.human_edge_weight,
     }
 
 
@@ -601,6 +605,7 @@ def init_project(
                     "theme_min_backlog = 6",
                     "theme_interval_hours = 6",
                     "theme_conversation_fanout = 8",
+                    "human_edge_weight = 10",
                     "",
                 ]
             ),

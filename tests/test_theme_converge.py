@@ -176,6 +176,7 @@ def test_theme_configuration_env_overrides_defaults(monkeypatch) -> None:
     monkeypatch.setenv("MATTERHORN_THEME_MIN_BACKLOG", "9")
     monkeypatch.setenv("MATTERHORN_THEME_INTERVAL_HOURS", "2.5")
     monkeypatch.setenv("MATTERHORN_THEME_CONVERSATION_FANOUT", "12")
+    monkeypatch.setenv("MATTERHORN_HUMAN_EDGE_WEIGHT", "14")
 
     settings = configured_theme_settings()
 
@@ -184,6 +185,7 @@ def test_theme_configuration_env_overrides_defaults(monkeypatch) -> None:
     assert settings.min_backlog == 9
     assert settings.interval_hours == 2.5
     assert settings.conversation_fanout == 12
+    assert settings.human_edge_weight == 14
 
 
 def test_theme_configuration_rejects_invalid_mode_and_thresholds(monkeypatch) -> None:
@@ -193,6 +195,10 @@ def test_theme_configuration_rejects_invalid_mode_and_thresholds(monkeypatch) ->
     monkeypatch.setenv("MATTERHORN_THEME_CONVERGE", "review")
     monkeypatch.setenv("MATTERHORN_THEME_MIN_CLUSTER", "1")
     with pytest.raises(ValueError, match="integer >= 2"):
+        configured_theme_settings()
+    monkeypatch.setenv("MATTERHORN_THEME_MIN_CLUSTER", "3")
+    monkeypatch.setenv("MATTERHORN_HUMAN_EDGE_WEIGHT", "1")
+    with pytest.raises(ValueError, match="human_edge_weight MUST be an integer >= 2"):
         configured_theme_settings()
 
 

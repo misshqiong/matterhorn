@@ -36,6 +36,10 @@ from matterhorn.engine.goal_graph import (
     project_goal_graph,
     structure_rejection,
 )
+from matterhorn.engine.structure_election import (
+    DEFAULT_HUMAN_EDGE_WEIGHT,
+    validate_human_edge_weight,
+)
 from matterhorn.engine.unified_loop import run_bounded_tool_loop
 from matterhorn.store.base import ThemeScheduleState
 
@@ -61,6 +65,7 @@ class ThemeSettings:
     min_backlog: int = DEFAULT_THEME_MIN_BACKLOG
     interval_hours: float = DEFAULT_THEME_INTERVAL_HOURS
     conversation_fanout: int = DEFAULT_THEME_CONVERSATION_FANOUT
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT
 
     def __post_init__(self) -> None:
         if self.mode not in {"off", "review", "auto"}:
@@ -78,6 +83,7 @@ class ThemeSettings:
             raise ValueError("theme_interval_hours MUST be positive")
         if isinstance(self.conversation_fanout, bool) or self.conversation_fanout < 1:
             raise ValueError("theme_conversation_fanout MUST be a positive integer")
+        validate_human_edge_weight(self.human_edge_weight)
 
 
 @dataclass(frozen=True)
@@ -327,6 +333,7 @@ def configured_theme_settings(
     min_backlog: int | None = None,
     interval_hours: float | None = None,
     conversation_fanout: int | None = None,
+    human_edge_weight: int | None = None,
 ) -> ThemeSettings:
     selected_mode = _env_value("MATTERHORN_THEME_CONVERGE", mode)
     selected_min_cluster = _env_number(
@@ -347,12 +354,19 @@ def configured_theme_settings(
         DEFAULT_THEME_CONVERSATION_FANOUT,
         int,
     )
+    selected_human_edge_weight = _env_number(
+        "MATTERHORN_HUMAN_EDGE_WEIGHT",
+        human_edge_weight,
+        DEFAULT_HUMAN_EDGE_WEIGHT,
+        int,
+    )
     return ThemeSettings(
         mode=str(selected_mode or DEFAULT_THEME_CONVERGE).strip().casefold(),
         min_cluster=selected_min_cluster,
         min_backlog=selected_min_backlog,
         interval_hours=selected_interval,
         conversation_fanout=selected_conversation_fanout,
+        human_edge_weight=selected_human_edge_weight,
     )
 
 
@@ -367,7 +381,13 @@ def snapshot_theme_state(engine: Any, scope_id: str) -> ThemeSnapshot:
         observations = tuple(engine.store.record_observations(scope_id))
         reviews = tuple(engine.store.review_items(scope_id))
 
-    graph = project_goal_graph(engine.profile, subjects, assertions, merges)
+    graph = project_goal_graph(
+        engine.profile,
+        subjects,
+        assertions,
+        merges,
+        human_edge_weight=engine.human_edge_weight,
+    )
     canonical_assertions = canonicalize_graph_assertions(assertions, merges)
     by_subject: dict[str, list[Assertion]] = {}
     for assertion in canonical_assertions:
@@ -800,6 +820,7 @@ def _apply_proposal_locked(
             subjects=subjects_for_gate,
             assertions=[*assertions_for_gate, *(item[0] for item in accepted)],
             merges=current_snapshot.merges,
+            human_edge_weight=engine.human_edge_weight,
         )
         if rejection is not None:
             rejections[rejection.value] = rejections.get(rejection.value, 0) + 1
@@ -819,7 +840,7 @@ def _apply_proposal_locked(
             root_created = True
         if disposition == "auto":
             for assertion, _ in accepted:
-                if engine.store.add_assertion(assertion):
+                if engine._add_assertion(assertion):
                     edges_applied += 1
         else:
             parent_title = (

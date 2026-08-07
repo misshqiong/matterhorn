@@ -399,7 +399,7 @@ class UnifiedLoopSession:
                 assertion = assertion.model_copy(
                     update={"recorded_at": self.engine.now()}
                 )
-                inserted = self.engine.store.add_assertion(assertion)
+                inserted = self.engine._add_assertion(assertion)
                 alias = (
                     f"a{len(self.state.assertion_aliases) + len(emitted_aliases) + 1}"
                 )
@@ -565,6 +565,7 @@ class UnifiedLoopSession:
             assertions=assertions,
             merges=merges,
             target_exists_outside_scope=outside,
+            human_edge_weight=self.engine.human_edge_weight,
         )
         if rejection is not None:
             return rejection.value

@@ -42,6 +42,7 @@ class Engine(CoreEngine):
         theme_min_backlog: int | None = None,
         theme_interval_hours: float | None = None,
         theme_conversation_fanout: int | None = None,
+        human_edge_weight: int | None = None,
     ):
         from matterhorn.engine.theme_converge import configured_theme_settings
 
@@ -51,6 +52,7 @@ class Engine(CoreEngine):
             min_backlog=theme_min_backlog,
             interval_hours=theme_interval_hours,
             conversation_fanout=theme_conversation_fanout,
+            human_edge_weight=human_edge_weight,
         )
         super().__init__(
             store,
@@ -74,6 +76,7 @@ class Engine(CoreEngine):
             theme_min_backlog=theme_settings.min_backlog,
             theme_interval_hours=theme_settings.interval_hours,
             theme_conversation_fanout=theme_settings.conversation_fanout,
+            human_edge_weight=theme_settings.human_edge_weight,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(

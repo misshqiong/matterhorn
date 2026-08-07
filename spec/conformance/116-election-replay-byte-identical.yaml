@@ -1,0 +1,36 @@
+case_id: election-replay-byte-identical
+title: Weighted elected graph is byte-identical after projection replay
+invariants: [INV-3, INV-7, INV-22]
+schema_profile: org-matters/v1
+scope_id: octo-election-replay
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-child, scope_id: octo-election-replay, subject_key: child, date: 2026-08-07, title: Fictional child, status: open, source_refs: [{source_id: octo-org:seed:child, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+  - {card_id: card-human-parent, scope_id: octo-election-replay, subject_key: human-parent, date: 2026-08-07, title: Fictional human parent, status: open, source_refs: [{source_id: octo-org:seed:human-parent, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+  - {card_id: card-model-parent, scope_id: octo-election-replay, subject_key: model-parent, date: 2026-08-07, title: Fictional model parent, status: open, source_refs: [{source_id: octo-org:seed:model-parent, sent_at: "2026-08-07T08:02:00Z", sender: Dana Reyes}]}
+theme_config: {human_edge_weight: 4}
+structure_operations:
+  - {scope_id: octo-election-replay, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: human-parent, valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: octo-org:human:placement, sent_at: "2026-08-07T09:10:00Z", sender: Dana Reyes}]}
+  - {origin: model, scope_id: octo-election-replay, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:11:00Z", source_refs: [{source_id: octo-org:model:01, sent_at: "2026-08-07T09:11:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-replay, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:12:00Z", source_refs: [{source_id: octo-org:model:02, sent_at: "2026-08-07T09:12:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-replay, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:13:00Z", source_refs: [{source_id: octo-org:model:03, sent_at: "2026-08-07T09:13:00Z", sender: Octo Agent}]}
+expect:
+  assertions:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: human-parent, predicate: status, object_value: open}
+    - {subject_key: model-parent, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: human-parent, origin: human}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+  intervals:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: human-parent, predicate: status, object_value: open}
+    - {subject_key: model-parent, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: human-parent, valid_to: null}
+  graph_queries:
+    - {subject_key: child, result: {root_subject_key: human-parent, node: {parent_subject_key: human-parent}}}
+  export_replay_identity: true
+  replay_events_emitted: 0
+  queries:
+    - {name: current, args: {subject_key: child, predicate: part_of}, result: [{value: human-parent}]}

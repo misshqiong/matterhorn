@@ -11,7 +11,7 @@ import yaml
 from typer.core import TyperGroup
 from typer.main import get_command
 
-from matterhorn.cli.app import _console_groups, _load_config, app
+from matterhorn.cli.app import _console_groups, _load_config, _theme_settings, app
 from matterhorn.contracts import Record
 from matterhorn.store import SQLiteStore
 
@@ -52,6 +52,14 @@ def test_console_groups_load_from_the_existing_toml_config(monkeypatch, tmp_path
         "dumbo": ["dumbo", "dumbo-*"],
         "personal": ["mail"],
     }
+
+
+def test_human_edge_weight_loads_from_themes_toml(monkeypatch) -> None:
+    monkeypatch.delenv("MATTERHORN_HUMAN_EDGE_WEIGHT", raising=False)
+
+    settings = _theme_settings({"themes": {"human_edge_weight": 12}})
+
+    assert settings["human_edge_weight"] == 12
 
 
 def test_cli_smoke_end_to_end(tmp_path) -> None:
@@ -660,7 +668,7 @@ def test_dream_help_documents_environment_credentials() -> None:
 def test_conformance_cli_runs_packaged_golden_suite() -> None:
     completed = _run("conformance", "run")
     assert "PASS basic-current" in completed.stdout
-    assert "SUMMARY passed=111 failed=0 total=111" in completed.stdout
+    assert "SUMMARY passed=116 failed=0 total=116" in completed.stdout
 
 
 def test_conformance_cli_documents_backend_selection() -> None:

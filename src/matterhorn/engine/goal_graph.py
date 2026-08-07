@@ -14,9 +14,12 @@ from matterhorn.contracts import (
     SubjectMerge,
     SubjectRecord,
 )
+from matterhorn.engine.structure_election import (
+    DEFAULT_HUMAN_EDGE_WEIGHT,
+    PART_OF,
+)
 from matterhorn.projection import project_assertions
 
-PART_OF = "part_of"
 SPAWNED_FROM = "spawned_from"
 DECISION = "decision"
 STRUCTURE_EDGE_PREDICATES = frozenset({PART_OF, SPAWNED_FROM})
@@ -218,6 +221,8 @@ def project_goal_graph(
     subjects: Iterable[SubjectRecord],
     assertions: Iterable[Assertion],
     merges: Iterable[SubjectMerge],
+    *,
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
 ) -> GoalGraphProjection:
     merges = list(merges)
     edges = merge_edges(merges)
@@ -229,7 +234,11 @@ def project_goal_graph(
         canonical_subjects[key] = by_original.get(key, subject)
 
     canonical_assertions = canonicalize_graph_assertions(assertions, merges)
-    intervals, _ = project_assertions(canonical_assertions, profile)
+    intervals, _ = project_assertions(
+        canonical_assertions,
+        profile,
+        human_edge_weight=human_edge_weight,
+    )
     current: dict[tuple[str, str], list[Any]] = {}
     active_edges: dict[tuple[str, str], tuple[str, datetime]] = {}
     decisions: dict[str, list[tuple[datetime, str, Any]]] = {}
@@ -328,9 +337,16 @@ def matter_graph(
     subjects: Iterable[SubjectRecord],
     assertions: Iterable[Assertion],
     merges: Iterable[SubjectMerge],
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
 ) -> MatterGraph:
     merges = list(merges)
-    projection = project_goal_graph(profile, subjects, assertions, merges)
+    projection = project_goal_graph(
+        profile,
+        subjects,
+        assertions,
+        merges,
+        human_edge_weight=human_edge_weight,
+    )
     selected = canonical_subject_key(subject_key, merge_edges(merges))
     if selected not in projection.nodes:
         raise KeyError(selected)
@@ -368,6 +384,7 @@ def structure_rejection(
     assertions: Iterable[Assertion],
     merges: Iterable[SubjectMerge],
     target_exists_outside_scope: bool = False,
+    human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
 ) -> StructureRejection | None:
     if (
         assertion.operation != Operation.ASSERT
@@ -396,12 +413,17 @@ def structure_rejection(
         subjects,
         [*assertions, assertion],
         merges,
+        human_edge_weight=human_edge_weight,
     )
     adjacency: dict[str, set[str]] = {}
     canonical_assertions = canonicalize_graph_assertions(
         [*assertions, assertion], merges
     )
-    intervals, _ = project_assertions(canonical_assertions, profile)
+    intervals, _ = project_assertions(
+        canonical_assertions,
+        profile,
+        human_edge_weight=human_edge_weight,
+    )
     for interval in intervals:
         if (
             interval.valid_to is None

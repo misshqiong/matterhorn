@@ -146,6 +146,25 @@ def test_cycle_gate_canonicalizes_a_merge_chain(tmp_path) -> None:
         engine.correct(_correction("child", "part_of", "alias", minute=5))
 
 
+def test_spawned_from_remains_single_most_recent_not_weight_elected(tmp_path) -> None:
+    engine = Engine(tmp_path / "spawned-from.db", clock=lambda: NOW + timedelta(hours=1))
+    engine._ingest_cards_sync(
+        [
+            _card("root-a", minute=0),
+            _card("root-b", minute=1),
+            _card("child", minute=2),
+        ]
+    )
+    engine.correct(_correction("child", "spawned_from", "root-a", minute=3))
+    engine.correct(_correction("child", "spawned_from", "root-b", minute=4))
+
+    current = engine.query.current(SCOPE, "child", "spawned_from")
+    assert [item.value for item in current] == ["root-b"]
+    assert engine.matter_graph(SCOPE, "child").node.birth_instant == (
+        NOW + timedelta(minutes=4)
+    )
+
+
 def test_graph_birth_order_reparent_rollup_and_replay_are_deterministic(tmp_path) -> None:
     engine = _tree_engine(tmp_path)
     graph = engine.matter_graph(SCOPE, "grandchild")

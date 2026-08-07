@@ -1,0 +1,46 @@
+case_id: election-human-beats-nine-models
+title: One human structure contribution beats nine distinct model admissions
+invariants: [INV-19, INV-22]
+schema_profile: org-matters/v1
+scope_id: octo-election-human-margin
+clock: ["2026-08-07T12:00:00Z"]
+cards:
+  - {card_id: card-child, scope_id: octo-election-human-margin, subject_key: child, date: 2026-08-07, title: Fictional child, status: open, source_refs: [{source_id: octo-org:seed:child, sent_at: "2026-08-07T08:00:00Z", sender: Dana Reyes}]}
+  - {card_id: card-human-parent, scope_id: octo-election-human-margin, subject_key: human-parent, date: 2026-08-07, title: Fictional human parent, status: open, source_refs: [{source_id: octo-org:seed:human-parent, sent_at: "2026-08-07T08:01:00Z", sender: Dana Reyes}]}
+  - {card_id: card-model-parent, scope_id: octo-election-human-margin, subject_key: model-parent, date: 2026-08-07, title: Fictional model parent, status: open, source_refs: [{source_id: octo-org:seed:model-parent, sent_at: "2026-08-07T08:02:00Z", sender: Dana Reyes}]}
+structure_operations:
+  - {scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: human-parent, valid_from: "2026-08-07T09:10:00Z", source_refs: [{source_id: octo-org:human:placement, sent_at: "2026-08-07T09:10:00Z", sender: Dana Reyes}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:11:00Z", source_refs: [{source_id: octo-org:model:01, sent_at: "2026-08-07T09:11:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:12:00Z", source_refs: [{source_id: octo-org:model:02, sent_at: "2026-08-07T09:12:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:13:00Z", source_refs: [{source_id: octo-org:model:03, sent_at: "2026-08-07T09:13:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:14:00Z", source_refs: [{source_id: octo-org:model:04, sent_at: "2026-08-07T09:14:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:15:00Z", source_refs: [{source_id: octo-org:model:05, sent_at: "2026-08-07T09:15:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:16:00Z", source_refs: [{source_id: octo-org:model:06, sent_at: "2026-08-07T09:16:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:17:00Z", source_refs: [{source_id: octo-org:model:07, sent_at: "2026-08-07T09:17:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:18:00Z", source_refs: [{source_id: octo-org:model:08, sent_at: "2026-08-07T09:18:00Z", sender: Octo Agent}]}
+  - {origin: model, scope_id: octo-election-human-margin, subject_key: child, subject_type: MATTER, predicate: part_of, operation: ASSERT, object_value: model-parent, valid_from: "2026-08-07T09:19:00Z", source_refs: [{source_id: octo-org:model:09, sent_at: "2026-08-07T09:19:00Z", sender: Octo Agent}]}
+expect:
+  assertions:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: human-parent, predicate: status, object_value: open}
+    - {subject_key: model-parent, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: human-parent, origin: human}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+    - {subject_key: child, predicate: part_of, object_value: model-parent, origin: model}
+  intervals:
+    - {subject_key: child, predicate: status, object_value: open}
+    - {subject_key: human-parent, predicate: status, object_value: open}
+    - {subject_key: model-parent, predicate: status, object_value: open}
+    - {subject_key: child, predicate: part_of, object_value: human-parent, valid_to: null}
+  graph_queries:
+    - {subject_key: child, result: {root_subject_key: human-parent, node: {parent_subject_key: human-parent}}}
+  queries:
+    - {name: current, args: {subject_key: child, predicate: part_of}, result: [{value: human-parent}]}
+

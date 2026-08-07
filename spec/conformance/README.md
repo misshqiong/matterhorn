@@ -10,7 +10,7 @@ store view for the case's `scope_id`.
 | --- | --- | --- |
 | `case_id` | yes | Unique stable kebab-case string used in reports. |
 | `title` | yes | Human-readable string; never used for behavior. |
-| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-21`. |
+| `invariants` | yes | Non-empty list of `P1`…`P9` and/or `INV-1`…`INV-22`. |
 | `schema_profile` | yes | Built-in profile ID string or complete inline SchemaProfile mapping. |
 | `scope_id` | yes | Scope supplied to ingest, dream, correction, and queries. |
 | `clock` | yes | Ordered RFC 3339 timestamps. Consume one for task creation, each flush retention reference, each newly processed card, accepted semantic assertion, or correction. |
@@ -26,14 +26,14 @@ store view for the case's `scope_id`.
 | `adjudication_model_responses` | no | Ordered closed identity-adjudication fixtures, consumed only by calls using the section 23 routing response schema. |
 | `unified_loop` | no | Boolean section 26 feature flag; default false. |
 | `tool_loop_sessions` | no | Ordered scripted section 26 sessions. Each session contains `turns` of generic tool calls and one optional final message. |
-| `theme_config` | no | Section 28 convergence settings (`mode`, cluster/backlog/interval thresholds, and conversation fanout). |
+| `theme_config` | no | Section 28/29 settings (`mode`, cluster/backlog/interval thresholds, conversation fanout, and `human_edge_weight`). |
 | `theme_operations` | no | Ordered section 28 operations. `observe_record` commits evidence-conversation provenance; `run` invokes one theme pass and may declare `dry_run`. |
 | `model_responses` | no | Ordered model response fixtures described below. Presence, including `[]`, means the runner invokes `dream(scope_id)` after ingest. Absence means it does not. |
 | `review_operations` | no | Ordered review resolutions with `review_id`, `action`, nullable `subject_key`, mandatory `source_refs`, and optional `expect_error`. |
 | `signal_config` | no | Engine signal settings: optional identity handles, pattern extensions, and hotness thresholds. |
 | `signal_operations` | no | Ordered terminal signal acknowledgements with record id, kind, and acknowledgement instant. |
 | `watermark_operations` | no | Ordered matter read-watermark upserts with subject key and last-seen instant. |
-| `structure_operations` | no | Ordered goal-graph corrections, each optionally carrying `expect_error`; these run after merge operations so canonical merge-chain cycle gates are expressible. |
+| `structure_operations` | no | Ordered gated goal-graph assertions, each optionally carrying `expect_error`; human correction origin is the default, while `origin: model` represents one distinct admitted model assertion. These run after merge operations so canonical merge-chain cycle gates are expressible. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
 | `expect` | for success | Expected partial-field multisets, queries, counters, and reports. |
 

@@ -957,7 +957,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | --- | --- |
 | `case_id` | Unique stable kebab-case ID. |
 | `title` | Human-readable title. |
-| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-16`. |
+| `invariants` | Non-empty list containing `P1`..`P9` and/or `INV-1`..`INV-22`. |
 | `schema_profile` | Built-in profile ID resolved from package `matterhorn.schemas`, or an inline profile object. |
 | `scope_id` | Scope under test. |
 | `clock` | Ordered RFC 3339 instants injected for task creation, flush retention references, new cards, accepted semantic assertions, and corrections. |
@@ -973,6 +973,7 @@ Each `spec/conformance/*.yaml` file contains one mapping:
 | `adjudication_model_responses` | Optional ordered list of closed section 23 adjudication responses, consumed only by calls whose response schema is the routing schema. |
 | `model_responses` | Optional ordered list of closed response objects returned once per queued card during `dream()`. Absence means the semantic path is not run. |
 | `review_operations` | Optional ordered pending-review resolutions with `review_id`, `action`, optional `subject_key`, non-empty `source_refs`, and optional `expect_error`. |
+| `structure_operations` | Optional ordered gated structure assertions. Human correction origin is the default; `origin: model` represents one distinct admitted model assertion. |
 | `expect_error` | Optional validation/error substring. If present, the case succeeds only on that rejection. |
 | `expect.assertions` | Expected assertion mappings. |
 | `expect.intervals` | Expected interval mappings; `supporting_assertion_ids`, when compared, is an order-sensitive exact list. |
@@ -2209,6 +2210,82 @@ re-run; cycle rejection through a proposed edge. The evaluation suite
 gains a rediscovery test: a fixture scope whose known theme structure has
 been stripped MUST be rediscovered by the pass (fictionalized from the
 2026-08-06 manual backfill, which is the acceptance answer key).
+
+## 29. Layered memory network
+
+Settled 2026-08-07 after adversarial review. The system is a layered
+memory network: one recursive aggregation operator applied at every
+layer, structure decided by weighted election, cross-scope unity living
+in the representation layer, and capacity expressed as named width/depth
+parameters that form the searchable half of the learning story.
+
+### 29.1 The aggregate operator
+
+`AGGREGATE(layer-n units) → layer-(n+1) parents`: deterministic key
+recall (handles, lexical bonds) proposes candidates; the decision-session
+engine adjudicates — join an existing parent or elect a new one; gates
+validate; assertions commit. The section 23 routing ladder
+(messages → matters) and section 28 theme convergence
+(matters → themes) are THIS operator at adjacent layers and MUST
+converge on one implementation. The operator is recursive; depth 2 is
+instantiated (messages→matters→themes), deeper layers are configuration,
+not new code.
+
+### 29.2 Weighted structure election
+
+- **INV-22 — Human weight, not human override.** For structure relations
+  (`part_of`, and `gathers` of 29.3) the active target is elected by
+  accumulated origin weight, not by recency. A human-origin ASSERT
+  contributes `human_edge_weight` (default 10); a model-origin ASSERT
+  contributes 1 per distinct gated admission (change-only admission
+  already deduplicates). Highest total weight wins; ties break by most
+  recent contribution. A human RETRACT withdraws that human
+  contribution. Model evidence can therefore out-vote a human placement
+  only by accumulating at least `human_edge_weight` distinct gated
+  admissions — election flips against a live human contribution MUST
+  additionally enqueue a review notice. Election MUST be a pure function
+  of committed assertions and replay byte-identically.
+
+### 29.3 The gather layer (cross-scope unity)
+
+- **INV-23 — Representation-layer federation.** Subjects carry a `layer`
+  (default 1). Layer ≥2 subjects (themes, portfolios) may reference
+  lower-layer subjects in ANY scope via `gathers` (SET, evidence-bearing,
+  weighted-elected). `gathers` MUST point from a higher layer to a
+  strictly lower layer — layer monotonicity makes cross-scope cycles
+  impossible — and never merges identity nor relaxes the same-scope rule
+  for `part_of`. Read-side federation projects a gathered subject's
+  rollup across scopes; scope-local trees keep their own invariants
+  untouched.
+
+### 29.4 Width, depth, and activation
+
+Named capacity parameters, all deterministic-side and all part of the
+search space: `layer_depth` (instantiated layers, default 2), per-layer
+width (affinity features used, clusters kept, first-screen core count),
+and the activation ranking
+`f = w₁·blocked + w₂·unseen + w₃·recency + w₄·hotness + w₅·pinned`
+whose weights order the wall and elect the core set. Activation is a
+pure read (INV-18 applies).
+
+### 29.5 Objective and corpus
+
+The loss is explicit:
+`L = c₁·missing + c₂·spurious + c₃·mis_attached + c₄·mis_typed +
+c₅·mis_structured`, computed over a corpus harvested from the real
+streams (fictionalized before entering the repo) and split into
+disjoint exemplar and test partitions — a sample used as an injected
+exemplar MUST NOT be scored as test. Live human corrections feed the
+corpus through the correction-capture pipeline; capacity parameters and
+exemplar selection are tuned against L on the test partition only.
+
+### 29.6 Conformance
+
+Golden cases MUST cover: weighted election including the
+model-out-votes-human margin and its review notice, human retract
+withdrawing weight, layer monotonicity and cross-scope `gathers` with
+federated rollup, single-implementation equivalence of the aggregate
+operator at both instantiated layers, and activation determinism.
 
 ## 中文摘要
 
