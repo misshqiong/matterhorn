@@ -16,6 +16,7 @@ import typer
 import yaml
 
 from matterhorn.canonical import canonical_json
+from matterhorn.capacity import CapacitySettings, resolve_capacity
 from matterhorn.connectors.mail import (
     MAIL_INTERVALS,
     MAIL_PROVIDERS,
@@ -93,7 +94,16 @@ def _console_groups(config: dict[str, Any]) -> dict[str, list[str]]:
         raise typer.BadParameter(str(error)) from error
 
 
-def _signal_settings(config: dict[str, Any]) -> dict[str, Any]:
+def _capacity_settings(config: dict[str, Any]) -> CapacitySettings:
+    try:
+        return resolve_capacity(config=config)
+    except (TypeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+
+
+def _signal_settings(
+    config: dict[str, Any], capacity: CapacitySettings | None = None
+) -> dict[str, Any]:
     identity = config.get("identity", {})
     signals = config.get("signals", {})
     if not isinstance(identity, dict):
@@ -109,11 +119,7 @@ def _signal_settings(config: dict[str, Any]) -> dict[str, Any]:
             raise typer.BadParameter(f"{label} MUST be an array of non-empty strings")
         return value
 
-    def positive_int(key: str, default: int) -> int:
-        value = signals.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise typer.BadParameter(f"[signals] {key} MUST be a positive integer")
-        return value
+    selected_capacity = capacity or _capacity_settings(config)
 
     return {
         "identity_handles": string_list(identity, "handles", "[identity] handles"),
@@ -123,12 +129,14 @@ def _signal_settings(config: dict[str, Any]) -> dict[str, Any]:
         "alert_keywords": string_list(
             signals, "alert_keywords", "[signals] alert_keywords"
         ),
-        "hot_min_authors": positive_int("hot_min_authors", 3),
-        "hot_min_messages": positive_int("hot_min_messages", 5),
+        "hot_min_authors": selected_capacity.hot_min_authors,
+        "hot_min_messages": selected_capacity.hot_min_messages,
     }
 
 
-def _theme_settings(config: dict[str, Any]) -> dict[str, Any]:
+def _theme_settings(
+    config: dict[str, Any], capacity: CapacitySettings | None = None
+) -> dict[str, Any]:
     from matterhorn.engine.theme_converge import configured_theme_settings
 
     themes = config.get("themes", {})
@@ -138,25 +146,17 @@ def _theme_settings(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(distill, dict):
         raise typer.BadParameter("[distill] MUST be a TOML table")
     mode = themes.get("theme_converge", distill.get("theme_converge"))
+    selected_capacity = capacity or _capacity_settings(config)
     try:
         settings = configured_theme_settings(
             mode=mode,
-            min_cluster=themes.get(
-                "theme_min_cluster", distill.get("theme_min_cluster")
-            ),
-            min_backlog=themes.get(
-                "theme_min_backlog", distill.get("theme_min_backlog")
-            ),
+            min_cluster=selected_capacity.theme_min_cluster,
+            min_backlog=selected_capacity.theme_min_backlog,
             interval_hours=themes.get(
                 "theme_interval_hours", distill.get("theme_interval_hours")
             ),
-            conversation_fanout=themes.get(
-                "theme_conversation_fanout",
-                distill.get("theme_conversation_fanout"),
-            ),
-            human_edge_weight=themes.get(
-                "human_edge_weight", distill.get("human_edge_weight")
-            ),
+            conversation_fanout=selected_capacity.conversation_fanout,
+            human_edge_weight=selected_capacity.human_edge_weight,
         )
     except (TypeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
@@ -180,6 +180,7 @@ def _engine(
     min_batch_messages: int | None = None,
 ) -> Engine:
     config = _load_config()
+    capacity = _capacity_settings(config)
     db = _setting(db, DEFAULT_DB, "db")
     schema = _setting(schema, DEFAULT_SCHEMA, "schema")
     try:
@@ -201,8 +202,9 @@ def _engine(
             if min_batch_messages is None
             else min_batch_messages
         ),
-        **_signal_settings(config),
-        **_theme_settings(config),
+        **_signal_settings(config, capacity),
+        **_theme_settings(config, capacity),
+        capacity=capacity,
         unified_loop=_unified_loop_setting(config),
     )
 
@@ -2080,6 +2082,7 @@ def eval_run(
     )
 
     try:
+        capacity = _capacity_settings(_load_config())
         if live_samples and themes:
             raise ValueError("--live-samples and --themes are mutually exclusive")
         if themes:
@@ -2103,11 +2106,12 @@ def eval_run(
                     "--responses, or --assertion-results"
                 )
             report = run_live_sample_comparison(
-                samples=(dataset / "samples" if dataset is not None else None),
+                dataset=dataset,
                 provider=provider,
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
+                loss_weights=capacity.loss_weights,
             )
         else:
             report = run_eval_dataset(
@@ -2120,6 +2124,7 @@ def eval_run(
                 responses=responses,
                 seed_note=seed_note,
                 assertion_results=assertion_results,
+                loss_weights=capacity.loss_weights,
             )
         if json_path is not None:
             json_path.write_text(

@@ -1,0 +1,23 @@
+sample_id: im-knowledge-topic
+source_kind: im
+scope_id: sample-knowledge
+window:
+  - evidence_alias: m1
+    record_id: sample-knowledge:pet-room:msg-1
+    container_id: sample-knowledge:pet-room
+    sent_at: "2026-08-05T20:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "肉罐头冷藏过再拿出来,猫就不爱吃了,微波炉打过也不行。"
+    kind: im
+  - evidence_alias: m2
+    record_id: sample-knowledge:pet-room:msg-2
+    container_id: sample-knowledge:pet-room
+    sent_at: "2026-08-05T20:02:00Z"
+    author: {id: ellis-stone, display_name: Ellis Stone, kind: human}
+    content: "加热之后撒一点冻干就能骗着吃完,小份装最稳妥。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:canned-food-tips", subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: dana-reyes, stance: informs, content: "肉罐头冷藏后适口性下降,加热无效。", where: "sample-knowledge:pet-room"}, evidence_aliases: [m1]}
+  - {subject_ref: "$new:canned-food-tips", subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: ellis-stone, stance: informs, content: "加热后撒冻干可补救,小份装更稳妥。", where: "sample-knowledge:pet-room"}, evidence_aliases: [m2]}
+  - {subject_ref: "$new:canned-food-tips", subject_type: TOPIC, predicate: stated_by, operation: ASSERT, object_value: dana-reyes, evidence_aliases: [m1]}
+  - {subject_ref: "$new:canned-food-tips", subject_type: TOPIC, predicate: stated_by, operation: ASSERT, object_value: ellis-stone, evidence_aliases: [m2]}

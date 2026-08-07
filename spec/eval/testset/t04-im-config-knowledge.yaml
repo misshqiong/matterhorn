@@ -1,0 +1,14 @@
+sample_id: t-im-config-knowledge
+source_kind: im
+scope_id: t-im-know
+window:
+  - evidence_alias: m1
+    record_id: t-im-know:tool-room:msg-1
+    container_id: t-im-know:tool-room
+    sent_at: "2026-08-06T12:10:00Z"
+    author: {id: kai-moreau, display_name: Kai Moreau, kind: human}
+    content: "网页版 pro 会随机抽取幸运观众路由到 5.5mini,想稳定走大模型就用桌面端。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:web-pro-routing", subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: kai-moreau, stance: informs, content: "网页版 pro 随机路由到 5.5mini,桌面端可稳定走大模型。", where: "t-im-know:tool-room"}, evidence_aliases: [m1]}
+  - {subject_ref: "$new:web-pro-routing", subject_type: TOPIC, predicate: stated_by, operation: ASSERT, object_value: kai-moreau, evidence_aliases: [m1]}

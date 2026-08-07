@@ -18,6 +18,13 @@ from matterhorn.canonical import (
     object_key,
     stable_hash,
 )
+from matterhorn.capacity import (
+    DEFAULT_CONVERSATION_FANOUT,
+    DEFAULT_HUMAN_EDGE_WEIGHT,
+    DEFAULT_THEME_MIN_BACKLOG,
+    DEFAULT_THEME_MIN_CLUSTER,
+    resolve_capacity,
+)
 from matterhorn.contracts import (
     Assertion,
     EpisodeCard,
@@ -44,17 +51,12 @@ from matterhorn.engine.goal_graph import (
     project_goal_graph,
     structure_rejection,
 )
-from matterhorn.engine.structure_election import (
-    DEFAULT_HUMAN_EDGE_WEIGHT,
-    validate_human_edge_weight,
-)
+from matterhorn.engine.structure_election import validate_human_edge_weight
 from matterhorn.engine.unified_loop import run_bounded_tool_loop
 from matterhorn.store.base import ThemeScheduleState
 
-DEFAULT_THEME_MIN_CLUSTER = 3
-DEFAULT_THEME_MIN_BACKLOG = 6
 DEFAULT_THEME_INTERVAL_HOURS = 6.0
-DEFAULT_THEME_CONVERSATION_FANOUT = 8
+DEFAULT_THEME_CONVERSATION_FANOUT = DEFAULT_CONVERSATION_FANOUT
 DEFAULT_THEME_CONVERGE = "review"
 THEME_TASK_KIND = "themes"
 THEME_REVIEW_MARKER = "theme_convergence"
@@ -469,38 +471,32 @@ def configured_theme_settings(
     conversation_fanout: int | None = None,
     human_edge_weight: int | None = None,
 ) -> ThemeSettings:
+    capacity = resolve_capacity(
+        explicit={
+            key: value
+            for key, value in {
+                "theme_min_cluster": min_cluster,
+                "theme_min_backlog": min_backlog,
+                "conversation_fanout": conversation_fanout,
+                "human_edge_weight": human_edge_weight,
+            }.items()
+            if value is not None
+        }
+    )
     selected_mode = _env_value("MATTERHORN_THEME_CONVERGE", mode)
-    selected_min_cluster = _env_number(
-        "MATTERHORN_THEME_MIN_CLUSTER", min_cluster, DEFAULT_THEME_MIN_CLUSTER, int
-    )
-    selected_min_backlog = _env_number(
-        "MATTERHORN_THEME_MIN_BACKLOG", min_backlog, DEFAULT_THEME_MIN_BACKLOG, int
-    )
     selected_interval = _env_number(
         "MATTERHORN_THEME_INTERVAL_HOURS",
         interval_hours,
         DEFAULT_THEME_INTERVAL_HOURS,
         float,
     )
-    selected_conversation_fanout = _env_number(
-        "MATTERHORN_THEME_CONVERSATION_FANOUT",
-        conversation_fanout,
-        DEFAULT_THEME_CONVERSATION_FANOUT,
-        int,
-    )
-    selected_human_edge_weight = _env_number(
-        "MATTERHORN_HUMAN_EDGE_WEIGHT",
-        human_edge_weight,
-        DEFAULT_HUMAN_EDGE_WEIGHT,
-        int,
-    )
     return ThemeSettings(
         mode=str(selected_mode or DEFAULT_THEME_CONVERGE).strip().casefold(),
-        min_cluster=selected_min_cluster,
-        min_backlog=selected_min_backlog,
+        min_cluster=capacity.theme_min_cluster,
+        min_backlog=capacity.theme_min_backlog,
         interval_hours=selected_interval,
-        conversation_fanout=selected_conversation_fanout,
-        human_edge_weight=selected_human_edge_weight,
+        conversation_fanout=capacity.conversation_fanout,
+        human_edge_weight=capacity.human_edge_weight,
     )
 
 

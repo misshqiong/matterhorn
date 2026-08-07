@@ -1,0 +1,30 @@
+sample_id: im-root-election
+source_kind: im
+scope_id: sample-election
+window:
+  - evidence_alias: m1
+    record_id: sample-election:octo-room:msg-1
+    container_id: sample-election:octo-room
+    sent_at: "2026-08-05T21:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "我们启动 octo 移动端适配这个专项吧,拆三块:导航重排我来,手势层 Ellis,弹窗体系 Kai。"
+    kind: im
+  - evidence_alias: m2
+    record_id: sample-election:octo-room:msg-2
+    container_id: sample-election:octo-room
+    sent_at: "2026-08-05T21:01:00Z"
+    author: {id: ellis-stone, display_name: Ellis Stone, kind: human}
+    content: "手势层收到,这周出初版。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:mobile-adapt", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1]}
+  - {subject_ref: "$new:mobile-adapt", predicate: decision, operation: ASSERT, object_value: "启动移动端适配专项,拆分为导航重排/手势层/弹窗体系三个子项。", evidence_aliases: [m1]}
+  - {subject_ref: "$new:nav-rework", predicate: status, operation: ASSERT, object_value: open, evidence_aliases: [m1]}
+  - {subject_ref: "$new:nav-rework", predicate: owned_by, operation: ASSERT, object_value: dana-reyes, evidence_aliases: [m1]}
+  - {subject_ref: "$new:nav-rework", predicate: part_of, operation: ASSERT, object_value: "$new:mobile-adapt", evidence_aliases: [m1]}
+  - {subject_ref: "$new:gesture-layer", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1, m2]}
+  - {subject_ref: "$new:gesture-layer", predicate: owned_by, operation: ASSERT, object_value: ellis-stone, evidence_aliases: [m1]}
+  - {subject_ref: "$new:gesture-layer", predicate: part_of, operation: ASSERT, object_value: "$new:mobile-adapt", evidence_aliases: [m1]}
+  - {subject_ref: "$new:popup-system", predicate: status, operation: ASSERT, object_value: open, evidence_aliases: [m1]}
+  - {subject_ref: "$new:popup-system", predicate: owned_by, operation: ASSERT, object_value: kai-moreau, evidence_aliases: [m1]}
+  - {subject_ref: "$new:popup-system", predicate: part_of, operation: ASSERT, object_value: "$new:mobile-adapt", evidence_aliases: [m1]}

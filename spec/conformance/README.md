@@ -35,6 +35,9 @@ store view for the case's `scope_id`.
 | `signal_operations` | no | Ordered terminal signal acknowledgements with record id, kind, and acknowledgement instant. |
 | `watermark_operations` | no | Ordered matter read-watermark upserts with subject key and last-seen instant. |
 | `structure_operations` | no | Ordered gated goal-graph assertions, each optionally carrying `expect_error`; human correction origin is the default, while `origin: model` represents one distinct admitted model assertion. These run after merge operations so canonical merge-chain cycle gates are expressible. |
+| `activation_check` | no | S4 pure activation fixture with weights, matter payloads, expected order, repeat count, and optional default-order equivalence check. |
+| `partition_check` | no | S4 inline exemplar/test samples plus either disjoint expected ids or an expected duplicate-id error. |
+| `loss_check` | no | S4 inline sample, produced assertions, loss weights, and expected partial score including weighted loss. |
 | `expect_error` | no | Error-message regular-expression/substring. The case passes only if ingest/correction rejects and the scope has no assertions or intervals. |
 | `expect` | for success | Expected partial-field multisets, queries, counters, and reports. |
 

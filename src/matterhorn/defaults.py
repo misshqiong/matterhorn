@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from matterhorn.adapters.messages import MessageCardExtractor
+from matterhorn.capacity import CapacitySettings, resolve_capacity
 from matterhorn.contracts import RecordExtractor, SchemaProfile
 from matterhorn.distill import LlmGateway, NullGateway
 from matterhorn.engine.engine import Clock
@@ -33,8 +34,8 @@ class Engine(CoreEngine):
         identity_handles: list[str] | tuple[str, ...] | None = None,
         machine_senders: list[str] | tuple[str, ...] | None = None,
         alert_keywords: list[str] | tuple[str, ...] | None = None,
-        hot_min_authors: int = CoreEngine.DEFAULT_HOT_MIN_AUTHORS,
-        hot_min_messages: int = CoreEngine.DEFAULT_HOT_MIN_MESSAGES,
+        hot_min_authors: int | None = None,
+        hot_min_messages: int | None = None,
         unified_loop: bool | None = None,
         alignment_samples_dir: str | Path | None = None,
         theme_converge: str | None = None,
@@ -43,16 +44,32 @@ class Engine(CoreEngine):
         theme_interval_hours: float | None = None,
         theme_conversation_fanout: int | None = None,
         human_edge_weight: int | None = None,
+        capacity: CapacitySettings | None = None,
     ):
         from matterhorn.engine.theme_converge import configured_theme_settings
 
+        selected_capacity = resolve_capacity(
+            explicit=capacity
+            or {
+                key: value
+                for key, value in {
+                    "hot_min_authors": hot_min_authors,
+                    "hot_min_messages": hot_min_messages,
+                    "theme_min_cluster": theme_min_cluster,
+                    "theme_min_backlog": theme_min_backlog,
+                    "conversation_fanout": theme_conversation_fanout,
+                    "human_edge_weight": human_edge_weight,
+                }.items()
+                if value is not None
+            }
+        )
         theme_settings = configured_theme_settings(
             mode=theme_converge,
-            min_cluster=theme_min_cluster,
-            min_backlog=theme_min_backlog,
+            min_cluster=selected_capacity.theme_min_cluster,
+            min_backlog=selected_capacity.theme_min_backlog,
             interval_hours=theme_interval_hours,
-            conversation_fanout=theme_conversation_fanout,
-            human_edge_weight=human_edge_weight,
+            conversation_fanout=selected_capacity.conversation_fanout,
+            human_edge_weight=selected_capacity.human_edge_weight,
         )
         super().__init__(
             store,
@@ -67,8 +84,8 @@ class Engine(CoreEngine):
             identity_handles=identity_handles,
             machine_senders=machine_senders,
             alert_keywords=alert_keywords,
-            hot_min_authors=hot_min_authors,
-            hot_min_messages=hot_min_messages,
+            hot_min_authors=selected_capacity.hot_min_authors,
+            hot_min_messages=selected_capacity.hot_min_messages,
             unified_loop=_unified_loop_enabled(unified_loop),
             alignment_samples_dir=alignment_samples_dir,
             theme_converge=theme_settings.mode,
@@ -77,6 +94,7 @@ class Engine(CoreEngine):
             theme_interval_hours=theme_settings.interval_hours,
             theme_conversation_fanout=theme_settings.conversation_fanout,
             human_edge_weight=theme_settings.human_edge_weight,
+            capacity=selected_capacity,
         )
         if extractor is None:
             self._extractor = MessageCardExtractor(

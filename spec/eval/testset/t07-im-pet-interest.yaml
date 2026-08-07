@@ -1,0 +1,23 @@
+sample_id: t-im-pet-interest
+source_kind: im
+scope_id: t-im-pet
+window:
+  - evidence_alias: m1
+    record_id: t-im-pet:pet-room:msg-1
+    container_id: t-im-pet:pet-room
+    sent_at: "2026-08-05T03:51:00Z"
+    author: {id: noa-lindt, display_name: Noa Lindt, kind: human}
+    content: "我家猫最近发情期一声不吭,反而到处蹭,是不是第二次发情都这样?"
+    kind: im
+  - evidence_alias: m2
+    record_id: t-im-pet:pet-room:msg-2
+    container_id: t-im-pet:pet-room
+    sent_at: "2026-08-05T03:53:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "我家的也是,第二次开始就安静许多,主要表现是黏人。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:cat-heat-behavior", subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: noa-lindt, stance: informs, content: "第二次发情可能不叫,以蹭人黏人为主。", where: "t-im-pet:pet-room"}, evidence_aliases: [m1]}
+  - {subject_ref: "$new:cat-heat-behavior", subject_type: TOPIC, predicate: viewpoint, operation: ASSERT, object_value: {who: dana-reyes, stance: informs, content: "第二次发情明显更安静,表现为黏人。", where: "t-im-pet:pet-room"}, evidence_aliases: [m2]}
+  - {subject_ref: "$new:cat-heat-behavior", subject_type: TOPIC, predicate: stated_by, operation: ASSERT, object_value: noa-lindt, evidence_aliases: [m1]}
+  - {subject_ref: "$new:cat-heat-behavior", subject_type: TOPIC, predicate: stated_by, operation: ASSERT, object_value: dana-reyes, evidence_aliases: [m2]}

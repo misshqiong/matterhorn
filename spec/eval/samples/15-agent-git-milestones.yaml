@@ -1,0 +1,17 @@
+sample_id: agent-git-milestones
+source_kind: agent
+scope_id: sample-git
+window:
+  - evidence_alias: m1
+    record_id: sample-git:cc:msg-12
+    container_id: sample-git:cc
+    sent_at: "2026-08-05T19:00:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "octo-kit 项目本周提交流:完成并合入了两个里程碑——身份注册表(commits a1..a9)、路由阶梯(commits b1..b7);项目继续推进。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: "$new:identity-registry", predicate: status, operation: ASSERT, object_value: completed, evidence_aliases: [m1]}
+  - {subject_ref: "$new:identity-registry", predicate: part_of, operation: ASSERT, object_value: octo-kit-project, evidence_aliases: [m1]}
+  - {subject_ref: "$new:routing-ladder", predicate: status, operation: ASSERT, object_value: completed, evidence_aliases: [m1]}
+  - {subject_ref: "$new:routing-ladder", predicate: part_of, operation: ASSERT, object_value: octo-kit-project, evidence_aliases: [m1]}
+  - {subject_ref: octo-kit-project, predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1]}

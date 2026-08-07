@@ -21,6 +21,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from matterhorn.adapters.messages import MessageCardExtractor
+from matterhorn.capacity import LossWeights, loss_value, resolve_capacity
 from matterhorn.contracts import Message, Record, SubjectRecord
 from matterhorn.defaults import Engine
 from matterhorn.gateway_config import ToolLoopResult, configured_gateway
@@ -29,6 +30,7 @@ REPORT_SCHEMA = "matterhorn-eval/v1"
 FIELD_NAMES = ("status", "owner", "next_step")
 NEW_SUBJECT_PREFIX = "$new:"
 SCORED_SUBJECT_TYPES = ("MATTER", "TOPIC")
+STRUCTURE_PREDICATES = frozenset({"part_of", "spawned_from", "gathers"})
 
 
 class EvalHarnessError(RuntimeError):
@@ -268,18 +270,42 @@ def load_fixture_responses(path: str | Path) -> list[Any]:
     return payload
 
 
-def discover_alignment_samples(samples: str | Path | None = None) -> list[Path]:
+def discover_exemplar_samples(samples: str | Path | None = None) -> list[Path]:
     directory = (
         Path(samples)
         if samples is not None
         else default_dataset() / "samples"
     )
+    if directory.name == "testset":
+        raise EvalHarnessError("held-out testset/ cannot be used as exemplars")
     if not directory.is_dir():
-        raise FileNotFoundError(f"alignment sample directory not found: {directory}")
+        raise FileNotFoundError(f"exemplar sample directory not found: {directory}")
     paths = sorted(directory.glob("*.yaml"))
     if not paths:
-        raise ValueError(f"alignment sample directory contains no YAML: {directory}")
+        raise ValueError(f"exemplar sample directory contains no YAML: {directory}")
     return paths
+
+
+def discover_testset_samples(testset: str | Path | None = None) -> list[Path]:
+    directory = (
+        Path(testset)
+        if testset is not None
+        else default_dataset() / "testset"
+    )
+    if directory.name == "samples":
+        raise EvalHarnessError("exemplar samples/ cannot be loaded as held-out testset")
+    if not directory.is_dir():
+        raise FileNotFoundError(f"held-out testset directory not found: {directory}")
+    paths = sorted(directory.glob("*.yaml"))
+    if not paths:
+        raise ValueError(f"held-out testset contains no YAML: {directory}")
+    return paths
+
+
+def discover_alignment_samples(samples: str | Path | None = None) -> list[Path]:
+    """Backward-compatible name for the exemplar-only loader."""
+
+    return discover_exemplar_samples(samples)
 
 
 def load_alignment_sample(path: str | Path) -> AlignmentSample:
@@ -293,6 +319,42 @@ def load_alignment_sample(path: str | Path) -> AlignmentSample:
         raise EvalHarnessError(
             f"malformed alignment sample {sample_path.name}: {error}"
         ) from error
+
+
+def load_corpus_partitions(
+    dataset: str | Path | None = None,
+    *,
+    exemplars: str | Path | None = None,
+    testset: str | Path | None = None,
+) -> dict[str, list[tuple[Path, AlignmentSample]]]:
+    """Load and validate the disjoint exemplar and held-out partitions."""
+
+    root = Path(dataset) if dataset is not None else default_dataset()
+    exemplar_rows = [
+        (path, load_alignment_sample(path))
+        for path in discover_exemplar_samples(exemplars or root / "samples")
+    ]
+    test_rows = [
+        (path, load_alignment_sample(path))
+        for path in discover_testset_samples(testset or root / "testset")
+    ]
+    exemplar_ids = {sample.sample_id for _, sample in exemplar_rows}
+    test_ids = {sample.sample_id for _, sample in test_rows}
+    duplicates = sorted(exemplar_ids & test_ids)
+    if duplicates:
+        raise EvalHarnessError(
+            "duplicate sample_id across exemplar and test partitions: "
+            + ", ".join(duplicates)
+        )
+    for label, rows in (("exemplar", exemplar_rows), ("test", test_rows)):
+        ids = [sample.sample_id for _, sample in rows]
+        repeated = sorted({sample_id for sample_id in ids if ids.count(sample_id) > 1})
+        if repeated:
+            raise EvalHarnessError(
+                f"duplicate sample_id within {label} partition: "
+                + ", ".join(repeated)
+            )
+    return {"exemplar": exemplar_rows, "test": test_rows}
 
 
 def score_assertion_set(
@@ -323,9 +385,53 @@ def score_assertion_set(
         if index not in {pair[0] for pair in exact_pairs}
     ]
 
+    mis_structured: list[dict[str, Any]] = []
+    non_structure_expected: list[dict[str, Any]] = []
+    for wanted in expected_remaining:
+        if wanted.get("predicate") not in STRUCTURE_PREDICATES:
+            non_structure_expected.append(wanted)
+            continue
+        wanted_subject = _assertion_subject(wanted)
+        actual_index = next(
+            (
+                index
+                for index, item in enumerate(actual_remaining)
+                if item.get("predicate") == wanted.get("predicate")
+                and item.get("operation", "ASSERT")
+                == wanted.get("operation", "ASSERT")
+                and _assertion_subject(item) == wanted_subject
+            ),
+            None,
+        )
+        if actual_index is None:
+            wanted_fact = _assertion_signature(wanted, include_subject=False)
+            actual_index = next(
+                (
+                    index
+                    for index, item in enumerate(actual_remaining)
+                    if _assertion_signature(item, include_subject=False)
+                    == wanted_fact
+                ),
+                None,
+            )
+        produced = actual_remaining.pop(actual_index) if actual_index is not None else None
+        mis_structured.append(
+            {
+                "expected_subject": wanted_subject,
+                "actual_subject": (
+                    _assertion_subject(produced) if produced is not None else None
+                ),
+                "predicate": wanted.get("predicate"),
+                "expected_object": wanted.get("object_value"),
+                "actual_object": (
+                    produced.get("object_value") if produced is not None else None
+                ),
+            }
+        )
+
     mis_attached: list[dict[str, Any]] = []
     still_missing: list[dict[str, Any]] = []
-    for wanted in expected_remaining:
+    for wanted in non_structure_expected:
         fact = _assertion_signature(wanted, include_subject=False)
         actual_index = next(
             (
@@ -350,10 +456,12 @@ def score_assertion_set(
         "missing": still_missing,
         "spurious": actual_remaining,
         "mis_attached": mis_attached,
+        "mis_structured": mis_structured,
         "counts": {
             "missing": len(still_missing),
             "spurious": len(actual_remaining),
             "mis_attached": len(mis_attached),
+            "mis_structured": len(mis_structured),
         },
     }
 
@@ -362,9 +470,13 @@ def score_alignment_samples(
     produced_by_sample: dict[str, list[dict[str, Any]]],
     *,
     samples: str | Path | None = None,
+    sample_paths: list[Path] | None = None,
+    loss_weights: LossWeights | dict[str, float] | None = None,
 ) -> dict[str, Any]:
     reports = []
-    for path in discover_alignment_samples(samples):
+    paths = sample_paths or discover_exemplar_samples(samples)
+    weights = _loss_weights(loss_weights)
+    for path in paths:
         sample = load_alignment_sample(path)
         diff = score_assertion_set(
             sample.expected_assertions,
@@ -396,19 +508,21 @@ def score_alignment_samples(
                 **diff,
             }
         )
+    counts = {
+        name: sum(item["counts"][name] for item in reports)
+        for name in ("missing", "spurious", "mis_attached", "mis_structured")
+    }
+    counts["mis_typed"] = sum(1 - item["typing"]["correct"] for item in reports)
     return {
         "samples": reports,
-        "counts": {
-            name: sum(item["counts"][name] for item in reports)
-            for name in ("missing", "spurious", "mis_attached")
-        },
+        "counts": counts,
         "by_type": {
             subject_type.casefold(): {
                 name: sum(
                     item["by_type"][subject_type.casefold()]["counts"][name]
                     for item in reports
                 )
-                for name in ("missing", "spurious", "mis_attached")
+                for name in ("missing", "spurious", "mis_attached", "mis_structured")
             }
             for subject_type in SCORED_SUBJECT_TYPES
         },
@@ -416,19 +530,27 @@ def score_alignment_samples(
             sum(item["typing"]["correct"] for item in reports),
             len(reports),
         ),
+        "loss_weights": {
+            name: getattr(weights, name)
+            for name in ("missing", "spurious", "mis_attached", "mis_typed", "mis_structured")
+        },
+        "loss": loss_value(counts, weights=weights),
     }
 
 
 def run_live_sample_comparison(
     *,
+    dataset: str | Path | None = None,
     samples: str | Path | None = None,
+    testset: str | Path | None = None,
     provider: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
     gateway_factory: Any | None = None,
+    loss_weights: LossWeights | dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Run every alignment window once through each rollout path."""
+    """Run both disjoint corpus partitions through legacy and unified paths."""
 
     selected_provider = provider or os.environ.get("MATTERHORN_PROVIDER")
     if gateway_factory is None:
@@ -445,56 +567,82 @@ def run_live_sample_comparison(
                 model=model,
             )
 
-    produced: dict[str, dict[str, list[dict[str, Any]]]] = {
-        "legacy": {},
-        "unified": {},
+    inferred_root = (
+        Path(dataset)
+        if dataset is not None
+        else Path(samples).parent
+        if samples is not None
+        else default_dataset()
+    )
+    partitions = load_corpus_partitions(
+        inferred_root,
+        exemplars=samples,
+        testset=testset,
+    )
+    exemplar_paths = [path for path, _ in partitions["exemplar"]]
+    produced: dict[str, dict[str, dict[str, list[dict[str, Any]]]]] = {
+        partition: {"legacy": {}, "unified": {}} for partition in partitions
     }
-    for path in discover_alignment_samples(samples):
-        sample = load_alignment_sample(path)
-        for mode, unified in (("legacy", False), ("unified", True)):
-            gateway = gateway_factory()
-            if unified and not callable(getattr(gateway, "tool_loop", None)):
-                raise EvalHarnessError(
-                    "--live-samples requires a tool-loop capable gateway"
+    for partition, rows in partitions.items():
+        for _, sample in rows:
+            for mode, unified in (("legacy", False), ("unified", True)):
+                gateway = gateway_factory()
+                if unified and not callable(getattr(gateway, "tool_loop", None)):
+                    raise EvalHarnessError(
+                        "--live-samples requires a tool-loop capable gateway"
+                    )
+                produced[partition][mode][sample.sample_id] = _run_live_sample(
+                    sample,
+                    gateway,
+                    unified=unified,
+                    exemplar_paths=exemplar_paths,
+                    exclude_exemplar_id=(
+                        sample.sample_id if partition == "exemplar" else None
+                    ),
                 )
-            produced[mode][sample.sample_id] = _run_live_sample(
-                sample,
-                gateway,
-                unified=unified,
-                samples_root=samples,
-            )
 
     scores = {
-        mode: score_alignment_samples(assertions, samples=samples)
-        for mode, assertions in produced.items()
+        partition: {
+            mode: score_alignment_samples(
+                assertions,
+                sample_paths=[path for path, _ in partitions[partition]],
+                loss_weights=loss_weights,
+            )
+            for mode, assertions in modes.items()
+        }
+        for partition, modes in produced.items()
     }
-    sample_rows = []
-    by_mode_sample = {
-        mode: {item["sample_id"]: item for item in score["samples"]}
-        for mode, score in scores.items()
-    }
-    for path in discover_alignment_samples(samples):
-        sample_id = load_alignment_sample(path).sample_id
-        sample_rows.append(
-            {
-                "sample_id": sample_id,
-                "legacy": by_mode_sample["legacy"][sample_id],
-                "unified": by_mode_sample["unified"][sample_id],
-            }
-        )
+    partition_reports = {}
+    for partition, rows in partitions.items():
+        by_mode_sample = {
+            mode: {item["sample_id"]: item for item in score["samples"]}
+            for mode, score in scores[partition].items()
+        }
+        partition_reports[partition] = {
+            "samples": [
+                {
+                    "sample_id": sample.sample_id,
+                    "legacy": by_mode_sample["legacy"][sample.sample_id],
+                    "unified": by_mode_sample["unified"][sample.sample_id],
+                }
+                for _, sample in rows
+            ],
+            "aggregate": {
+                mode: {
+                    "counts": score["counts"],
+                    "by_type": score["by_type"],
+                    "typing_accuracy": score["typing_accuracy"],
+                    "loss_weights": score["loss_weights"],
+                    "loss": score["loss"],
+                }
+                for mode, score in scores[partition].items()
+            },
+        }
     return {
         "schema": REPORT_SCHEMA,
         "mode": "live-samples",
         "provider": selected_provider or "injected",
-        "samples": sample_rows,
-        "aggregate": {
-            mode: {
-                "counts": score["counts"],
-                "by_type": score["by_type"],
-                "typing_accuracy": score["typing_accuracy"],
-            }
-            for mode, score in scores.items()
-        },
+        "partitions": partition_reports,
     }
 
 
@@ -665,20 +813,32 @@ def format_theme_rediscovery_table(report: dict[str, Any]) -> str:
 
 
 def format_live_sample_table(report: dict[str, Any]) -> str:
-    lines = [
-        (
-            "sample_id | legacy missing/spurious/mis_attached | "
-            "unified missing/spurious/mis_attached | legacy typing | unified typing"
+    lines = []
+    for partition in ("exemplar", "test"):
+        partition_report = report["partitions"][partition]
+        lines.extend(
+            [
+                f"partition | {partition}",
+                (
+                    "sample_id | legacy missing/spurious/mis_attached/"
+                    "mis_structured | unified missing/spurious/mis_attached/"
+                    "mis_structured | legacy typing | unified typing"
+                ),
+            ]
         )
-    ]
-    for item in report["samples"]:
-        legacy = item["legacy"]
-        unified = item["unified"]
+        for item in partition_report["samples"]:
+            legacy = item["legacy"]
+            unified = item["unified"]
+            lines.append(
+                f"{item['sample_id']} | {_diff_count_text(legacy['counts'])} | "
+                f"{_diff_count_text(unified['counts'])} | "
+                f"{legacy['typing']['expected']}->{legacy['typing']['actual']} | "
+                f"{unified['typing']['expected']}->{unified['typing']['actual']}"
+            )
+        aggregate = partition_report["aggregate"]
         lines.append(
-            f"{item['sample_id']} | {_diff_count_text(legacy['counts'])} | "
-            f"{_diff_count_text(unified['counts'])} | "
-            f"{legacy['typing']['expected']}->{legacy['typing']['actual']} | "
-            f"{unified['typing']['expected']}->{unified['typing']['actual']}"
+            f"loss_{partition} | legacy={aggregate['legacy']['loss']:.3f} | "
+            f"unified={aggregate['unified']['loss']:.3f}"
         )
     return "\n".join(lines)
 
@@ -892,9 +1052,12 @@ def run_eval_dataset(
     responses: str | Path | None = None,
     seed_note: bool = False,
     assertion_results: str | Path | None = None,
+    loss_weights: LossWeights | dict[str, float] | None = None,
 ) -> dict[str, Any]:
     selected_dataset = Path(dataset) if dataset is not None else default_dataset()
     loaded = [(path, load_eval_case(path)) for path in discover_eval_cases(selected_dataset)]
+    partitions = load_corpus_partitions(selected_dataset)
+    weights = _loss_weights(loss_weights)
     if case_id is not None:
         loaded = [item for item in loaded if item[1].case_id == case_id]
         if not loaded:
@@ -945,11 +1108,35 @@ def run_eval_dataset(
         ),
         "cases": case_reports,
         "aggregate": aggregate_case_reports(case_reports),
+        "corpus": {
+            partition: {
+                "sample_count": len(rows),
+                "loss": None,
+                "loss_weights": {
+                    name: getattr(weights, name)
+                    for name in (
+                        "missing",
+                        "spurious",
+                        "mis_attached",
+                        "mis_typed",
+                        "mis_structured",
+                    )
+                },
+            }
+            for partition, rows in partitions.items()
+        },
     }
     if assertion_results is not None:
-        report["assertion_samples"] = score_alignment_samples(
-            load_assertion_results(assertion_results)
-        )
+        produced = load_assertion_results(assertion_results)
+        report["corpus"] = {
+            partition: score_alignment_samples(
+                produced,
+                sample_paths=[path for path, _ in rows],
+                loss_weights=weights,
+            )
+            for partition, rows in partitions.items()
+        }
+        report["assertion_samples"] = report["corpus"]["exemplar"]
     return report
 
 
@@ -1170,13 +1357,21 @@ def format_report_table(report: dict[str, Any]) -> str:
     )
     if report.get("seed_note"):
         lines.append(f"seed_note | {report['seed_note']}")
+    for partition in ("exemplar", "test"):
+        partition_score = report.get("corpus", {}).get(partition, {})
+        loss = partition_score.get("loss")
+        lines.append(
+            f"loss_{partition} | " + ("n/a" if loss is None else f"{loss:.3f}")
+        )
     if "assertion_samples" in report:
         sample_scores = report["assertion_samples"]
         counts = sample_scores["counts"]
         lines.append(
             "assertion_set_diff | "
             f"missing={counts['missing']} | spurious={counts['spurious']} | "
-            f"mis_attached={counts['mis_attached']}"
+            f"mis_attached={counts['mis_attached']} | "
+            f"mis_typed={counts['mis_typed']} | "
+            f"mis_structured={counts['mis_structured']}"
         )
         for subject_type in ("matter", "topic"):
             type_counts = sample_scores["by_type"][subject_type]
@@ -1184,7 +1379,8 @@ def format_report_table(report: dict[str, Any]) -> str:
                 f"assertion_set_diff_{subject_type} | "
                 f"missing={type_counts['missing']} | "
                 f"spurious={type_counts['spurious']} | "
-                f"mis_attached={type_counts['mis_attached']}"
+                f"mis_attached={type_counts['mis_attached']} | "
+                f"mis_structured={type_counts['mis_structured']}"
             )
         typing = sample_scores["typing_accuracy"]
         lines.append(
@@ -1264,7 +1460,8 @@ def _run_live_sample(
     gateway: Any,
     *,
     unified: bool,
-    samples_root: str | Path | None = None,
+    exemplar_paths: list[Path],
+    exclude_exemplar_id: str | None = None,
 ) -> list[dict[str, Any]]:
     records = [
         Record.model_validate(
@@ -1281,8 +1478,8 @@ def _run_live_sample(
         # loop's few-shot exemplars, or the score measures memorization.
         exemplar_dir = Path(temp_dir) / "samples"
         exemplar_dir.mkdir()
-        for path in discover_alignment_samples(samples_root):
-            if load_alignment_sample(path).sample_id != sample.sample_id:
+        for path in exemplar_paths:
+            if load_alignment_sample(path).sample_id != exclude_exemplar_id:
                 shutil.copy(path, exemplar_dir / path.name)
         engine = Engine(
             Path(temp_dir) / "sample.db",
@@ -1410,7 +1607,16 @@ def _normalize_live_subject_refs(
 
 
 def _diff_count_text(counts: dict[str, int]) -> str:
-    return f"{counts['missing']}/{counts['spurious']}/{counts['mis_attached']}"
+    return (
+        f"{counts['missing']}/{counts['spurious']}/"
+        f"{counts['mis_attached']}/{counts['mis_structured']}"
+    )
+
+
+def _loss_weights(value: LossWeights | dict[str, float] | None) -> LossWeights:
+    return resolve_capacity(
+        explicit={"loss_weights": value} if value is not None else None
+    ).loss_weights
 
 
 def _assertion_signature(
@@ -1509,10 +1715,19 @@ __all__ = [
     "aggregate_case_reports",
     "align_matters",
     "default_dataset",
+    "discover_alignment_samples",
     "discover_eval_cases",
+    "discover_exemplar_samples",
+    "discover_testset_samples",
+    "format_live_sample_table",
     "format_report_table",
+    "load_alignment_sample",
+    "load_corpus_partitions",
     "load_eval_case",
     "run_eval_dataset",
+    "run_live_sample_comparison",
+    "score_alignment_samples",
+    "score_assertion_set",
     "score_metrics",
     "title_overlap",
 ]

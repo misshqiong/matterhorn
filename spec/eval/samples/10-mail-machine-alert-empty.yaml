@@ -1,0 +1,12 @@
+sample_id: mail-machine-alert-empty
+source_kind: mail
+scope_id: sample-alert
+window:
+  - evidence_alias: m1
+    record_id: sample-alert:inbox:mail-1
+    container_id: sample-alert:inbox
+    sent_at: "2026-08-05T13:00:00Z"
+    author: {id: no-reply@octo-ci.example, display_name: Octo CI, kind: human}
+    content: "Subject: Build failed on main\n\nPipeline run 4471 failed at unit tests."
+    kind: mail
+expected_assertions: []

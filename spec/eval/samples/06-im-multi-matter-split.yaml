@@ -1,0 +1,23 @@
+sample_id: im-multi-matter-split
+source_kind: im
+scope_id: sample-split
+window:
+  - evidence_alias: m1
+    record_id: sample-split:octo-room:msg-1
+    container_id: sample-split:octo-room
+    sent_at: "2026-08-05T09:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "两件事:第一,octo 结算页白屏问题我在排查,今天给结论;第二,新人 Kai 的权限申请谁来审批一下?"
+    kind: im
+  - evidence_alias: m2
+    record_id: sample-split:octo-room:msg-2
+    container_id: sample-split:octo-room
+    sent_at: "2026-08-05T09:01:00Z"
+    author: {id: ellis-stone, display_name: Ellis Stone, kind: human}
+    content: "权限我来审,今天下班前搞定。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:settle-blank", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1]}
+  - {subject_ref: "$new:settle-blank", predicate: owned_by, operation: ASSERT, object_value: dana-reyes, evidence_aliases: [m1]}
+  - {subject_ref: "$new:perm-approve", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1, m2]}
+  - {subject_ref: "$new:perm-approve", predicate: owned_by, operation: ASSERT, object_value: ellis-stone, evidence_aliases: [m2]}

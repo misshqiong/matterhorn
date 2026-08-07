@@ -878,10 +878,16 @@ def create_app(
         )
 
     if console_enabled:
-        template = (
+        template_source = (
             resources.files("matterhorn")
             .joinpath("templates/console.html.j2")
             .read_text(encoding="utf-8")
+        )
+        deck_width = getattr(
+            getattr(service.engine, "capacity", None), "deck_width", 0
+        )
+        template = template_source.replace(
+            "__MATTERHORN_DECK_WIDTH__", str(deck_width)
         )
         # Deterministic UI version: changes exactly when the page assets
         # change, so open tabs can detect a redeploy and offer a reload —

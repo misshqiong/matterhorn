@@ -2,17 +2,25 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
+from matterhorn.capacity import LossWeights
 from matterhorn.distill import ToolLoopResult
+from matterhorn.engine.unified_loop import alignment_samples
 from matterhorn.evalrunner import (
+    EvalHarnessError,
     ExpectedMatter,
     ProducedMatter,
     align_matters,
     default_dataset,
     discover_alignment_samples,
+    discover_testset_samples,
+    format_live_sample_table,
+    format_report_table,
     load_alignment_sample,
+    load_corpus_partitions,
     run_eval_dataset,
     run_live_sample_comparison,
     run_theme_rediscovery,
@@ -212,6 +220,9 @@ def test_shipped_fixture_dataset_is_deterministic_and_json_serializable(
     for name in ("over_split", "wrong_merge", "wrong_attach"):
         assert first["aggregate"]["metrics"][name]["count"] > 0
     assert first["aggregate"]["metrics"]["missed_attach"]["count"] == 0
+    table = format_report_table(first)
+    assert "loss_exemplar | n/a" in table
+    assert "loss_test | n/a" in table
 
 
 def test_every_shipped_case_has_a_sibling_response_fixture() -> None:
@@ -240,6 +251,8 @@ def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
         "missing": 0,
         "spurious": 0,
         "mis_attached": 0,
+        "mis_structured": 0,
+        "mis_typed": 0,
     }
     assert scores["typing_accuracy"] == {
         "correct": len(samples),
@@ -247,8 +260,18 @@ def test_shipped_alignment_samples_cover_mail_im_and_agent() -> None:
         "rate": 1.0,
     }
     assert scores["by_type"] == {
-        "matter": {"missing": 0, "spurious": 0, "mis_attached": 0},
-        "topic": {"missing": 0, "spurious": 0, "mis_attached": 0},
+        "matter": {
+            "missing": 0,
+            "spurious": 0,
+            "mis_attached": 0,
+            "mis_structured": 0,
+        },
+        "topic": {
+            "missing": 0,
+            "spurious": 0,
+            "mis_attached": 0,
+            "mis_structured": 0,
+        },
     }
 
 
@@ -282,12 +305,140 @@ def test_assertion_set_diff_separates_missing_spurious_and_misattached() -> None
 
     diff = score_assertion_set(expected, actual)
 
-    assert diff["counts"] == {"missing": 1, "spurious": 1, "mis_attached": 1}
+    assert diff["counts"] == {
+        "missing": 1,
+        "spurious": 1,
+        "mis_attached": 1,
+        "mis_structured": 0,
+    }
     assert diff["mis_attached"][0]["expected_subject"] == "root-a"
     assert diff["mis_attached"][0]["actual_subject"] == "wrong-root"
 
 
+def test_weighted_loss_counts_structure_and_typing_errors(tmp_path) -> None:
+    sample_path = tmp_path / "loss-sample.yaml"
+    expected = [
+        {
+            "subject_ref": "matter-a",
+            "subject_type": "MATTER",
+            "predicate": "progress",
+            "object_value": "Verified",
+            "evidence_aliases": ["m1"],
+        },
+        {
+            "subject_ref": "matter-b",
+            "subject_type": "MATTER",
+            "predicate": "status",
+            "object_value": "open",
+            "evidence_aliases": ["m1"],
+        },
+        {
+            "subject_ref": "matter-a",
+            "subject_type": "MATTER",
+            "predicate": "part_of",
+            "object_value": "portfolio-a",
+            "evidence_aliases": ["m1"],
+        },
+    ]
+    actual = [
+        {**expected[0], "subject_ref": "matter-c"},
+        {**expected[2], "object_value": "portfolio-b"},
+        {
+            "subject_ref": "topic-extra",
+            "subject_type": "TOPIC",
+            "predicate": "viewpoint",
+            "object_value": "A fictional extra view",
+            "evidence_aliases": ["m1"],
+        },
+    ]
+    # Use YAML's JSON compatibility to retain the exact assertion fixture.
+    sample_path.write_text(
+        "sample_id: loss-sample\nsource_kind: im\nscope_id: fictional-loss\n"
+        "window:\n  - {record_id: fictional-loss:room:r1, container_id: "
+        "fictional-loss:room, sent_at: '2026-08-07T09:00:00Z', author: "
+        "{id: dana, kind: human}, content: Fictional input, kind: im}\n"
+        f"expected_assertions: {json.dumps(expected)}\n",
+        encoding="utf-8",
+    )
+
+    score = score_alignment_samples(
+        {"loss-sample": actual},
+        sample_paths=[sample_path],
+        loss_weights=LossWeights(
+            missing=2,
+            spurious=3,
+            mis_attached=5,
+            mis_typed=7,
+            mis_structured=11,
+        ),
+    )
+
+    assert score["counts"] == {
+        "missing": 1,
+        "spurious": 1,
+        "mis_attached": 1,
+        "mis_structured": 1,
+        "mis_typed": 1,
+    }
+    assert score["loss"] == 28.0
+
+
+def test_corpus_partitions_reject_duplicate_ids_and_testset_as_exemplars(
+    tmp_path,
+) -> None:
+    root = tmp_path / "eval"
+    samples = root / "samples"
+    testset = root / "testset"
+    samples.mkdir(parents=True)
+    testset.mkdir()
+    fixture = """sample_id: duplicate-sample
+source_kind: agent
+scope_id: fictional-partition
+window: [{record_id: r1}]
+expected_assertions: []
+"""
+    (samples / "sample.yaml").write_text(fixture, encoding="utf-8")
+    (testset / "heldout.yaml").write_text(fixture, encoding="utf-8")
+
+    with pytest.raises(EvalHarnessError, match="duplicate sample_id across"):
+        load_corpus_partitions(root)
+    with pytest.raises(ValueError, match="cannot be used as alignment exemplars"):
+        alignment_samples("agent", samples_dir=testset)
+
+
+def test_shipped_testset_is_fictional_and_disjoint() -> None:
+    partitions = load_corpus_partitions()
+
+    assert discover_testset_samples()
+    assert {sample.sample_id for _, sample in partitions["exemplar"]}.isdisjoint(
+        sample.sample_id for _, sample in partitions["test"]
+    )
+
+
+def test_eval_report_prints_numeric_loss_for_both_scored_partitions(
+    tmp_path,
+) -> None:
+    partitions = load_corpus_partitions()
+    produced = {
+        sample.sample_id: sample.expected_assertions
+        for rows in partitions.values()
+        for _, sample in rows
+    }
+    result_path = tmp_path / "assertions.yaml"
+    result_path.write_text(json.dumps({"samples": produced}), encoding="utf-8")
+
+    report = run_eval_dataset(assertion_results=result_path)
+    table = format_report_table(report)
+
+    assert report["corpus"]["exemplar"]["loss"] == 0.0
+    assert report["corpus"]["test"]["loss"] == 0.0
+    assert "loss_exemplar | 0.000" in table
+    assert "loss_test | 0.000" in table
+
+
 class _LiveSampleGateway:
+    systems: ClassVar[list[str]] = []
+
     def complete(self, *, system, user, response_schema):
         del system
         properties = response_schema.get("properties", {})
@@ -319,7 +470,8 @@ class _LiveSampleGateway:
         max_tool_calls=16,
         max_emissions=4,
     ):
-        del system, user, tools, max_tool_calls, max_emissions
+        del user, tools, max_tool_calls, max_emissions
+        self.systems.append(system)
         handler(
             "emit",
             {
@@ -349,7 +501,9 @@ def test_live_samples_runs_legacy_and_unified_with_mocked_gateway(
     tmp_path,
 ) -> None:
     samples = tmp_path / "samples"
+    testset = tmp_path / "testset"
     samples.mkdir()
+    testset.mkdir()
     (samples / "01-live.yaml").write_text(
         """sample_id: live-sample
 source_kind: im
@@ -372,19 +526,54 @@ expected_assertions:
 """,
         encoding="utf-8",
     )
+    (testset / "01-heldout.yaml").write_text(
+        """sample_id: heldout-live-sample
+source_kind: im
+scope_id: heldout-live-scope
+window:
+  - evidence_alias: m1
+    record_id: heldout-live-scope:room:r1
+    container_id: heldout-live-scope:room
+    sent_at: '2026-08-06T10:00:00Z'
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: Open the fictional held-out sample; this text is not an exemplar.
+    kind: im
+expected_assertions:
+  - subject_ref: '$new:live'
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    evidence_aliases: [m1]
+""",
+        encoding="utf-8",
+    )
+    _LiveSampleGateway.systems.clear()
 
     report = run_live_sample_comparison(
         samples=samples,
+        testset=testset,
         gateway_factory=_LiveSampleGateway,
     )
 
-    for mode in ("legacy", "unified"):
-        assert report["aggregate"][mode]["counts"] == {
-            "missing": 0,
-            "spurious": 0,
-            "mis_attached": 0,
-        }
-        assert report["aggregate"][mode]["typing_accuracy"]["rate"] == 1.0
+    for partition in ("exemplar", "test"):
+        for mode in ("legacy", "unified"):
+            aggregate = report["partitions"][partition]["aggregate"][mode]
+            assert aggregate["counts"] == {
+                "missing": 0,
+                "spurious": 0,
+                "mis_attached": 0,
+                "mis_structured": 0,
+                "mis_typed": 0,
+            }
+            assert aggregate["typing_accuracy"]["rate"] == 1.0
+            assert aggregate["loss"] == 0.0
+    assert _LiveSampleGateway.systems
+    assert all("heldout-live-sample" not in system for system in _LiveSampleGateway.systems)
+    assert all("this text is not an exemplar" not in system for system in _LiveSampleGateway.systems)
+    table = format_live_sample_table(report)
+    assert "loss_exemplar | legacy=0.000 | unified=0.000" in table
+    assert "loss_test | legacy=0.000 | unified=0.000" in table
 
 
 def test_theme_rediscovery_fixture_recovers_both_stripped_groups() -> None:

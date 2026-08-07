@@ -1,0 +1,21 @@
+sample_id: mail-thread-aggregate
+source_kind: mail
+scope_id: sample-thread
+window:
+  - evidence_alias: m1
+    record_id: sample-thread:inbox:mail-4
+    container_id: sample-thread:inbox
+    sent_at: "2026-08-05T14:00:00Z"
+    author: {id: vendor@octo-supplies.example, display_name: Rowan Vale, kind: human}
+    content: "Subject: 合同续签报价\n\n附上明年的续签报价单,请查收。"
+    kind: mail
+  - evidence_alias: m2
+    record_id: sample-thread:inbox:mail-5
+    container_id: sample-thread:inbox
+    sent_at: "2026-08-05T15:30:00Z"
+    author: {id: vendor@octo-supplies.example, display_name: Rowan Vale, kind: human}
+    content: "Subject: Re: 合同续签报价\n\n补充:若本月内确认,总价可再降 5%。"
+    kind: mail
+expected_assertions:
+  - {subject_ref: "$new:renewal-quote", predicate: status, operation: ASSERT, object_value: open, evidence_aliases: [m1]}
+  - {subject_ref: "$new:renewal-quote", predicate: progress, operation: ASSERT, object_value: "供应商发来续签报价,本月内确认总价可再降 5%。", evidence_aliases: [m1, m2]}

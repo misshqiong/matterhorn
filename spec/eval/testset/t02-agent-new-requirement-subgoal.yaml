@@ -1,0 +1,21 @@
+sample_id: t-agent-new-requirement
+source_kind: agent
+scope_id: t-agent-req
+window:
+  - evidence_alias: m1
+    record_id: t-agent-req:cc:msg-1
+    container_id: t-agent-req:cc
+    sent_at: "2026-08-05T07:47:00Z"
+    author: {id: user, display_name: user, kind: human}
+    content: "新增卡片这里需要有进度"
+    kind: agent
+  - evidence_alias: m2
+    record_id: t-agent-req:cc:msg-2
+    container_id: t-agent-req:cc
+    sent_at: "2026-08-05T07:48:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "收到:新增卡片弹窗要加「进度」字段,需要打通建卡链路的 progress 字段(弹窗→契约→服务请求体),我来实施。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: "$new:card-progress-field", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1, m2]}
+  - {subject_ref: "$new:card-progress-field", predicate: part_of, operation: ASSERT, object_value: board-iteration, evidence_aliases: [m1]}

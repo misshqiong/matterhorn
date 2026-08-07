@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from matterhorn.api import create_app
+from matterhorn.capacity import CapacitySettings, matter_activation
 from matterhorn.console import ConsoleSampleGateway
 from matterhorn.console.chat import ConsoleChatRunner
 from matterhorn.contracts import Record
@@ -721,6 +722,10 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
         }
         assert [item["scope_id"] for item in personal.json()] == ["personal"]
         assert all(item["updated_at"] for item in all_matters.json())
+        assert all(
+            item["activation"] == matter_activation(item)
+            for item in all_matters.json()
+        )
         assert next(
             item for item in all_matters.json() if item["scope_id"] == "work"
         )["progress"] == "A fictional rollout is halfway complete."
@@ -766,6 +771,27 @@ def test_unified_matters_wall_spans_scopes_and_filters(tmp_path) -> None:
             "markMatterSeen(matter)",
         ]:
             assert marker in page.text
+
+    asyncio.run(scenario())
+
+
+def test_console_deck_width_is_rendered_from_capacity_registry(tmp_path) -> None:
+    async def scenario() -> None:
+        engine = Engine(
+            tmp_path / "deck-width.db",
+            capacity=CapacitySettings(deck_width=1),
+        )
+        app = create_app(engine=engine, console_enabled=True)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://matterhorn.test",
+        ) as client:
+            page = await client.get("/console")
+
+        assert page.status_code == 200
+        assert "const DECK_WIDTH = 1;" in page.text
+        assert 'class="others-drawer project-more"' in page.text
 
     asyncio.run(scenario())
 

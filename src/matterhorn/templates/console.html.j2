@@ -734,6 +734,7 @@
     const WALL_MODE_KEY = "matterhorn.console.wall.mode";
     const COLLAPSED_GROUPS_KEY = "matterhorn.console.groups.collapsed";
     const ACTIVE_STATUSES = new Set(["open", "in_progress", "blocked", "pending", "ready"]);
+    const DECK_WIDTH = __MATTERHORN_DECK_WIDTH__;
     const utf8 = new TextEncoder();
     const mailPresets = {
       gmail: { host: "imap.gmail.com", port: 993, ssl: true },
@@ -1341,6 +1342,10 @@
     }
 
     function projectSort(left, right) {
+      const leftActivation = Number(left.activation);
+      const rightActivation = Number(right.activation);
+      if (Number.isFinite(leftActivation) && Number.isFinite(rightActivation)
+          && leftActivation !== rightActivation) return rightActivation - leftActivation;
       const blockedDelta = (right.bubbled_blockers?.length || 0) - (left.bubbled_blockers?.length || 0);
       if (blockedDelta) return blockedDelta;
       const unseenDelta = Number(Boolean(right.unseen)) - Number(Boolean(left.unseen));
@@ -1398,8 +1403,12 @@
         grouped.get(group).push(matter);
       });
       const projects = state.matters.filter((matter) => isProject(matter) && matterIsActive(matter, now)).sort(projectSort);
+      const coreProjects = DECK_WIDTH > 0 ? projects.slice(0, DECK_WIDTH) : projects;
+      const foldedProjects = DECK_WIDTH > 0 ? projects.slice(DECK_WIDTH) : [];
+      const moreProjects = foldedProjects.length
+        ? `<details class="others-drawer project-more"><summary>more (${foldedProjects.length})</summary><div class="project-grid">${foldedProjects.map(projectCardHtml).join("")}</div></details>` : "";
       const projectSection = `<section class="sheet project-deck"><header class="deck-header"><strong>核心项目</strong><span>${projects.length} 个 · 其余事项收在下方抽屉</span></header>
-        <div class="project-grid">${projects.map(projectCardHtml).join("") || '<p class="empty" style="padding:.6rem .85rem">还没有项目——给任一事项挂上子目标,或用 ☆ 把它置顶成项目。</p>'}</div></section>`;
+        <div class="project-grid">${coreProjects.map(projectCardHtml).join("") || '<p class="empty" style="padding:.6rem .85rem">还没有项目——给任一事项挂上子目标,或用 ☆ 把它置顶成项目。</p>'}</div>${moreProjects}</section>`;
       const sections = [...grouped.entries()].map(([group, matters]) => {
         const active = matters.filter((matter) => matterIsActive(matter, now)).sort(matterSort);
         const archived = matters.filter((matter) => !matterIsActive(matter, now)).sort(matterSort);

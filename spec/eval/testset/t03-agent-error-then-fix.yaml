@@ -1,0 +1,21 @@
+sample_id: t-agent-error-then-fix
+source_kind: agent
+scope_id: t-agent-fix
+window:
+  - evidence_alias: m1
+    record_id: t-agent-fix:cc:msg-1
+    container_id: t-agent-fix:cc
+    sent_at: "2026-08-06T08:59:00Z"
+    author: {id: user, display_name: user, kind: human}
+    content: "报错:Traceback ... call_llm 返回空内容"
+    kind: agent
+  - evidence_alias: m2
+    record_id: t-agent-fix:cc:msg-2
+    container_id: t-agent-fix:cc
+    sent_at: "2026-08-06T09:03:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "根因:推理模型把思考链计入 max_tokens 导致正文为空;已换非推理模型并调大限额,脚本恢复正常产出。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: quest-llm-switch, predicate: status, operation: ASSERT, object_value: completed, evidence_aliases: [m2]}
+  - {subject_ref: quest-llm-switch, predicate: progress, operation: ASSERT, object_value: "空输出根因为思考链占满限额,换模型并调大限额后恢复。", evidence_aliases: [m2]}

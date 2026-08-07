@@ -1,0 +1,13 @@
+sample_id: im-same-name-new-matter
+source_kind: im
+scope_id: sample-samename
+window:
+  - evidence_alias: m1
+    record_id: sample-samename:octo-room:msg-3
+    container_id: sample-samename:octo-room
+    sent_at: "2026-08-05T18:00:00Z"
+    author: {id: kai-moreau, display_name: Kai Moreau, kind: human}
+    content: "widgets 这边也要做一轮上线检查,和上个月 gadgets 的那轮流程一样,但这是新的一轮,今天开始。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:widgets-launch-check", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m1]}

@@ -18,6 +18,7 @@ from matterhorn.canonical import (
     object_key,
     stable_hash,
 )
+from matterhorn.capacity import CapacitySettings, resolve_capacity
 from matterhorn.contracts import (
     FIELD_WIDE_RETRACT,
     AddRecordsReport,
@@ -570,16 +571,17 @@ class Engine:
         identity_handles: list[str] | tuple[str, ...] | None = None,
         machine_senders: list[str] | tuple[str, ...] | None = None,
         alert_keywords: list[str] | tuple[str, ...] | None = None,
-        hot_min_authors: int = DEFAULT_HOT_MIN_AUTHORS,
-        hot_min_messages: int = DEFAULT_HOT_MIN_MESSAGES,
+        hot_min_authors: int | None = None,
+        hot_min_messages: int | None = None,
         unified_loop: bool = False,
         alignment_samples_dir: str | Path | None = None,
         theme_converge: str = DEFAULT_THEME_CONVERGE,
-        theme_min_cluster: int = DEFAULT_THEME_MIN_CLUSTER,
-        theme_min_backlog: int = DEFAULT_THEME_MIN_BACKLOG,
+        theme_min_cluster: int | None = None,
+        theme_min_backlog: int | None = None,
         theme_interval_hours: float = DEFAULT_THEME_INTERVAL_HOURS,
-        theme_conversation_fanout: int = DEFAULT_THEME_CONVERSATION_FANOUT,
-        human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
+        theme_conversation_fanout: int | None = None,
+        human_edge_weight: int | None = None,
+        capacity: CapacitySettings | None = None,
     ):
         self.store = _resolve_store(store)
         self._aggregate = AggregateOperator(self.store)
@@ -602,13 +604,28 @@ class Engine:
             raise TypeError("unified_loop MUST be a boolean")
         self.unified_loop = unified_loop
         self.alignment_samples_dir = alignment_samples_dir
+        self.capacity = resolve_capacity(
+            explicit=capacity
+            or {
+                key: value
+                for key, value in {
+                    "hot_min_authors": hot_min_authors,
+                    "hot_min_messages": hot_min_messages,
+                    "theme_min_cluster": theme_min_cluster,
+                    "theme_min_backlog": theme_min_backlog,
+                    "conversation_fanout": theme_conversation_fanout,
+                    "human_edge_weight": human_edge_weight,
+                }.items()
+                if value is not None
+            }
+        )
         self.theme_settings: ThemeSettings = configured_theme_settings(
             mode=theme_converge,
-            min_cluster=theme_min_cluster,
-            min_backlog=theme_min_backlog,
+            min_cluster=self.capacity.theme_min_cluster,
+            min_backlog=self.capacity.theme_min_backlog,
             interval_hours=theme_interval_hours,
-            conversation_fanout=theme_conversation_fanout,
-            human_edge_weight=human_edge_weight,
+            conversation_fanout=self.capacity.conversation_fanout,
+            human_edge_weight=self.capacity.human_edge_weight,
         )
         self.human_edge_weight = validate_human_edge_weight(
             self.theme_settings.human_edge_weight
@@ -617,8 +634,8 @@ class Engine:
             identity_handles=identity_handles,
             machine_senders=machine_senders,
             alert_keywords=alert_keywords,
-            hot_min_authors=hot_min_authors,
-            hot_min_messages=hot_min_messages,
+            hot_min_authors=self.capacity.hot_min_authors,
+            hot_min_messages=self.capacity.hot_min_messages,
         )
         self.query = QueryService(
             self.store,

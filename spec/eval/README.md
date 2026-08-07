@@ -5,12 +5,22 @@ Record extraction and identity routing. The key words **MUST**, **MUST NOT**,
 **SHOULD**, and **MAY** are normative. Evaluation is measurement, not a gate:
 metric values MUST NOT change a completed run's successful exit status.
 
-Section 26 alignment samples live under `samples/`. Each is a closed mapping
+Section 26 exemplar samples live under `samples/`; only this partition may be
+injected into a unified-loop prompt. Held-out samples live under `testset/`,
+are scored only, and MUST NEVER be used as exemplars. `sample_id` values MUST
+be unique within and across both partitions. Each sample is a closed mapping
 with `sample_id`, `source_kind` (`mail`, `im`, or `agent`), `scope_id`, a
 fictionalized `window`, and `expected_assertions`. Assertion-set scoring first
 removes exact matches, then reports facts emitted on another subject as
 `mis_attached`; the remaining expected and produced rows are `missing` and
 `spurious` respectively.
+
+The assertion-set differ additionally classifies a wrong or missing
+`part_of`, `spawned_from`, or `gathers` assertion as `mis_structured`.
+`mis_typed` is the number of samples whose existing typing classification is
+incorrect. The reported objective is
+`c1*missing + c2*spurious + c3*mis_attached + c4*mis_typed +
+c5*mis_structured`, using `[eval].loss_weights` and its environment override.
 
 ## Case files
 

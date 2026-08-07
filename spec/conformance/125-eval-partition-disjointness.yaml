@@ -1,0 +1,24 @@
+case_id: eval-partition-disjointness
+title: Duplicate sample ids across exemplar and held-out partitions are rejected
+invariants: [INV-18]
+schema_profile: org-matters/v1
+scope_id: s4-partitions
+clock: []
+cards: []
+partition_check:
+  exemplars:
+    - sample_id: duplicate-fictional-sample
+      source_kind: agent
+      scope_id: fictional-exemplar
+      window: [{record_id: exemplar-r1}]
+      expected_assertions: []
+  testset:
+    - sample_id: duplicate-fictional-sample
+      source_kind: agent
+      scope_id: fictional-heldout
+      window: [{record_id: heldout-r1}]
+      expected_assertions: []
+  expected_error: duplicate sample_id across exemplar and test partitions
+expect:
+  assertions: []
+  intervals: []

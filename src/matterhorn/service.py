@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from matterhorn.capacity import DEFAULT_CAPACITY, matter_activation
 from matterhorn.contracts import (
     Correction,
     EpisodeCard,
@@ -194,6 +195,7 @@ class MatterhornService:
         bundle = self.engine._scope_read_bundle(scope_id)
         unseen_map = self.engine.matters_unseen(scope_id, bundle=bundle)
         graph = getattr(bundle, "graph", None)
+        capacity = getattr(self.engine, "capacity", DEFAULT_CAPACITY)
         result = []
         for item in self.engine.matters(scope_id, bundle=bundle):
             payload = item.to_dict()
@@ -208,6 +210,10 @@ class MatterhornService:
                     }
                     for child in graph.tree(item.subject_key)["children"]
                 ]
+            payload["activation"] = matter_activation(
+                payload,
+                weights=capacity.activation_weights,
+            )
             result.append(payload)
         return result
 

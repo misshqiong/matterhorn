@@ -66,6 +66,7 @@ ARCHITECTURE_RULES = (
         "sources": {"evalrunner"},
         "allow_only": {
             "adapters",
+            "capacity",
             "contracts",
             "defaults",
             "evalrunner",

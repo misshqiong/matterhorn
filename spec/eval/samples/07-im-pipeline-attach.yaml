@@ -1,0 +1,14 @@
+sample_id: im-pipeline-attach
+source_kind: im
+scope_id: sample-pipeline
+window:
+  - evidence_alias: m1
+    record_id: sample-pipeline:review-room:msg-9
+    container_id: sample-pipeline:review-room
+    sent_at: "2026-08-05T10:00:00Z"
+    author: {id: kai-moreau, display_name: Kai Moreau, kind: human}
+    content: "PR octo/widgets#88 图表导出修复,请求 review。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:pr-88", predicate: status, operation: ASSERT, object_value: open, evidence_aliases: [m1]}
+  - {subject_ref: "$new:pr-88", predicate: part_of, operation: ASSERT, object_value: octo-pr-pipeline, evidence_aliases: [m1]}

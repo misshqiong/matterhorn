@@ -1,0 +1,18 @@
+sample_id: heldout-agent-portfolio
+source_kind: agent
+scope_id: heldout-fictional-lab
+window:
+  - evidence_alias: m1
+    record_id: heldout-fictional-lab:agent:r1
+    container_id: heldout-fictional-lab:agent
+    sent_at: "2026-08-02T11:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "Keep the fictional cobalt portfolio open while the rehearsal runs."
+    kind: agent
+expected_assertions:
+  - subject_ref: cobalt-portfolio
+    subject_type: MATTER
+    predicate: status
+    operation: ASSERT
+    object_value: open
+    evidence_aliases: [m1]

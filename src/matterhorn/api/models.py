@@ -201,6 +201,7 @@ class MatterResponse(StrictModel):
     aliases: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
     unseen: bool | None = None
+    activation: float
     owners_display: list[Any] = Field(default_factory=list)
     participants_display: list[Any] = Field(default_factory=list)
     sources_display: list[str] = Field(default_factory=list)

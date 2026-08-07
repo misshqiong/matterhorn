@@ -20,6 +20,7 @@ from matterhorn.canonical import (
     instant_text,
     object_key,
 )
+from matterhorn.capacity import matter_activation, resolve_capacity
 from matterhorn.contracts import (
     FIELD_WIDE_RETRACT,
     Assertion,
@@ -32,6 +33,11 @@ from matterhorn.contracts.schema import resolve_schema
 from matterhorn.defaults import Engine
 from matterhorn.distill import ToolLoopResult
 from matterhorn.engine.handles import normalize_handle
+from matterhorn.evalrunner import (
+    EvalHarnessError,
+    load_corpus_partitions,
+    score_alignment_samples,
+)
 from matterhorn.store import SQLiteStore, Store
 
 
@@ -377,6 +383,9 @@ def _load_case(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"malformed conformance case {path}: invalid signal_config"
         )
+    for field in ("activation_check", "partition_check", "loss_check"):
+        if field in case and not isinstance(case[field], dict):
+            raise ValueError(f"malformed conformance case {path}: invalid {field}")
     if "expect_error" in case:
         if not isinstance(case["expect_error"], str) or not case["expect_error"]:
             raise ValueError(
@@ -482,6 +491,7 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
     _run_review_operations(engine, case)
     _run_signal_operations(engine, case)
     _run_watermark_operations(engine, case)
+    _run_s4_checks(case)
 
     expect = case["expect"]
     if "record_reports" in expect:
@@ -831,6 +841,112 @@ def _execute_case(case: dict[str, Any], store: Store | str | Path) -> None:
             export_before_replay,
             "replay export",
         )
+
+
+def _run_s4_checks(case: dict[str, Any]) -> None:
+    activation = case.get("activation_check")
+    if activation is not None:
+        matters = activation.get("matters", [])
+        if not isinstance(matters, list):
+            raise ConformanceFailure("activation_check.matters MUST be a list")
+        weights = resolve_capacity(
+            explicit={"activation_weights": activation.get("weights", {})}
+        ).activation_weights
+
+        def activated_order() -> list[str]:
+            ranked = sorted(
+                matters,
+                key=lambda item: matter_activation(item, weights=weights),
+                reverse=True,
+            )
+            return [item["subject_key"] for item in ranked]
+
+        first = activated_order()
+        _equal(first, activation.get("expected_order"), "activation order")
+        for _ in range(int(activation.get("repetitions", 2))):
+            _equal(activated_order(), first, "activation deterministic replay")
+        if activation.get("default_order_equivalence"):
+            legacy = sorted(
+                matters,
+                key=lambda item: (
+                    len(item.get("bubbled_blockers", [])),
+                    int(bool(item.get("unseen"))),
+                    _activation_recency(item),
+                ),
+                reverse=True,
+            )
+            _equal(
+                first,
+                [item["subject_key"] for item in legacy],
+                "default activation order equivalence",
+            )
+
+    partition = case.get("partition_check")
+    if partition is not None:
+        with tempfile.TemporaryDirectory(prefix="matterhorn-partition-check-") as root:
+            dataset = Path(root)
+            for directory_name, rows in (
+                ("samples", partition.get("exemplars", [])),
+                ("testset", partition.get("testset", [])),
+            ):
+                directory = dataset / directory_name
+                directory.mkdir()
+                for index, sample in enumerate(rows):
+                    (directory / f"{index:02d}.yaml").write_text(
+                        yaml.safe_dump(sample, sort_keys=False),
+                        encoding="utf-8",
+                    )
+            expected_error = partition.get("expected_error")
+            try:
+                loaded = load_corpus_partitions(dataset)
+            except EvalHarnessError as error:
+                if not expected_error or not re.search(expected_error, str(error)):
+                    raise
+            else:
+                if expected_error:
+                    raise ConformanceFailure(
+                        f"partition check expected error {expected_error!r}"
+                    )
+                _equal(
+                    {
+                        name: [sample.sample_id for _, sample in rows]
+                        for name, rows in loaded.items()
+                    },
+                    partition.get("expected_ids"),
+                    "partition ids",
+                )
+
+    loss = case.get("loss_check")
+    if loss is not None:
+        with tempfile.TemporaryDirectory(prefix="matterhorn-loss-check-") as root:
+            path = Path(root) / "fixture.yaml"
+            sample = loss.get("sample")
+            path.write_text(
+                yaml.safe_dump(sample, sort_keys=False),
+                encoding="utf-8",
+            )
+            weights = resolve_capacity(
+                explicit={"loss_weights": loss.get("weights", {})}
+            ).loss_weights
+            report = score_alignment_samples(
+                {sample["sample_id"]: loss.get("actual_assertions", [])},
+                sample_paths=[path],
+                loss_weights=weights,
+            )
+            expected = loss.get("expected", {})
+            _equal(
+                _project_partial(report, expected),
+                expected,
+                "weighted loss",
+            )
+
+
+def _activation_recency(item: dict[str, Any]) -> float:
+    value = item.get("latest_activity") or item.get("updated_at")
+    if value is None:
+        return 0.0
+    instant = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    return instant.timestamp()
 
 
 def _run_message_batches(

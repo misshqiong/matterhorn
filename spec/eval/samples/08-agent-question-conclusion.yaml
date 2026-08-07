@@ -1,0 +1,28 @@
+sample_id: agent-question-conclusion
+source_kind: agent
+scope_id: sample-agent-qc
+window:
+  - evidence_alias: m1
+    record_id: sample-agent-qc:cc:msg-1
+    container_id: sample-agent-qc:cc
+    sent_at: "2026-08-05T11:00:00Z"
+    author: {id: user, display_name: user, kind: human}
+    content: "帮我查一下 octo 服务这两天超时飙升的原因"
+    kind: agent
+  - evidence_alias: m2
+    record_id: sample-agent-qc:cc:msg-2
+    container_id: sample-agent-qc:cc
+    sent_at: "2026-08-05T11:05:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "先查连接池指标,再看部署记录,然后逐个对比配置……(过程略)"
+    kind: agent
+  - evidence_alias: m3
+    record_id: sample-agent-qc:cc:msg-3
+    container_id: sample-agent-qc:cc
+    sent_at: "2026-08-05T11:20:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "结论:超时源于周一上线把连接池上限从 200 误改为 20,已回滚,超时率恢复正常。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: "$new:timeout-invest", predicate: status, operation: ASSERT, object_value: completed, evidence_aliases: [m3]}
+  - {subject_ref: "$new:timeout-invest", predicate: progress, operation: ASSERT, object_value: "根因为连接池上限被误改(200→20),已回滚恢复。", evidence_aliases: [m3]}

@@ -1,0 +1,27 @@
+sample_id: t-mail-multi-split
+source_kind: mail
+scope_id: t-mail-split
+window:
+  - evidence_alias: m1
+    record_id: t-mail-split:inbox:mail-1
+    container_id: t-mail-split:inbox
+    sent_at: "2026-08-03T00:27:00Z"
+    author: {id: digest@fern.example, display_name: Fern Weekly, kind: human}
+    content: "Subject: Your week ahead\n\n本周提要:周三有 octo 评审;别忘了处理逾期的家居任务。"
+    kind: mail
+  - evidence_alias: m2
+    record_id: t-mail-split:inbox:mail-2
+    container_id: t-mail-split:inbox
+    sent_at: "2026-08-03T00:30:00Z"
+    author: {id: no-reply@social.example, display_name: Social, kind: human}
+    content: "Subject: Your account has been suspended\n\n你的账号已被暂停,可提交申诉。"
+    kind: mail
+  - evidence_alias: m3
+    record_id: t-mail-split:inbox:mail-3
+    container_id: t-mail-split:inbox
+    sent_at: "2026-08-03T00:31:00Z"
+    author: {id: no-reply@octo-id.example, display_name: Octo ID, kind: human}
+    content: "Subject: Security alert: new passkey added\n\n你的账户新增了一枚 passkey,如非本人请立即处理。"
+    kind: mail
+expected_assertions:
+  - {subject_ref: "$new:social-suspension-appeal", predicate: status, operation: ASSERT, object_value: open, evidence_aliases: [m2]}

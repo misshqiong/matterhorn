@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from matterhorn.canonical import object_key as canonical_object_key
+from matterhorn.capacity import DEFAULT_HUMAN_EDGE_WEIGHT
 from matterhorn.contracts import (
     FIELD_WIDE_RETRACT,
     Assertion,
@@ -18,9 +19,6 @@ from matterhorn.contracts import (
 PART_OF = "part_of"
 GATHERS = "gathers"
 WEIGHTED_STRUCTURE_PREDICATES = frozenset({PART_OF, GATHERS})
-DEFAULT_HUMAN_EDGE_WEIGHT = 10
-
-
 @dataclass(frozen=True)
 class ElectionCandidate:
     """One target's live committed contributions at an election instant."""

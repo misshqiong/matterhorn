@@ -1,0 +1,14 @@
+sample_id: agent-upward-propagation
+source_kind: agent
+scope_id: sample-propagate
+window:
+  - evidence_alias: m1
+    record_id: sample-propagate:cc:msg-7
+    container_id: sample-propagate:cc
+    sent_at: "2026-08-05T12:00:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "octo 服务端改造验收通过:全部测试绿。这是 octo 平台迁移项目五个子项里的最后一个服务端项。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: octo-server-refit, predicate: status, operation: ASSERT, object_value: completed, evidence_aliases: [m1]}
+  - {subject_ref: octo-platform-migration, predicate: progress, operation: ASSERT, object_value: "服务端改造验收通过,五个子项的服务端部分全部完成。", evidence_aliases: [m1]}

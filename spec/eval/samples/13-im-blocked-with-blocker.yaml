@@ -1,0 +1,14 @@
+sample_id: im-blocked-with-blocker
+source_kind: im
+scope_id: sample-blocked
+window:
+  - evidence_alias: m1
+    record_id: sample-blocked:octo-room:msg-11
+    container_id: sample-blocked:octo-room
+    sent_at: "2026-08-05T17:00:00Z"
+    author: {id: ellis-stone, display_name: Ellis Stone, kind: human}
+    content: "octo 沙箱扩容做不下去了,卡在机房配额审批,批下来之前只能停。"
+    kind: im
+expected_assertions:
+  - {subject_ref: "$new:sandbox-expand", predicate: status, operation: ASSERT, object_value: blocked, evidence_aliases: [m1]}
+  - {subject_ref: "$new:sandbox-expand", predicate: blocked_by, operation: ASSERT, object_value: "机房配额审批未批", evidence_aliases: [m1]}

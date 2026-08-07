@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from matterhorn.capacity import DEFAULT_HOT_MIN_AUTHORS, DEFAULT_HOT_MIN_MESSAGES
+
 DEFAULT_IDENTITY_HANDLES: tuple[str, ...] = ()
 DEFAULT_MACHINE_SENDERS: tuple[str, ...] = (
     r"no-?reply",
@@ -20,10 +22,6 @@ DEFAULT_ALERT_KEYWORDS: tuple[str, ...] = (
     r"失败",
     r"安全",
 )
-DEFAULT_HOT_MIN_AUTHORS = 3
-DEFAULT_HOT_MIN_MESSAGES = 5
-
-
 @dataclass(frozen=True)
 class SignalConfig:
     identity_handles: tuple[str, ...] = DEFAULT_IDENTITY_HANDLES

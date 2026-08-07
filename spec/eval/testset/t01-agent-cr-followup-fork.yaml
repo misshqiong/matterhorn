@@ -1,0 +1,24 @@
+sample_id: t-agent-cr-followup-fork
+source_kind: agent
+scope_id: t-agent-cr
+window:
+  - evidence_alias: m1
+    record_id: t-agent-cr:cc:msg-1
+    container_id: t-agent-cr:cc
+    sent_at: "2026-08-06T09:13:00Z"
+    author: {id: user, display_name: user, kind: human}
+    content: "检查以下CR评论:createCard 缺乏乐观锁保护(中高风险),主键冲突行为待确认。"
+    kind: agent
+  - evidence_alias: m2
+    record_id: t-agent-cr:cc:msg-2
+    container_id: t-agent-cr:cc
+    sent_at: "2026-08-06T09:40:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "逐条核查完成,全绿。CR 修复已提交并推送。另外把「记忆分页 SQL 下推」登记为后续任务。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: cr-review-fixes, predicate: status, operation: ASSERT, object_value: completed, evidence_aliases: [m2]}
+  - {subject_ref: cr-review-fixes, predicate: progress, operation: ASSERT, object_value: "CR 评论逐条核查完毕,修复已提交推送。", evidence_aliases: [m2]}
+  - {subject_ref: "$new:memory-paging-pushdown", predicate: status, operation: ASSERT, object_value: open, evidence_aliases: [m2]}
+  - {subject_ref: "$new:memory-paging-pushdown", predicate: spawned_from, operation: ASSERT, object_value: cr-review-fixes, evidence_aliases: [m2]}
+  - {subject_ref: "$new:memory-paging-pushdown", predicate: part_of, operation: ASSERT, object_value: board-project, evidence_aliases: [m2]}

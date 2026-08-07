@@ -705,6 +705,8 @@ def alignment_samples(
     samples_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     directory = Path(samples_dir) if samples_dir is not None else _default_samples_dir()
+    if directory.name == "testset":
+        raise ValueError("held-out testset/ cannot be used as alignment exemplars")
     if not directory.is_dir():
         return []
     result = []

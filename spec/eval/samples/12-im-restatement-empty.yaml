@@ -1,0 +1,12 @@
+sample_id: im-restatement-empty
+source_kind: im
+scope_id: sample-restate
+window:
+  - evidence_alias: m1
+    record_id: sample-restate:octo-room:msg-30
+    container_id: sample-restate:octo-room
+    sent_at: "2026-08-05T16:00:00Z"
+    author: {id: dana-reyes, display_name: Dana Reyes, kind: human}
+    content: "octo 配额审批还是老样子,流程卡在财务那边,和昨天说的一样。"
+    kind: im
+expected_assertions: []

@@ -1,0 +1,19 @@
+sample_id: t-im-emoji-noise
+source_kind: im
+scope_id: t-im-noise
+window:
+  - evidence_alias: m1
+    record_id: t-im-noise:pet-room:msg-1
+    container_id: t-im-noise:pet-room
+    sent_at: "2026-08-06T09:51:00Z"
+    author: {id: rowan-vale, display_name: Rowan Vale, kind: human}
+    content: "[表情]"
+    kind: im
+  - evidence_alias: m2
+    record_id: t-im-noise:pet-room:msg-2
+    container_id: t-im-noise:pet-room
+    sent_at: "2026-08-06T09:51:30Z"
+    author: {id: noa-lindt, display_name: Noa Lindt, kind: human}
+    content: "[表情]"
+    kind: im
+expected_assertions: []

@@ -1,0 +1,23 @@
+sample_id: t-agent-fork-playable
+source_kind: agent
+scope_id: t-agent-quest
+window:
+  - evidence_alias: m1
+    record_id: t-agent-quest:cc:msg-1
+    container_id: t-agent-quest:cc
+    sent_at: "2026-08-06T11:01:00Z"
+    author: {id: user, display_name: user, kind: human}
+    content: "没有交互界面么...."
+    kind: agent
+  - evidence_alias: m2
+    record_id: t-agent-quest:cc:msg-2
+    container_id: t-agent-quest:cc
+    sent_at: "2026-08-06T11:02:00Z"
+    author: {id: assistant, display_name: claude-code, kind: bot}
+    content: "有道理——纯文档没有到店解锁的体感。H5 玩家端本来排后面,现在提前:我先搭一个最小可玩网页界面。"
+    kind: agent
+expected_assertions:
+  - {subject_ref: quest-project, predicate: decision, operation: ASSERT, object_value: "提前做最小可玩 H5 玩家端。", evidence_aliases: [m1, m2]}
+  - {subject_ref: "$new:h5-player", predicate: status, operation: ASSERT, object_value: in_progress, evidence_aliases: [m2]}
+  - {subject_ref: "$new:h5-player", predicate: spawned_from, operation: ASSERT, object_value: quest-project, evidence_aliases: [m1]}
+  - {subject_ref: "$new:h5-player", predicate: part_of, operation: ASSERT, object_value: quest-project, evidence_aliases: [m2]}

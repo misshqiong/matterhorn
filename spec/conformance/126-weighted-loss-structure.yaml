@@ -1,0 +1,28 @@
+case_id: weighted-loss-structure
+title: The explicit objective includes a separately classified structure error
+invariants: [INV-18]
+schema_profile: org-matters/v1
+scope_id: s4-loss
+clock: []
+cards: []
+loss_check:
+  weights: {missing: 2, spurious: 3, mis_attached: 5, mis_typed: 7, mis_structured: 11}
+  sample:
+    sample_id: fictional-loss-sample
+    source_kind: im
+    scope_id: fictional-loss
+    window: [{record_id: fictional-loss-r1}]
+    expected_assertions:
+      - {subject_ref: matter-a, subject_type: MATTER, predicate: progress, object_value: Verified, evidence_aliases: [m1]}
+      - {subject_ref: matter-b, subject_type: MATTER, predicate: status, object_value: open, evidence_aliases: [m1]}
+      - {subject_ref: matter-a, subject_type: MATTER, predicate: part_of, object_value: portfolio-a, evidence_aliases: [m1]}
+  actual_assertions:
+    - {subject_ref: matter-c, subject_type: MATTER, predicate: progress, object_value: Verified, evidence_aliases: [m1]}
+    - {subject_ref: matter-a, subject_type: MATTER, predicate: part_of, object_value: portfolio-b, evidence_aliases: [m1]}
+    - {subject_ref: topic-extra, subject_type: TOPIC, predicate: viewpoint, object_value: A fictional extra view, evidence_aliases: [m1]}
+  expected:
+    counts: {missing: 1, spurious: 1, mis_attached: 1, mis_typed: 1, mis_structured: 1}
+    loss: 28.0
+expect:
+  assertions: []
+  intervals: []

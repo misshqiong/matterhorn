@@ -1,0 +1,20 @@
+case_id: activation-deterministic-default-order
+title: Default activation is deterministic and equivalent to the original deck comparator
+invariants: [INV-18]
+schema_profile: org-matters/v1
+scope_id: s4-activation
+clock: []
+cards: []
+activation_check:
+  weights: {blocked: 10000000000000, unseen: 1000000000000, recency: 1, hotness: 0, pinned: 0}
+  repetitions: 3
+  default_order_equivalence: true
+  matters:
+    - {subject_key: recent, bubbled_blockers: [], unseen: false, latest_activity: 2026-08-07T12:00:00Z}
+    - {subject_key: unseen, bubbled_blockers: [], unseen: true, latest_activity: 2026-08-01T12:00:00Z}
+    - {subject_key: blocked-one, bubbled_blockers: [{}], unseen: false, latest_activity: 2026-07-01T12:00:00Z}
+    - {subject_key: blocked-two, bubbled_blockers: [{}, {}], unseen: false, latest_activity: 2026-06-01T12:00:00Z}
+  expected_order: [blocked-two, blocked-one, unseen, recent]
+expect:
+  assertions: []
+  intervals: []
