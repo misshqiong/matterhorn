@@ -15,6 +15,7 @@ from pydantic import (
 from matterhorn.canonical import canonical_json, normalize_title
 from matterhorn.contracts import EpisodeCard
 from matterhorn.contracts.models import StrictModel
+from matterhorn.engine.aggregate import AliasNamespace, ClosedCandidateWorld
 
 ADJUDICATION_SCHEMA_ID = "matterhorn-identity-adjudication/v1"
 PINNED_ADJUDICATION_EXAMPLE = (
@@ -30,10 +31,10 @@ def adjudication_source_aliases(card: EpisodeCard) -> dict[str, str]:
     not. The gate accepts either form.
     """
 
-    return {
-        f"m{index + 1}": ref.source_id
-        for index, ref in enumerate(card.source_refs)
-    }
+    return AliasNamespace.sequential(
+        (ref.source_id for ref in card.source_refs),
+        prefix="m",
+    ).as_dict()
 
 
 class AdjudicationCandidate(StrictModel):
@@ -90,8 +91,14 @@ class AdjudicationGate:
 def build_adjudication_prompt(
     card: EpisodeCard,
     candidates: list[AdjudicationCandidate],
+    *,
+    aliases: AliasNamespace | None = None,
 ) -> AdjudicationPrompt:
-    aliases = adjudication_source_aliases(card)
+    alias_map = (
+        aliases.as_dict()
+        if aliases is not None
+        else adjudication_source_aliases(card)
+    )
     excerpt_by_id = {ref.source_id: ref.excerpt for ref in card.source_refs}
     system = (
         "You adjudicate whether one evidence-backed card belongs to one offered "
@@ -124,7 +131,7 @@ def build_adjudication_prompt(
                         "source_alias": alias,
                         "excerpt": excerpt_by_id[source_id],
                     }
-                    for alias, source_id in aliases.items()
+                    for alias, source_id in alias_map.items()
                 ],
             },
             "candidates": [
@@ -162,6 +169,8 @@ def gate_adjudication(
     card: EpisodeCard,
     candidates: list[AdjudicationCandidate],
     confidence_threshold: float,
+    world: ClosedCandidateWorld | None = None,
+    aliases: AliasNamespace | None = None,
 ) -> AdjudicationGate:
     try:
         response = AdjudicationResponse.model_validate(json.loads(raw))
@@ -171,16 +180,20 @@ def gate_adjudication(
     if response.decision == "abstain":
         return AdjudicationGate("review", None, ("EXPLICIT_ABSTAIN",))
 
-    aliases = adjudication_source_aliases(card)
+    alias_namespace = aliases or AliasNamespace.from_mapping(
+        adjudication_source_aliases(card)
+    )
     cited = {item.source_id for item in card.source_refs}
-    resolved = [aliases.get(item, item) for item in response.evidence_source_ids]
+    resolved = alias_namespace.resolve_all(response.evidence_source_ids)
     if not set(resolved).issubset(cited):
         return AdjudicationGate("review", None, ("SOURCE_NOT_TRACEABLE",))
     if response.decision == "new":
         return AdjudicationGate("new", None)
 
-    offered = {item.subject_key for item in candidates}
-    if response.subject_key not in offered:
+    closed_world = world or ClosedCandidateWorld.from_keys(
+        item.subject_key for item in candidates
+    )
+    if not closed_world.contains(response.subject_key):
         return AdjudicationGate("review", None, ("SUBJECT_NOT_OFFERED",))
     if not response.evidence_source_ids:
         return AdjudicationGate("review", None, ("SOURCE_NOT_TRACEABLE",))

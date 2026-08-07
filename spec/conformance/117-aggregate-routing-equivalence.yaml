@@ -1,0 +1,86 @@
+case_id: aggregate-routing-equivalence
+title: Unified aggregate operator preserves the golden routing outcome
+invariants: [P1, P3, P5, P9, INV-15]
+schema_profile: org-matters/v1
+scope_id: aggregate-routing-equivalence
+clock:
+  - "2026-08-07T11:00:00Z"
+  - "2026-08-07T11:01:00Z"
+  - "2026-08-07T11:02:00Z"
+  - "2026-08-07T11:05:00Z"
+cards:
+  - card_id: atlas-seed
+    scope_id: aggregate-routing-equivalence
+    subject_key: atlas-matter
+    date: 2026-08-07
+    title: Fictional Atlas launch
+    status: open
+    next_step: Verify the launch checklist.
+    participants: [{id: dana, display_name: Dana Reyes, role: owner}]
+    source_refs:
+      - {source_id: atlas-source, sent_at: "2026-08-07T10:50:00Z", sender: Dana Reyes, excerpt: "Atlas launch awaits checklist verification."}
+  - card_id: beacon-seed
+    scope_id: aggregate-routing-equivalence
+    subject_key: beacon-matter
+    date: 2026-08-07
+    title: Fictional Beacon migration
+    status: open
+    source_refs:
+      - {source_id: beacon-source, sent_at: "2026-08-07T10:51:00Z", sender: Ellis Stone, excerpt: "Beacon migration remains open."}
+  - card_id: closed-atlas-seed
+    scope_id: aggregate-routing-equivalence
+    subject_key: closed-atlas
+    date: 2026-08-07
+    title: Fictional Atlas legacy launch
+    status: closed
+    source_refs:
+      - {source_id: closed-atlas-source, sent_at: "2026-08-07T10:52:00Z", sender: Ellis Stone, excerpt: "The legacy Atlas launch is complete."}
+record_batches:
+  - records:
+      - record_id: aggregate-routing-equivalence:updates:r1
+        container_id: aggregate-routing-equivalence:updates
+        sent_at: "2026-08-07T11:04:00Z"
+        author: {id: dana, display_name: Dana Reyes, kind: human}
+        content: "Atlas launch checklist passed verification."
+record_model_responses:
+  - cards:
+      - date: "2026-08-07"
+        title: Atlas launch verification
+        progress: The fictional checklist passed.
+        source_ids: [aggregate-routing-equivalence:updates:r1]
+adjudication_model_responses:
+  - decision: attach
+    subject_key: atlas-matter
+    confidence: 0.86
+    evidence_source_ids: [aggregate-routing-equivalence:updates:r1]
+expect:
+  record_reports:
+    - {route_model: 1, route_review: 0}
+  adjudication_calls:
+    - candidate_keys: [atlas-matter]
+      candidates:
+        - {subject_key: atlas-matter, title: Fictional Atlas launch, status: open, next_step: Verify the launch checklist.}
+  assertions:
+    - {subject_key: atlas-matter, predicate: status, object_value: open}
+    - {subject_key: atlas-matter, predicate: next_step, object_value: Verify the launch checklist.}
+    - {subject_key: atlas-matter, predicate: participated_by, object_value: dana}
+    - {subject_key: atlas-matter, predicate: owned_by, object_value: dana}
+    - {subject_key: atlas-matter, predicate: progress, object_value: The fictional checklist passed.}
+    - {subject_key: beacon-matter, predicate: status, object_value: open}
+    - {subject_key: closed-atlas, predicate: status, object_value: closed}
+  intervals:
+    - {subject_key: atlas-matter, predicate: status, object_value: open}
+    - {subject_key: atlas-matter, predicate: next_step, object_value: Verify the launch checklist.}
+    - {subject_key: atlas-matter, predicate: participated_by, object_value: dana}
+    - {subject_key: atlas-matter, predicate: owned_by, object_value: dana}
+    - {subject_key: atlas-matter, predicate: progress, object_value: The fictional checklist passed.}
+    - {subject_key: beacon-matter, predicate: status, object_value: open}
+    - {subject_key: closed-atlas, predicate: status, object_value: closed}
+  subject_count: 3
+  gate_statistics:
+    scope_id: aggregate-routing-equivalence
+    accepted: 0
+    rejections: {}
+    route_model: 1
+  review_items: []
+  queries: []

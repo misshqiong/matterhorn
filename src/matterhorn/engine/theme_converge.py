@@ -30,6 +30,14 @@ from matterhorn.contracts import (
 )
 from matterhorn.contracts.models import StrictModel
 from matterhorn.distill import ToolLoopGateway
+from matterhorn.engine.aggregate import (
+    AggregateContext,
+    AggregateOperator,
+    AliasNamespace,
+    ClosedCandidateWorld,
+    PreparedAggregation,
+    RejectionCounter,
+)
 from matterhorn.engine.goal_graph import (
     PART_OF,
     canonicalize_graph_assertions,
@@ -238,16 +246,29 @@ class ThemePassReport:
 class ThemeNamingSession:
     """One proposal-only section 26 tool loop over a fixed cluster world."""
 
-    def __init__(self, *, scope_id: str, cluster: ThemeCluster) -> None:
+    def __init__(
+        self,
+        *,
+        scope_id: str,
+        cluster: ThemeCluster,
+        world: ClosedCandidateWorld | None = None,
+        rejections: RejectionCounter | None = None,
+    ) -> None:
         self.scope_id = scope_id
         self.cluster = cluster
-        self.closed_world = frozenset(cluster.member_keys) | (
-            frozenset({cluster.existing_target_root})
-            if cluster.existing_target_root is not None
-            else frozenset()
+        self._world = world or ClosedCandidateWorld.from_keys(
+            (
+                *cluster.member_keys,
+                *(
+                    (cluster.existing_target_root,)
+                    if cluster.existing_target_root is not None
+                    else ()
+                ),
+            )
         )
+        self.closed_world = frozenset(self._world.keys)
         self.proposal: ThemeNamingEmission | None = None
-        self.rejections: dict[str, int] = {}
+        self._rejections = rejections or RejectionCounter()
 
     def run(self, gateway: Any) -> ThemeNamingResult:
         if not isinstance(gateway, ToolLoopGateway):
@@ -287,7 +308,7 @@ class ThemeNamingSession:
         )
         return ThemeNamingResult(
             proposal=self.proposal,
-            rejection_counts=dict(sorted(self.rejections.items())),
+            rejection_counts=self._rejections.snapshot(),
             tool_calls=result.tool_calls,
             emissions=result.emissions,
             exhausted=result.exhausted,
@@ -302,7 +323,7 @@ class ThemeNamingSession:
             proposal = ThemeNamingEmission.model_validate(arguments)
         except ValidationError as error:
             return self._reject("UNPARSEABLE", detail=str(error))
-        if not set(proposal.member_subject_keys).issubset(self.closed_world):
+        if not self._world.contains_all(proposal.member_subject_keys):
             return self._reject("CLOSED_WORLD_VIOLATION")
         target = self.cluster.existing_target_root
         if target is not None and proposal.existing_root_subsumes is not True:
@@ -311,19 +332,132 @@ class ThemeNamingSession:
             # Tolerable deviation, same precedent as adjudication abstain
             # normalization: the model volunteering a subsumption where no
             # target exists is noise, not a reason to lose the naming.
-            self.rejections["EXISTING_ROOT_IGNORED"] = (
-                self.rejections.get("EXISTING_ROOT_IGNORED", 0) + 1
-            )
+            self._rejections.increment("EXISTING_ROOT_IGNORED")
             proposal = proposal.model_copy(update={"existing_root_subsumes": None})
         self.proposal = proposal
         return {"accepted": True}
 
     def _reject(self, reason: str, *, detail: str | None = None) -> dict[str, Any]:
-        self.rejections[reason] = self.rejections.get(reason, 0) + 1
+        self._rejections.increment(reason)
         result: dict[str, Any] = {"accepted": False, "reason": reason}
         if detail is not None:
             result["detail"] = detail
         return result
+
+
+class _ThemeKeyStrategy:
+    """Section 28 layer-1→2 affinity recall and admission plugin."""
+
+    def __init__(
+        self,
+        engine: Any,
+        *,
+        dry_run: bool,
+    ) -> None:
+        self.engine = engine
+        self.dry_run = dry_run
+        self.settings: ThemeSettings = engine.theme_settings
+
+    def recall(self, unit: Any) -> tuple[ThemeCluster, ...]:
+        snapshot = unit
+        return cluster_themes(
+            snapshot.candidates,
+            min_cluster=self.settings.min_cluster,
+            conversation_fanout=self.settings.conversation_fanout,
+        )
+
+    def candidate_keys(
+        self,
+        _unit: Any,
+        cluster: ThemeCluster,
+    ) -> tuple[str, ...]:
+        return (
+            *cluster.member_keys,
+            *(
+                (cluster.existing_target_root,)
+                if cluster.existing_target_root is not None
+                else ()
+            ),
+        )
+
+    def aliases(self, _unit: Any, _cluster: ThemeCluster) -> AliasNamespace:
+        return AliasNamespace()
+
+    def adjudicate(
+        self,
+        context: AggregateContext,
+        rejections: RejectionCounter,
+    ) -> ThemeNamingResult:
+        return ThemeNamingSession(
+            scope_id=context.unit.scope_id,
+            cluster=context.recall,
+            world=context.world,
+            rejections=rejections,
+        ).run(self.engine._write_gateway)
+
+    def gate(
+        self,
+        _context: AggregateContext,
+        decision: Any,
+        rejections: RejectionCounter,
+    ) -> ThemeNamingResult:
+        naming = decision
+        if naming.proposal is None and naming.exhausted:
+            rejections.increment("LOOP_BOUNDS_EXHAUSTED")
+        return naming
+
+    def commit(
+        self,
+        prepared: PreparedAggregation,
+        operator: AggregateOperator,
+    ) -> ThemeProposalResult:
+        snapshot = prepared.context.unit
+        cluster = prepared.context.recall
+        naming = prepared.outcome
+        if naming.proposal is None:
+            result = ThemeProposalResult(
+                title="",
+                member_subject_keys=(),
+                parent_subject_key=cluster.existing_target_root,
+                existing_target_root=cluster.existing_target_root,
+                disposition="rejected",
+                rejection_counts=prepared.rejection_counts,
+            )
+            if prepared.rejection_counts and not self.dry_run:
+                with self.engine.store.transaction():
+                    self.engine.store.record_gate_report(
+                        snapshot.scope_id,
+                        accepted=0,
+                        rejections=prepared.rejection_counts,
+                    )
+            return result
+
+        disposition: Literal["auto", "review"] = (
+            "auto"
+            if self.settings.mode == "auto" and cluster.confident
+            else "review"
+        )
+        if self.dry_run:
+            parent = cluster.existing_target_root or _theme_subject_key(
+                snapshot.scope_id,
+                naming.proposal.title,
+                naming.proposal.member_subject_keys,
+            )
+            return ThemeProposalResult(
+                title=naming.proposal.title,
+                member_subject_keys=tuple(naming.proposal.member_subject_keys),
+                parent_subject_key=parent,
+                existing_target_root=cluster.existing_target_root,
+                disposition=f"dry-run-{disposition}",
+            )
+        return _apply_proposal(
+            self.engine,
+            snapshot,
+            cluster,
+            naming.proposal,
+            disposition=disposition,
+            operator=operator,
+        )
 
 
 def configured_theme_settings(
@@ -581,81 +715,23 @@ def run_theme_pass(
 ) -> ThemePassReport:
     settings: ThemeSettings = engine.theme_settings
     snapshot = snapshot_theme_state(engine, scope_id)
-    clusters = cluster_themes(
-        snapshot.candidates,
-        min_cluster=settings.min_cluster,
-        conversation_fanout=settings.conversation_fanout,
-    )
+    operator: AggregateOperator = engine._aggregate
+    strategy = _ThemeKeyStrategy(engine, dry_run=dry_run)
+    contexts = operator.recall(snapshot, strategy)
+    clusters = tuple(context.recall for context in contexts)
     if settings.mode == "off":
         return ThemePassReport(scope_id, settings.mode, dry_run, clusters, ())
 
-    proposals: list[ThemeProposalResult] = []
-    tool_calls = emissions = 0
-    for cluster in clusters:
-        session = ThemeNamingSession(scope_id=scope_id, cluster=cluster)
-        naming = session.run(engine._write_gateway)
-        tool_calls += naming.tool_calls
-        emissions += naming.emissions
-        if naming.proposal is None:
-            rejections = dict(naming.rejection_counts)
-            if naming.exhausted:
-                rejections["LOOP_BOUNDS_EXHAUSTED"] = (
-                    rejections.get("LOOP_BOUNDS_EXHAUSTED", 0) + 1
-                )
-            proposals.append(
-                ThemeProposalResult(
-                    title="",
-                    member_subject_keys=(),
-                    parent_subject_key=cluster.existing_target_root,
-                    existing_target_root=cluster.existing_target_root,
-                    disposition="rejected",
-                    rejection_counts=rejections,
-                )
-            )
-            if rejections and not dry_run:
-                with engine.store.transaction():
-                    engine.store.record_gate_report(
-                        scope_id,
-                        accepted=0,
-                        rejections=rejections,
-                    )
-            continue
-        disposition = (
-            "auto"
-            if settings.mode == "auto" and cluster.confident
-            else "review"
-        )
-        if dry_run:
-            parent = cluster.existing_target_root or _theme_subject_key(
-                scope_id, naming.proposal.title, naming.proposal.member_subject_keys
-            )
-            proposals.append(
-                ThemeProposalResult(
-                    title=naming.proposal.title,
-                    member_subject_keys=tuple(naming.proposal.member_subject_keys),
-                    parent_subject_key=parent,
-                    existing_target_root=cluster.existing_target_root,
-                    disposition=f"dry-run-{disposition}",
-                )
-            )
-            continue
-        proposals.append(
-            _apply_proposal(
-                engine,
-                snapshot,
-                cluster,
-                naming.proposal,
-                disposition=disposition,
-            )
-        )
+    prepared = operator.prepare_contexts(contexts, strategy)
+    proposals = tuple(operator.commit(item) for item in prepared)
     report = ThemePassReport(
         scope_id,
         settings.mode,
         dry_run,
         clusters,
-        tuple(proposals),
-        tool_calls,
-        emissions,
+        proposals,
+        sum(item.decision.tool_calls for item in prepared),
+        sum(item.decision.emissions for item in prepared),
     )
     if not dry_run:
         with engine.store.transaction():
@@ -717,6 +793,7 @@ def _apply_proposal(
     proposal: ThemeNamingEmission,
     *,
     disposition: Literal["auto", "review"],
+    operator: AggregateOperator,
 ) -> ThemeProposalResult:
     with engine.store.transaction():
         return _apply_proposal_locked(
@@ -725,6 +802,7 @@ def _apply_proposal(
             cluster,
             proposal,
             disposition=disposition,
+            operator=operator,
         )
 
 
@@ -735,6 +813,7 @@ def _apply_proposal_locked(
     proposal: ThemeNamingEmission,
     *,
     disposition: Literal["auto", "review"],
+    operator: AggregateOperator,
 ) -> ThemeProposalResult:
     selected = tuple(proposal.member_subject_keys)
     target = cluster.existing_target_root
@@ -857,7 +936,7 @@ def _apply_proposal_locked(
                     affinity_kinds=cluster.affinity_kinds,
                     created_at=now,
                 )
-                reviews_enqueued += int(engine.store.add_review_item(review))
+                reviews_enqueued += operator.enqueue_reviews((review,))
         engine.store.record_gate_report(
             snapshot.scope_id,
             accepted=edges_applied,

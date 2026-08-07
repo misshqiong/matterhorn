@@ -59,6 +59,13 @@ from matterhorn.contracts import (
 from matterhorn.contracts.schema import resolve_schema
 from matterhorn.distill import LlmGateway, NullGateway, build_prompt, validate_response
 from matterhorn.distill.traceability import restore_source_aliases
+from matterhorn.engine.aggregate import (
+    AggregateContext,
+    AggregateOperator,
+    AliasNamespace,
+    PreparedAggregation,
+    RejectionCounter,
+)
 from matterhorn.engine.events import derive_change_events
 from matterhorn.engine.extractor import extract_card
 from matterhorn.engine.goal_graph import (
@@ -272,6 +279,238 @@ class _RoutePlan:
     duplicate: bool = False
 
 
+@dataclass(frozen=True)
+class _RoutingRecall:
+    plan: _RoutePlan | None
+    candidates: tuple[AdjudicationCandidate, ...] = ()
+    handle_conflicts: int = 0
+
+
+class _RoutingKeyStrategy:
+    """Section 23 layer-0→1 recall and admission plugin."""
+
+    def __init__(
+        self,
+        engine: Engine,
+        record_by_id: dict[str, Record],
+    ) -> None:
+        self.engine = engine
+        self.record_by_id = record_by_id
+
+    def recall(self, unit: Any) -> tuple[_RoutingRecall, ...]:
+        card = unit
+        if not isinstance(card, EpisodeCard):
+            raise TypeError("routing aggregation requires an EpisodeCard")
+        payload_hash = stable_hash(card.model_dump(mode="json"))
+        review_id = "review_" + stable_hash([card.scope_id, card.card_id])
+        with self.engine.store.transaction():
+            prior_hash = self.engine.store.card_payload_hash(
+                card.scope_id, card.card_id
+            )
+            if prior_hash is not None:
+                if prior_hash != payload_hash:
+                    raise ValueError(
+                        f"card_id {card.card_id!r} was already used with "
+                        "another payload"
+                    )
+                return (_RoutingRecall(_RoutePlan("duplicate", duplicate=True)),)
+            if self.engine.store.review_item(card.scope_id, review_id) is not None:
+                return (_RoutingRecall(_RoutePlan("duplicate", duplicate=True)),)
+
+            subjects = self.engine.store.subjects(card.scope_id)
+            merges = self.engine.store.subject_merges(card.scope_id)
+            canonical_subjects = _canonicalized_subjects(subjects, merges)
+            edges = _merge_edges(merges)
+            by_key = {item.subject_key: item for item in canonical_subjects}
+
+            if card.subject_key is not None and card.subject_key.startswith("mail:"):
+                return (_RoutingRecall(_RoutePlan("trusted", card.subject_key)),)
+
+            handle_targets = self.engine._handle_route_targets(
+                card,
+                self.record_by_id,
+                edges,
+            )
+            handle_conflicts = int(len(handle_targets) > 1)
+            handle_subject = (
+                next(iter(handle_targets)) if len(handle_targets) == 1 else None
+            )
+            thread_subject = thread_match(
+                card, self.engine.profile, canonical_subjects
+            )
+            evidence_subject = evidence_match(
+                card,
+                self.engine.profile,
+                canonical_subjects,
+            )
+            suggestion = None
+            if card.subject_key is not None:
+                suggested_key = _canonical_subject_key(card.subject_key, edges)
+                if suggested_key in by_key and self.engine._subject_open_from_cards(
+                    suggested_key,
+                    self.engine.store.memory_cards(card.scope_id),
+                ):
+                    suggestion = suggested_key
+
+            if handle_subject is not None:
+                lower = [
+                    thread_subject.subject_key if thread_subject else None,
+                    evidence_subject.subject_key if evidence_subject else None,
+                    suggestion,
+                ]
+                plan = _RoutePlan(
+                    "handle",
+                    handle_subject,
+                    handle_conflicts=handle_conflicts,
+                    disagreement=_disagrees(handle_subject, lower),
+                )
+                return (_RoutingRecall(plan),)
+            if thread_subject is not None:
+                lower = [
+                    evidence_subject.subject_key if evidence_subject else None,
+                    suggestion,
+                ]
+                plan = _RoutePlan(
+                    "thread",
+                    thread_subject.subject_key,
+                    handle_conflicts=handle_conflicts,
+                    disagreement=_disagrees(thread_subject.subject_key, lower),
+                )
+                return (_RoutingRecall(plan),)
+            if evidence_subject is not None:
+                plan = _RoutePlan(
+                    "evidence",
+                    evidence_subject.subject_key,
+                    handle_conflicts=handle_conflicts,
+                    disagreement=_disagrees(
+                        evidence_subject.subject_key,
+                        [suggestion],
+                    ),
+                )
+                return (_RoutingRecall(plan),)
+            if suggestion is not None:
+                return (
+                    _RoutingRecall(
+                        _RoutePlan(
+                            "model",
+                            suggestion,
+                            handle_conflicts=handle_conflicts,
+                        )
+                    ),
+                )
+            candidates = tuple(
+                self.engine._routing_candidates(
+                    card,
+                    canonical_subjects,
+                    subjects,
+                    merges,
+                )
+            )
+
+        if not candidates:
+            return (
+                _RoutingRecall(
+                    _RoutePlan("new", handle_conflicts=handle_conflicts)
+                ),
+            )
+        return (_RoutingRecall(None, candidates, handle_conflicts),)
+
+    def candidate_keys(
+        self,
+        _unit: Any,
+        recall: _RoutingRecall,
+    ) -> tuple[str, ...]:
+        return tuple(item.subject_key for item in recall.candidates)
+
+    def aliases(self, unit: Any, _recall: _RoutingRecall) -> AliasNamespace:
+        card = unit
+        return AliasNamespace.sequential(
+            (item.source_id for item in card.source_refs),
+            prefix="m",
+        )
+
+    def adjudicate(
+        self,
+        context: AggregateContext,
+        _rejections: RejectionCounter,
+    ) -> str | None:
+        recall = context.recall
+        if recall.plan is not None:
+            return None
+        card = context.unit
+        candidates = list(recall.candidates)
+        prompt = build_adjudication_prompt(
+            card,
+            candidates,
+            aliases=context.aliases,
+        )
+        return self.engine._write_gateway.complete(
+            system=prompt.system,
+            user=prompt.user,
+            response_schema=prompt.response_schema,
+        )
+
+    def gate(
+        self,
+        context: AggregateContext,
+        decision: Any,
+        rejections: RejectionCounter,
+    ) -> _RoutePlan:
+        recall = context.recall
+        if recall.plan is not None:
+            return recall.plan
+        card = context.unit
+        candidates = list(recall.candidates)
+        gated = gate_adjudication(
+            decision,
+            card=card,
+            candidates=candidates,
+            confidence_threshold=(
+                self.engine.profile.identity.adjudication_confidence_threshold
+            ),
+            world=context.world,
+            aliases=context.aliases,
+        )
+        for reason in gated.reasons:
+            rejections.increment(reason)
+        if gated.outcome == "attach":
+            return _RoutePlan(
+                "model",
+                gated.subject_key,
+                recall.candidates,
+                handle_conflicts=recall.handle_conflicts,
+            )
+        if gated.outcome == "new":
+            return _RoutePlan(
+                "new",
+                candidates=recall.candidates,
+                handle_conflicts=recall.handle_conflicts,
+            )
+        return _RoutePlan(
+            "review",
+            candidates=recall.candidates,
+            reasons=gated.reasons,
+            handle_conflicts=recall.handle_conflicts,
+        )
+
+    def commit(
+        self,
+        prepared: PreparedAggregation,
+        operator: AggregateOperator,
+    ) -> tuple[
+        list[Assertion],
+        _AdmissionCounts,
+        _HandleCounts,
+        _RouteCounts,
+    ]:
+        return self.engine._commit_routing_outcome(
+            prepared.context.unit,
+            prepared.outcome,
+            record_by_id=self.record_by_id,
+            operator=operator,
+        )
+
+
 class Engine:
     DEFAULT_STAGING_RETENTION_DAYS = DEFAULT_STAGING_RETENTION_DAYS
     DEFAULT_MAX_BATCH_DELAY_MINUTES = DEFAULT_MAX_BATCH_DELAY_MINUTES
@@ -317,6 +556,7 @@ class Engine:
         human_edge_weight: int = DEFAULT_HUMAN_EDGE_WEIGHT,
     ):
         self.store = _resolve_store(store)
+        self._aggregate = AggregateOperator(self.store)
         self.profile = resolve_schema(schema)
         self._clock = _clock_callable(clock)
         if llm is not None and gateway is not None:
@@ -958,7 +1198,7 @@ class Engine:
         scope_id: str,
         observations: list[tuple[Record, str]],
         cards: list[EpisodeCard],
-        route_plans: list[_RoutePlan] | None = None,
+        route_plans: list[PreparedAggregation] | None = None,
         context: list[Record],
         cursors: dict[str, str] | None,
         backfill: bool,
@@ -1023,7 +1263,7 @@ class Engine:
                             record.revoked_at if record is not None else None
                         ),
                     )
-            for card, plan in zip(
+            for _card, plan in zip(
                 cards,
                 route_plans or [],
                 strict=True,
@@ -1033,11 +1273,7 @@ class Engine:
                     card_admission_counts,
                     card_handles,
                     card_routes,
-                ) = self._apply_route_plan(
-                    card,
-                    plan,
-                    record_by_id=record_by_id,
-                )
+                ) = self._aggregate.commit(plan)
                 emitted.extend(card_emitted)
                 admission_counts.add(card_admission_counts)
                 handle_counts.add(card_handles)
@@ -1059,134 +1295,14 @@ class Engine:
         self,
         card: EpisodeCard,
         record_by_id: dict[str, Record],
-    ) -> _RoutePlan:
-        payload_hash = stable_hash(card.model_dump(mode="json"))
-        review_id = "review_" + stable_hash([card.scope_id, card.card_id])
-        with self.store.transaction():
-            prior_hash = self.store.card_payload_hash(card.scope_id, card.card_id)
-            if prior_hash is not None:
-                if prior_hash != payload_hash:
-                    raise ValueError(
-                        f"card_id {card.card_id!r} was already used with another payload"
-                    )
-                return _RoutePlan("duplicate", duplicate=True)
-            if self.store.review_item(card.scope_id, review_id) is not None:
-                return _RoutePlan("duplicate", duplicate=True)
-
-            subjects = self.store.subjects(card.scope_id)
-            merges = self.store.subject_merges(card.scope_id)
-            canonical_subjects = _canonicalized_subjects(subjects, merges)
-            edges = _merge_edges(merges)
-            by_key = {item.subject_key: item for item in canonical_subjects}
-
-            if card.subject_key is not None and card.subject_key.startswith("mail:"):
-                return _RoutePlan("trusted", card.subject_key)
-
-            handle_targets = self._handle_route_targets(
-                card,
-                record_by_id,
-                edges,
-            )
-            handle_conflicts = int(len(handle_targets) > 1)
-            handle_subject = (
-                next(iter(handle_targets)) if len(handle_targets) == 1 else None
-            )
-            thread_subject = thread_match(card, self.profile, canonical_subjects)
-            evidence_subject = evidence_match(
-                card,
-                self.profile,
-                canonical_subjects,
-            )
-            suggestion = None
-            if card.subject_key is not None:
-                suggested_key = _canonical_subject_key(card.subject_key, edges)
-                if suggested_key in by_key and self._subject_open_from_cards(
-                    suggested_key,
-                    self.store.memory_cards(card.scope_id),
-                ):
-                    suggestion = suggested_key
-
-            if handle_subject is not None:
-                lower = [
-                    thread_subject.subject_key if thread_subject else None,
-                    evidence_subject.subject_key if evidence_subject else None,
-                    suggestion,
-                ]
-                return _RoutePlan(
-                    "handle",
-                    handle_subject,
-                    handle_conflicts=handle_conflicts,
-                    disagreement=_disagrees(handle_subject, lower),
-                )
-            if thread_subject is not None:
-                lower = [
-                    evidence_subject.subject_key if evidence_subject else None,
-                    suggestion,
-                ]
-                return _RoutePlan(
-                    "thread",
-                    thread_subject.subject_key,
-                    handle_conflicts=handle_conflicts,
-                    disagreement=_disagrees(thread_subject.subject_key, lower),
-                )
-            if evidence_subject is not None:
-                return _RoutePlan(
-                    "evidence",
-                    evidence_subject.subject_key,
-                    handle_conflicts=handle_conflicts,
-                    disagreement=_disagrees(
-                        evidence_subject.subject_key,
-                        [suggestion],
-                    ),
-                )
-            if suggestion is not None:
-                return _RoutePlan(
-                    "model",
-                    suggestion,
-                    handle_conflicts=handle_conflicts,
-                )
-            candidates = self._routing_candidates(
-                card,
-                canonical_subjects,
-                subjects,
-                merges,
-            )
-
-        if not candidates:
-            return _RoutePlan("new", handle_conflicts=handle_conflicts)
-        prompt = build_adjudication_prompt(card, candidates)
-        raw = self._write_gateway.complete(
-            system=prompt.system,
-            user=prompt.user,
-            response_schema=prompt.response_schema,
+    ) -> PreparedAggregation:
+        prepared = self._aggregate.prepare(
+            card,
+            _RoutingKeyStrategy(self, record_by_id),
         )
-        gated = gate_adjudication(
-            raw,
-            card=card,
-            candidates=candidates,
-            confidence_threshold=(
-                self.profile.identity.adjudication_confidence_threshold
-            ),
-        )
-        if gated.outcome == "attach":
-            return _RoutePlan(
-                "model",
-                gated.subject_key,
-                tuple(candidates),
-                handle_conflicts=handle_conflicts,
-            )
-        if gated.outcome == "new":
-            return _RoutePlan(
-                "new",
-                candidates=tuple(candidates),
-                handle_conflicts=handle_conflicts,
-            )
-        return _RoutePlan(
-            "review",
-            candidates=tuple(candidates),
-            reasons=gated.reasons,
-            handle_conflicts=handle_conflicts,
-        )
+        if len(prepared) != 1:
+            raise RuntimeError("routing aggregation MUST prepare exactly one group")
+        return prepared[0]
 
     def _handle_route_targets(
         self,
@@ -1328,12 +1444,13 @@ class Engine:
             completion.completed_values
         )
 
-    def _apply_route_plan(
+    def _commit_routing_outcome(
         self,
         card: EpisodeCard,
         plan: _RoutePlan,
         *,
         record_by_id: dict[str, Record],
+        operator: AggregateOperator,
     ) -> tuple[
         list[Assertion],
         _AdmissionCounts,
@@ -1360,7 +1477,7 @@ class Engine:
                 ],
                 created_at=self._clock(),
             )
-            self.store.add_review_item(item)
+            operator.enqueue_reviews((item,))
             self.store.record_gate_report(
                 card.scope_id,
                 accepted=0,
